@@ -1,0 +1,13 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://scripts/PlayerTank.gd" id="1_script"]
+
+[node name="PlayerTank" type="CharacterBody2D"]
+script = ExtResource("1_script")
+
+[node name="Polygon2D" type="Polygon2D" parent="."]
+polygon = PackedVector2Array(-20, -15, 20, 0, -20, 15, -15, 0)
+color = Color(0.2, 0.6, 1.0, 1.0)
+
+[node name="CollisionPolygon2D" type="CollisionPolygon2D" parent="."]
+polygon = PackedVector2Array(-20, -15, 20, 0, -20, 15, -15, 0)
