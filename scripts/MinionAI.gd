@@ -33,6 +33,10 @@ func get_team():
 	return team
 
 func _physics_process(delta):
+	# Only run AI on the server (or singleplayer)
+	if multiplayer.has_multiplayer_peer() and not multiplayer.is_server():
+		return
+	
 	match current_state:
 		State.MOVING:
 			handle_moving_state(delta)
@@ -88,18 +92,27 @@ func handle_attacking_state(delta):
 		attack_timer = fire_rate
 
 func shoot():
+	var dir = (current_target.global_position - global_position).normalized()
+	var spawn_pos = global_position + dir * 25
+	_do_spawn_bullet(team, dir, spawn_pos)
+	if multiplayer.has_multiplayer_peer():
+		_rpc_spawn_bullet.rpc(team, dir, spawn_pos)
+	print("[%s] Bullet fired at %s" % [team, current_target.name])
+
+@rpc("authority", "reliable")
+func _rpc_spawn_bullet(bullet_team: String, dir: Vector2, spawn_pos: Vector2):
+	_do_spawn_bullet(bullet_team, dir, spawn_pos)
+
+func _do_spawn_bullet(bullet_team: String, dir: Vector2, spawn_pos: Vector2):
 	var scene = ResourceManager.bullet_scene
-	if not scene: 
-		print("[%s] ERROR: ResourceManager bullet_scene is NULL" % team)
+	if not scene:
 		return
 	var b = scene.instantiate()
-	b.team = team
-	b.direction = (current_target.global_position - global_position).normalized()
-	b.rotation = b.direction.angle()
-	# Spawn slightly in front of the minion
-	b.global_position = global_position + b.direction * 25
+	b.team = bullet_team
+	b.direction = dir
+	b.rotation = dir.angle()
+	b.global_position = spawn_pos
 	get_parent().add_child(b)
-	print("[%s] Bullet fired at %s" % [team, current_target.name])
 
 func _find_new_target():
 	var bodies = $DetectionArea.get_overlapping_bodies()
@@ -138,9 +151,18 @@ func _ready():
 		health_bar.max_value = health
 		health_bar.value = health
 		health_bar.top_level = true
-		
-	# Initialize bullet scene here to ensure it's loaded
-	# Removed local loading of bullet_scene and associated print statements.
+	
+	# Server is authority for all minions
+	if multiplayer.has_multiplayer_peer():
+		set_multiplayer_authority(1)
+		var sync = MultiplayerSynchronizer.new()
+		sync.name = "MultiplayerSync"
+		var config = SceneReplicationConfig.new()
+		config.add_property(NodePath(".:position"))
+		config.add_property(NodePath(".:rotation"))
+		config.add_property(NodePath(".:visible"))
+		sync.replication_config = config
+		add_child(sync)
 
 func _process(_delta):
 	if is_instance_valid(health_bar):

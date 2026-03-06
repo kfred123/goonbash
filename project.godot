@@ -15,12 +15,13 @@ compatibility/default_parent_skeleton_in_mesh_instance_3d=true
 [application]
 
 config/name="GoonBash"
-run/main_scene="res://scenes/MainMap.tscn"
-config/features=PackedStringArray("4.3", "Forward Plus")
+run/main_scene="res://scenes/Lobby.tscn"
+config/features=PackedStringArray("4.6", "Forward Plus")
 
 [autoload]
 
 ResourceManager="*res://scripts/ResourceManager.gd"
+NetworkManager="*res://scripts/NetworkManager.gd"
 
 [display]
 
