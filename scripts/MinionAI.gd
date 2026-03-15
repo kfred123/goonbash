@@ -65,10 +65,10 @@ func handle_moving_state(delta):
 	if not is_instance_valid(current_target):
 		_find_new_target()
 
-	# Check if reached end of path
+	# Check if reached end of path — attack the enemy base
 	if (direction_multiplier > 0 and path_offset >= curve.get_baked_length()) or \
 	   (direction_multiplier < 0 and path_offset <= 0):
-		pass
+		_find_new_target()
 
 func handle_attacking_state(delta):
 	if not is_instance_valid(current_target) or not _is_valid_target(current_target):

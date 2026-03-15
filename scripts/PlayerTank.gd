@@ -245,6 +245,14 @@ func _find_new_target():
 			if dist < best_dist:
 				best_dist = dist
 				current_target = body
+	
+	# Scan all bases
+	for body in get_tree().get_nodes_in_group("bases"):
+		if _is_valid_target(body):
+			var dist = global_position.distance_to(body.global_position)
+			if dist < best_dist:
+				best_dist = dist
+				current_target = body
 
 func _input(event):
 	if not is_multiplayer_authority() or is_dead:
