@@ -18,17 +18,29 @@ var current_target: Node2D = null
 var attack_timer: float = 0.0
 var is_dead: bool = false
 
+@onready var turret = $Turret
+
 func setup_lane(lane: Path2D, t: String):
 	target_lane = lane
 	team = t
 	if team == "red":
 		path_offset = target_lane.curve.get_baked_length()
 		direction_multiplier = -1.0
-		$Polygon2D.color = Color(0.9, 0.2, 0.2, 1.0)
+		if has_node("Body"):
+			$Body.color = Color(0.9, 0.2, 0.2, 1.0)
+		if has_node("Turret/Barrel"):
+			$Turret/Barrel.color = Color(0.8, 0.15, 0.15, 1.0)
+		if has_node("Turret/TurretBase"):
+			$Turret/TurretBase.color = Color(0.65, 0.1, 0.1, 1.0)
 	else:
 		path_offset = 0.0
 		direction_multiplier = 1.0
-		$Polygon2D.color = Color(0.2, 0.5, 1.0, 1.0)
+		if has_node("Body"):
+			$Body.color = Color(0.2, 0.5, 1.0, 1.0)
+		if has_node("Turret/Barrel"):
+			$Turret/Barrel.color = Color(0.25, 0.55, 0.9, 1.0)
+		if has_node("Turret/TurretBase"):
+			$Turret/TurretBase.color = Color(0.15, 0.4, 0.75, 1.0)
 
 func get_team():
 	return team
@@ -45,6 +57,9 @@ func _physics_process(delta):
 			handle_moving_state(delta)
 		State.ATTACKING:
 			handle_attacking_state(delta)
+	
+	# Turret rotation toward target
+	_update_turret(delta)
 
 func handle_moving_state(delta):
 	if not target_lane:
@@ -84,24 +99,29 @@ func handle_attacking_state(delta):
 		current_state = State.MOVING
 		return
 
-	# Rotate towards target
-	var dir_to_target = (current_target.global_position - global_position).normalized()
-	rotation = dir_to_target.angle()
-
 	# Shoot
 	attack_timer -= delta
 	if attack_timer <= 0:
-		print("[%s] Shooting at %s" % [team, current_target.name])
 		shoot()
 		attack_timer = fire_rate
 
+func _update_turret(delta):
+	if not is_instance_valid(turret):
+		return
+	if is_instance_valid(current_target) and _is_valid_target(current_target):
+		var aim_dir = (current_target.global_position - global_position).normalized()
+		var aim_angle = aim_dir.angle()
+		var relative_angle = aim_angle - rotation
+		turret.rotation = lerp_angle(turret.rotation, relative_angle, 8.0 * delta)
+	else:
+		turret.rotation = lerp_angle(turret.rotation, 0.0, 3.0 * delta)
+
 func shoot():
 	var dir = (current_target.global_position - global_position).normalized()
-	var spawn_pos = global_position + dir * 25
+	var spawn_pos = global_position + dir * 18
 	_do_spawn_bullet(team, dir, spawn_pos)
 	if multiplayer.has_multiplayer_peer():
 		_rpc_spawn_bullet.rpc(team, dir, spawn_pos)
-	print("[%s] Bullet fired at %s" % [team, current_target.name])
 
 @rpc("authority", "reliable")
 func _rpc_spawn_bullet(bullet_team: String, dir: Vector2, spawn_pos: Vector2):
@@ -145,20 +165,17 @@ func _find_new_target():
 	if best_target:
 		current_target = best_target
 		current_state = State.ATTACKING
-		print("[%s] Found target: %s" % [team, best_target.name])
 
 func _on_detection_area_body_entered(body):
 	if _is_valid_target(body):
 		if not is_instance_valid(current_target) or not _is_valid_target(current_target):
 			current_target = body
 			current_state = State.ATTACKING
-			print("[%s] Enemy entered range: %s" % [team, body.name])
 
 func _on_detection_area_body_exited(body):
 	if body == current_target:
 		current_target = null
 		current_state = State.MOVING
-		print("[%s] Target left range" % team)
 		_find_new_target()
 
 @onready var health_bar = $HealthBar
@@ -185,6 +202,8 @@ func _ready():
 		config.add_property(NodePath(".:position"))
 		config.add_property(NodePath(".:rotation"))
 		config.add_property(NodePath(".:visible"))
+		if has_node("Turret"):
+			config.add_property(NodePath("Turret:rotation"))
 		sync.replication_config = config
 		add_child(sync)
 
@@ -212,8 +231,21 @@ func _die():
 	set_collision_layer_value(2, false)
 	if is_instance_valid(health_bar):
 		health_bar.visible = false
+	# Grant XP to nearby enemy players
+	_grant_xp_to_nearby_enemies()
 	# Delay queue_free so RPC has time to reach clients
 	get_tree().create_timer(0.5).timeout.connect(queue_free)
+
+func _grant_xp_to_nearby_enemies():
+	for player in get_tree().get_nodes_in_group("players"):
+		if player.get_team() == team:
+			continue
+		if player.get("is_dead") == true:
+			continue
+		var dist = global_position.distance_to(player.global_position)
+		if dist <= 400.0:
+			if player.has_method("gain_experience"):
+				player.gain_experience(30.0)  # XP_PER_MINION
 
 @rpc("authority", "reliable")
 func _rpc_sync_minion_death():

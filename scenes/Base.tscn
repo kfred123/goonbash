@@ -7,12 +7,22 @@ collision_layer = 2
 collision_mask = 0
 script = ExtResource("1_script")
 
-[node name="Polygon2D" type="Polygon2D" parent="."]
-polygon = PackedVector2Array(-50, -50, 50, -50, 50, 50, -50, 50)
-color = Color(0.8, 0, 0, 1.0)
+[node name="Body" type="Polygon2D" parent="."]
+polygon = PackedVector2Array(-45, -45, -20, -50, 20, -50, 45, -45, 50, -20, 50, 20, 45, 45, 20, 50, -20, 50, -45, 45, -50, 20, -50, -20)
+color = Color(0.7, 0, 0, 1.0)
 
 [node name="CollisionPolygon2D" type="CollisionPolygon2D" parent="."]
-polygon = PackedVector2Array(-50, -50, 50, -50, 50, 50, -50, 50)
+polygon = PackedVector2Array(-45, -45, -20, -50, 20, -50, 45, -45, 50, -20, 50, 20, 45, 45, 20, 50, -20, 50, -45, 45, -50, 20, -50, -20)
+
+[node name="Turret" type="Node2D" parent="."]
+
+[node name="Barrel" type="Polygon2D" parent="Turret"]
+polygon = PackedVector2Array(-4, -6, 45, -4, 45, 4, -4, 6)
+color = Color(0.6, 0, 0, 1.0)
+
+[node name="TurretBase" type="Polygon2D" parent="Turret"]
+polygon = PackedVector2Array(-15, -15, 15, -15, 15, 15, -15, 15)
+color = Color(0.5, 0, 0, 1.0)
 
 [node name="HealthBar" type="ProgressBar" parent="."]
 offset_left = -50.0
