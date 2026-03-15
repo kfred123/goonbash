@@ -10,8 +10,10 @@ const PORT = 9999
 const MAX_CLIENTS = 7  # + host = 8 players max
 
 var player_name: String = ""
-# Dictionary of peer_id -> { "name": String, "team": String }
+# Dictionary of peer_id -> { "name": String, "team": String, "role": String }
 var players: Dictionary = {}
+
+const ROLES = ["tank", "healer"]
 
 func _ready():
 	multiplayer.peer_connected.connect(_on_peer_connected)
@@ -29,7 +31,7 @@ func host_game(host_name: String):
 	
 	multiplayer.multiplayer_peer = peer
 	# Register host as player
-	players[1] = { "name": host_name, "team": "blue" }
+	players[1] = { "name": host_name, "team": "blue", "role": "tank" }
 	player_list_changed.emit()
 	print("[Network] Server started. Host: %s" % host_name)
 	return true
@@ -60,14 +62,30 @@ func switch_team(new_team: String):
 	var my_id = multiplayer.get_unique_id()
 	if players.has(my_id):
 		players[my_id]["team"] = new_team
-		# Notify all peers
 		_sync_players_to_all()
+
+func switch_role(new_role: String):
+	var my_id = multiplayer.get_unique_id()
+	if players.has(my_id):
+		players[my_id]["role"] = new_role
+		_sync_players_to_all()
+
+func cycle_role():
+	var my_id = multiplayer.get_unique_id()
+	if players.has(my_id):
+		var current = players[my_id]["role"]
+		var idx = ROLES.find(current)
+		var next_role = ROLES[(idx + 1) % ROLES.size()]
+		players[my_id]["role"] = next_role
+		_sync_players_to_all()
+		return next_role
+	return "tank"
 
 func get_team_players(team: String) -> Array:
 	var result = []
 	for pid in players:
 		if players[pid]["team"] == team:
-			result.append({ "id": pid, "name": players[pid]["name"] })
+			result.append({ "id": pid, "name": players[pid]["name"], "role": players[pid]["role"] })
 	return result
 
 # --- RPCs ---
@@ -75,7 +93,7 @@ func get_team_players(team: String) -> Array:
 @rpc("any_peer", "reliable")
 func _register_player(peer_name: String):
 	var sender_id = multiplayer.get_remote_sender_id()
-	players[sender_id] = { "name": peer_name, "team": "red" }
+	players[sender_id] = { "name": peer_name, "team": "red", "role": "tank" }
 	print("[Network] Player registered: %s (ID: %d)" % [peer_name, sender_id])
 	# Sync updated list to everyone
 	_sync_players_to_all()
@@ -86,6 +104,14 @@ func _request_team_change(new_team: String):
 	if players.has(sender_id):
 		players[sender_id]["team"] = new_team
 		print("[Network] %s switched to %s" % [players[sender_id]["name"], new_team])
+		_sync_players_to_all()
+
+@rpc("any_peer", "reliable")
+func _request_role_change(new_role: String):
+	var sender_id = multiplayer.get_remote_sender_id()
+	if players.has(sender_id):
+		players[sender_id]["role"] = new_role
+		print("[Network] %s switched to role %s" % [players[sender_id]["name"], new_role])
 		_sync_players_to_all()
 
 @rpc("authority", "reliable")

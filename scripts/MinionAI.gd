@@ -16,6 +16,7 @@ var direction_multiplier: float = 1.0
 
 var current_target: Node2D = null
 var attack_timer: float = 0.0
+var is_dead: bool = false
 
 func setup_lane(lane: Path2D, t: String):
 	target_lane = lane
@@ -33,6 +34,8 @@ func get_team():
 	return team
 
 func _physics_process(delta):
+	if is_dead:
+		return
 	# Only run AI on the server (or singleplayer)
 	if multiplayer.has_multiplayer_peer() and not multiplayer.is_server():
 		return
@@ -68,7 +71,8 @@ func handle_moving_state(delta):
 		pass
 
 func handle_attacking_state(delta):
-	if not is_instance_valid(current_target):
+	if not is_instance_valid(current_target) or not _is_valid_target(current_target):
+		current_target = null
 		_find_new_target()
 		if not is_instance_valid(current_target):
 			current_state = State.MOVING
@@ -114,18 +118,38 @@ func _do_spawn_bullet(bullet_team: String, dir: Vector2, spawn_pos: Vector2):
 	b.global_position = spawn_pos
 	get_parent().add_child(b)
 
+func _is_valid_target(body) -> bool:
+	if body == self:
+		return false
+	if not is_instance_valid(body):
+		return false
+	if body.is_queued_for_deletion():
+		return false
+	if not body.has_method("get_team"):
+		return false
+	if body.get_team() == team:
+		return false
+	if body.get("is_dead") == true:
+		return false
+	return true
+
 func _find_new_target():
-	var bodies = $DetectionArea.get_overlapping_bodies()
-	for body in bodies:
-		if body != self and body.has_method("get_team") and body.get_team() != team:
-			current_target = body
-			current_state = State.ATTACKING
-			print("[%s] Found target: %s" % [team, body.name])
-			break
+	var best_target: Node2D = null
+	var best_dist: float = INF
+	for body in $DetectionArea.get_overlapping_bodies():
+		if _is_valid_target(body):
+			var dist = global_position.distance_to(body.global_position)
+			if dist < best_dist:
+				best_dist = dist
+				best_target = body
+	if best_target:
+		current_target = best_target
+		current_state = State.ATTACKING
+		print("[%s] Found target: %s" % [team, best_target.name])
 
 func _on_detection_area_body_entered(body):
-	if body != self and body.has_method("get_team") and body.get_team() != team:
-		if not is_instance_valid(current_target):
+	if _is_valid_target(body):
+		if not is_instance_valid(current_target) or not _is_valid_target(current_target):
 			current_target = body
 			current_state = State.ATTACKING
 			print("[%s] Enemy entered range: %s" % [team, body.name])
@@ -169,10 +193,37 @@ func _process(_delta):
 		health_bar.global_position = global_position + Vector2(-20, -30)
 
 func take_damage(amount: float):
+	if is_dead:
+		return
 	health -= amount
 	if is_instance_valid(health_bar):
 		health_bar.value = health
 	if health <= 0:
-		if is_instance_valid(health_bar):
-			health_bar.queue_free()
-		queue_free()
+		_die()
+		if multiplayer.has_multiplayer_peer():
+			_rpc_sync_minion_death.rpc()
+
+func _die():
+	is_dead = true
+	current_target = null
+	current_state = State.MOVING
+	visible = false
+	set_collision_layer_value(1, false)
+	set_collision_layer_value(2, false)
+	if is_instance_valid(health_bar):
+		health_bar.visible = false
+	# Delay queue_free so RPC has time to reach clients
+	get_tree().create_timer(0.5).timeout.connect(queue_free)
+
+@rpc("authority", "reliable")
+func _rpc_sync_minion_death():
+	is_dead = true
+	current_target = null
+	current_state = State.MOVING
+	visible = false
+	set_collision_layer_value(1, false)
+	set_collision_layer_value(2, false)
+	if is_instance_valid(health_bar):
+		health_bar.visible = false
+	# Clean up on client too
+	get_tree().create_timer(0.5).timeout.connect(queue_free)

@@ -31,12 +31,13 @@ func _spawn_players():
 			tank.position = RED_SPAWN + Vector2(0, (red_index - 1) * SPAWN_SPREAD)
 			red_index += 1
 		
+		tank.set_role(info["role"])
 		tank.set_team(info["team"])
 		add_child(tank)
 		
 		# Each player controls their own tank
 		tank.set_multiplayer_authority(peer_id)
 		
-		print("[MainMap] Spawned %s (ID:%d) on %s team" % [info["name"], peer_id, info["team"]])
+		print("[MainMap] Spawned %s (ID:%d) as %s on %s team" % [info["name"], peer_id, info["role"], info["team"]])
 	
 	print("[MainMap] Total players spawned: %d" % NetworkManager.players.size())

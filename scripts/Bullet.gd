@@ -15,6 +15,11 @@ func _physics_process(delta):
 	position += direction * speed * delta
 
 func _on_body_entered(body):
+	# Only process damage on the server (or singleplayer) to prevent double hits
+	if multiplayer.has_multiplayer_peer() and not multiplayer.is_server():
+		queue_free()
+		return
+	
 	# Ignore teammates
 	if body.has_method("get_team"):
 		var body_team = body.get_team()

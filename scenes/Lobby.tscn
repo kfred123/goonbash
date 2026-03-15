@@ -154,25 +154,37 @@ layout_mode = 2
 size_flags_vertical = 3
 theme_override_constants/separation = 6
 
-[node name="Buttons" type="HBoxContainer" parent="LobbyScreen"]
+[node name="TeamButtons" type="HBoxContainer" parent="LobbyScreen"]
 layout_mode = 2
 alignment = 1
 theme_override_constants/separation = 20
 
-[node name="JoinBlueButton" type="Button" parent="LobbyScreen/Buttons"]
+[node name="JoinBlueButton" type="Button" parent="LobbyScreen/TeamButtons"]
 layout_mode = 2
 custom_minimum_size = Vector2(140, 40)
 text = "JOIN BLUE"
 
-[node name="JoinRedButton" type="Button" parent="LobbyScreen/Buttons"]
+[node name="JoinRedButton" type="Button" parent="LobbyScreen/TeamButtons"]
 layout_mode = 2
 custom_minimum_size = Vector2(140, 40)
 text = "JOIN RED"
 
-[node name="StartButton" type="Button" parent="LobbyScreen/Buttons"]
+[node name="RoleLabel" type="Label" parent="LobbyScreen"]
 layout_mode = 2
-custom_minimum_size = Vector2(160, 40)
+theme_override_font_sizes/font_size = 18
+text = "SELECT ROLE"
+horizontal_alignment = 1
+
+[node name="RoleCards" type="HBoxContainer" parent="LobbyScreen"]
+layout_mode = 2
+alignment = 1
+theme_override_constants/separation = 20
+
+[node name="StartButton" type="Button" parent="LobbyScreen"]
+layout_mode = 2
+custom_minimum_size = Vector2(200, 44)
 text = "START GAME"
+size_flags_horizontal = 4
 
 [node name="LobbyStatus" type="Label" parent="LobbyScreen"]
 layout_mode = 2
