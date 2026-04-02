@@ -16,8 +16,46 @@ var hp_label: Label = null
 func _ready():
 	# Small delay to ensure all peers have loaded the scene
 	await get_tree().create_timer(0.3).timeout
+	_draw_lane_paths()
 	_spawn_players()
 	_create_hud()
+
+func _draw_lane_paths():
+	var cobble_tex = load("res://assets/textures/cobblestone_texture.jpg")
+	if not cobble_tex:
+		print("[MainMap] WARNING: Could not load cobblestone texture")
+		return
+	
+	var lanes = get_tree().get_nodes_in_group("lanes")
+	for lane in lanes:
+		if not lane is Path2D:
+			continue
+		var curve: Curve2D = lane.curve
+		if not curve or curve.point_count < 2:
+			continue
+		
+		var line = Line2D.new()
+		line.name = lane.name + "_Road"
+		line.z_index = -1
+		line.width = 80.0
+		line.texture = cobble_tex
+		line.texture_mode = Line2D.LINE_TEXTURE_TILE
+		line.texture_repeat = CanvasItem.TEXTURE_REPEAT_ENABLED
+		line.joint_mode = Line2D.LINE_JOINT_ROUND
+		line.begin_cap_mode = Line2D.LINE_CAP_ROUND
+		line.end_cap_mode = Line2D.LINE_CAP_ROUND
+		line.default_color = Color(1, 1, 1, 1)
+		
+		# Sample points along the curve for smooth rendering
+		var length = curve.get_baked_length()
+		var step = 10.0  # sample every 10 pixels for smoothness
+		var num_steps = int(length / step)
+		for i in range(num_steps + 1):
+			var offset = min(i * step, length)
+			var point = curve.sample_baked(offset)
+			line.add_point(point + lane.position)
+		
+		add_child(line)
 
 func _spawn_players():
 	var tank_scene = ResourceLoader.load("res://scenes/PlayerTank.tscn")

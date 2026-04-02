@@ -18,6 +18,9 @@ var spawn_position: Vector2 = Vector2.ZERO
 var is_dead: bool = false
 var respawn_timer: float = 0.0
 const RESPAWN_TIME: float = 3.0
+var health_regen_rate: float = 2.0  # HP per second (very slow)
+var regen_sync_timer: float = 0.0
+const REGEN_SYNC_INTERVAL: float = 1.0
 
 # Leveling
 var level: int = 1
@@ -387,6 +390,17 @@ func _physics_process(delta):
 			else:
 				moving = false
 				velocity = Vector2.ZERO
+		
+		# Passive health regeneration
+		if health < max_health:
+			health = min(health + health_regen_rate * delta, max_health)
+			if is_instance_valid(health_bar):
+				health_bar.value = health
+			regen_sync_timer -= delta
+			if regen_sync_timer <= 0:
+				regen_sync_timer = REGEN_SYNC_INTERVAL
+				if multiplayer.has_multiplayer_peer():
+					_rpc_sync_health.rpc(health)
 	
 	# Turret rotation — always aims at current target (runs on all peers for visual)
 	if is_instance_valid(turret):

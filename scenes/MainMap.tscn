@@ -1,14 +1,21 @@
-[gd_scene load_steps=8 format=3]
+[gd_scene format=3 uid="uid://dw3kw3fdkeor2"]
 
 [ext_resource type="PackedScene" path="res://scenes/Base.tscn" id="2_base"]
-[ext_resource type="Script" path="res://scripts/MainMap.gd" id="3_script"]
+[ext_resource type="Script" uid="uid://drdpq57xvscul" path="res://scripts/MainMap.gd" id="3_script"]
 [ext_resource type="PackedScene" path="res://scenes/LaneTower.tscn" id="4_tower"]
+[ext_resource type="Texture2D" path="res://assets/textures/grass_texture.jpg" id="5_grass"]
 
 [sub_resource type="NavigationPolygon" id="NavigationPolygon_1"]
 vertices = PackedVector2Array(0, 0, 2560, 0, 2560, 1440, 0, 1440)
 polygons = Array[PackedInt32Array]([PackedInt32Array(0, 1, 2, 3)])
 outlines = Array[PackedVector2Array]([PackedVector2Array(0, 0, 2560, 0, 2560, 1440, 0, 1440)])
 source_geometry_group_name = &"navigation_polygon_source_group"
+
+[sub_resource type="RectangleShape2D" id="WallShapeH"]
+size = Vector2(2600, 20)
+
+[sub_resource type="RectangleShape2D" id="WallShapeV"]
+size = Vector2(20, 1480)
 
 [sub_resource type="Curve2D" id="Curve2D_top"]
 _data = {
@@ -28,60 +35,88 @@ _data = {
 }
 point_count = 4
 
-[node name="MainMap" type="Node2D"]
+[node name="MainMap" type="Node2D" unique_id=579486199]
 script = ExtResource("3_script")
 
-[node name="Camera2D" type="Camera2D" parent="."]
+[node name="Camera2D" type="Camera2D" parent="." unique_id=953328256]
 position = Vector2(1280, 720)
 
-[node name="NavigationRegion2D" type="NavigationRegion2D" parent="."]
+[node name="NavigationRegion2D" type="NavigationRegion2D" parent="." unique_id=441240117]
 navigation_polygon = SubResource("NavigationPolygon_1")
 
-[node name="Background" type="ColorRect" parent="."]
+[node name="Background" type="TextureRect" parent="." unique_id=1089183235]
 z_index = -1
 offset_right = 2560.0
 offset_bottom = 1440.0
-color = Color(0.1, 0.1, 0.1, 1.0)
+texture = ExtResource("5_grass")
+stretch_mode = 1
+texture_repeat = 2
 
-[node name="Lanes" type="Node2D" parent="."]
+[node name="Walls" type="Node2D" parent="." unique_id=1095303046]
 
-[node name="TopLane" type="Path2D" parent="Lanes" groups=["lanes"]]
+[node name="TopWall" type="StaticBody2D" parent="Walls" unique_id=267203410]
+position = Vector2(1280, -10)
+collision_mask = 0
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Walls/TopWall" unique_id=185975451]
+shape = SubResource("WallShapeH")
+
+[node name="BottomWall" type="StaticBody2D" parent="Walls" unique_id=2041295199]
+position = Vector2(1280, 1450)
+collision_mask = 0
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Walls/BottomWall" unique_id=467506919]
+shape = SubResource("WallShapeH")
+
+[node name="LeftWall" type="StaticBody2D" parent="Walls" unique_id=54181204]
+position = Vector2(-10, 720)
+collision_mask = 0
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Walls/LeftWall" unique_id=1776089912]
+shape = SubResource("WallShapeV")
+
+[node name="RightWall" type="StaticBody2D" parent="Walls" unique_id=1858065520]
+position = Vector2(2570, 720)
+collision_mask = 0
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Walls/RightWall" unique_id=1091162002]
+shape = SubResource("WallShapeV")
+
+[node name="Lanes" type="Node2D" parent="." unique_id=1201304372]
+
+[node name="TopLane" type="Path2D" parent="Lanes" unique_id=1085705285 groups=["lanes"]]
 curve = SubResource("Curve2D_top")
 
-[node name="MidLane" type="Path2D" parent="Lanes" groups=["lanes"]]
+[node name="MidLane" type="Path2D" parent="Lanes" unique_id=804943985 groups=["lanes"]]
 curve = SubResource("Curve2D_mid")
 
-[node name="BottomLane" type="Path2D" parent="Lanes" groups=["lanes"]]
+[node name="BottomLane" type="Path2D" parent="Lanes" unique_id=1383839965 groups=["lanes"]]
 curve = SubResource("Curve2D_bot")
 
-[node name="PlayerBase" parent="." instance=ExtResource("2_base")]
+[node name="PlayerBase" parent="." unique_id=892681150 instance=ExtResource("2_base")]
 position = Vector2(200, 720)
 team = "blue"
 
-[node name="EnemyBase" parent="." instance=ExtResource("2_base")]
+[node name="EnemyBase" parent="." unique_id=1748930768 instance=ExtResource("2_base")]
 position = Vector2(2360, 720)
-team = "red"
 
-[node name="BlueTowerTop" parent="." instance=ExtResource("4_tower")]
+[node name="BlueTowerTop" parent="." unique_id=670482758 instance=ExtResource("4_tower")]
 position = Vector2(700, 200)
-team = "blue"
 
-[node name="BlueTowerMid" parent="." instance=ExtResource("4_tower")]
+[node name="BlueTowerMid" parent="." unique_id=401418913 instance=ExtResource("4_tower")]
 position = Vector2(840, 720)
-team = "blue"
 
-[node name="BlueTowerBot" parent="." instance=ExtResource("4_tower")]
+[node name="BlueTowerBot" parent="." unique_id=706957702 instance=ExtResource("4_tower")]
 position = Vector2(700, 1240)
-team = "blue"
 
-[node name="RedTowerTop" parent="." instance=ExtResource("4_tower")]
+[node name="RedTowerTop" parent="." unique_id=531975937 instance=ExtResource("4_tower")]
 position = Vector2(1860, 200)
 team = "red"
 
-[node name="RedTowerMid" parent="." instance=ExtResource("4_tower")]
+[node name="RedTowerMid" parent="." unique_id=1158717789 instance=ExtResource("4_tower")]
 position = Vector2(1720, 720)
 team = "red"
 
-[node name="RedTowerBot" parent="." instance=ExtResource("4_tower")]
+[node name="RedTowerBot" parent="." unique_id=645497352 instance=ExtResource("4_tower")]
 position = Vector2(1860, 1240)
 team = "red"
