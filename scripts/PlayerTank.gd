@@ -30,6 +30,41 @@ const XP_PER_MINION: float = 30.0
 const XP_PER_PLAYER: float = 100.0
 const XP_PER_TOWER: float = 50.0
 
+# --- Ability System ---
+var ability_points: int = 0  # Points available to upgrade abilities
+
+# Repair ability (healer only)
+var repair_unlocked: bool = false
+var repair_level: int = 0  # 0 = locked, 1+ = usable levels
+const REPAIR_MAX_LEVEL: int = 4
+const REPAIR_BASE_HEAL_RATE: float = 10.0  # HP/sec at level 1
+const REPAIR_HEAL_PER_LEVEL: float = 5.0  # Extra HP/sec per upgrade
+const REPAIR_DURATION: float = 10.0
+const REPAIR_COOLDOWN: float = 30.0
+const REPAIR_RANGE: float = 200.0
+
+var repair_active: bool = false
+var repair_timer: float = 0.0
+var repair_cooldown_timer: float = 0.0
+var wrench_node: Node2D = null
+var repair_heal_sync_timer: float = 0.0
+
+# Shield ability (tank only)
+var shield_unlocked: bool = false
+var shield_level: int = 0  # 0 = locked, 1+ = usable levels
+const SHIELD_MAX_LEVEL: int = 10
+const SHIELD_BASE_DURATION: float = 8.0
+const SHIELD_DURATION_PER_LEVEL: float = 1.0  # +1s per level above 1
+const SHIELD_COOLDOWN: float = 30.0
+const SHIELD_BASE_REDUCTION: float = 0.20  # 20% at level 1
+const SHIELD_REDUCTION_PER_LEVEL: float = 0.05  # +5% per level
+
+var shield_active: bool = false
+var shield_timer: float = 0.0
+var shield_cooldown_timer: float = 0.0
+var shield_node: Node2D = null
+var shield_pulse_time: float = 0.0
+
 @onready var health_bar = $HealthBar
 @onready var turret = $Turret
 @onready var level_label = $LevelLabel
@@ -130,6 +165,9 @@ func _ready():
 	# Setup level label
 	_update_level_label()
 	
+	# Initialize ability state
+	_init_abilities()
+	
 	# Create detection area in code
 	var detection = Area2D.new()
 	detection.name = "DetectionArea"
@@ -174,6 +212,10 @@ func _rpc_take_damage(amount: float):
 func _apply_damage(amount: float):
 	if is_dead:
 		return
+	# Apply shield damage reduction
+	if shield_active and shield_level > 0:
+		var reduction = get_shield_reduction()
+		amount *= (1.0 - reduction)
 	health -= amount
 	if is_instance_valid(health_bar):
 		health_bar.value = health
@@ -205,6 +247,16 @@ func _die():
 	velocity = Vector2.ZERO
 	if is_instance_valid(health_bar):
 		health_bar.visible = false
+	# Cancel any active repair
+	if repair_active:
+		repair_active = false
+		repair_timer = 0.0
+		_remove_wrench_visual()
+	# Cancel any active shield
+	if shield_active:
+		shield_active = false
+		shield_timer = 0.0
+		_remove_shield_visual()
 	print("[%s] Player died! Respawning in %ds..." % [team, RESPAWN_TIME])
 
 func _respawn():
@@ -222,6 +274,9 @@ func _respawn():
 	if is_instance_valid(health_bar):
 		health_bar.value = health
 		health_bar.visible = true
+	# Reset ability cooldowns on respawn
+	repair_cooldown_timer = 0.0
+	shield_cooldown_timer = 0.0
 	print("[%s] Player respawned!" % team)
 	# Sync respawn to all peers
 	if multiplayer.has_multiplayer_peer():
@@ -330,6 +385,13 @@ func _input(event):
 		if event.pressed:
 			target_position = event.position
 			moving = true
+	# Ability activation
+	if event is InputEventKey and event.pressed and not event.echo:
+		if event.keycode == KEY_1:
+			if role == "healer":
+				_try_activate_repair()
+			elif role == "tank":
+				_try_activate_shield()
 
 func shoot_at(target: Node2D):
 	var dir = (target.global_position - global_position).normalized()
@@ -401,6 +463,31 @@ func _physics_process(delta):
 				regen_sync_timer = REGEN_SYNC_INTERVAL
 				if multiplayer.has_multiplayer_peer():
 					_rpc_sync_health.rpc(health)
+		
+		# Repair ability active healing
+		if repair_active:
+			_process_repair_healing(delta)
+			repair_timer -= delta
+			if repair_timer <= 0:
+				_deactivate_repair()
+		
+		# Repair cooldown countdown
+		if repair_cooldown_timer > 0:
+			repair_cooldown_timer -= delta
+			if repair_cooldown_timer < 0:
+				repair_cooldown_timer = 0.0
+		
+		# Shield ability active
+		if shield_active:
+			shield_timer -= delta
+			if shield_timer <= 0:
+				_deactivate_shield()
+		
+		# Shield cooldown countdown
+		if shield_cooldown_timer > 0:
+			shield_cooldown_timer -= delta
+			if shield_cooldown_timer < 0:
+				shield_cooldown_timer = 0.0
 	
 	# Turret rotation — always aims at current target (runs on all peers for visual)
 	if is_instance_valid(turret):
@@ -413,6 +500,16 @@ func _physics_process(delta):
 		elif not moving:
 			# Return turret to forward position when idle
 			turret.rotation = lerp_angle(turret.rotation, 0.0, 3.0 * delta)
+	
+	# Rotate wrench visual if active
+	if is_instance_valid(wrench_node) and repair_active:
+		wrench_node.rotation += 4.0 * PI * delta  # ~2 revolutions/sec
+	
+	# Pulse shield visual if active
+	if is_instance_valid(shield_node) and shield_active:
+		shield_pulse_time += delta
+		var pulse = 1.0 + 0.08 * sin(shield_pulse_time * 4.0)
+		shield_node.scale = Vector2(pulse, pulse)
 
 # --- Leveling System ---
 
@@ -426,6 +523,7 @@ func gain_experience(amount: float):
 		_rpc_sync_xp.rpc(experience, level)
 
 func _check_level_up():
+	var old_level = level
 	while level < XP_THRESHOLDS.size() and experience >= XP_THRESHOLDS[level]:
 		level += 1
 		max_health += 20.0
@@ -435,6 +533,12 @@ func _check_level_up():
 			health_bar.max_value = max_health
 			health_bar.value = health
 		print("[%s] LEVEL UP! Now level %d (HP: %d, DMG: %d)" % [team, level, max_health, damage])
+	# Grant ability points for each level gained
+	var levels_gained = level - old_level
+	if levels_gained > 0:
+		# Grant 1 ability point per level gained
+		ability_points += levels_gained
+		print("[%s] Gained %d ability point(s)! Total: %d" % [team, levels_gained, ability_points])
 	_update_level_label()
 
 func _update_level_label():
@@ -480,3 +584,298 @@ func get_xp_progress() -> float:
 	if next_threshold == current_threshold:
 		return 1.0
 	return (experience - current_threshold) / (next_threshold - current_threshold)
+
+# --- Ability System Implementation ---
+
+func _init_abilities():
+	# Reset ability state based on role
+	repair_unlocked = false
+	repair_level = 0
+	repair_active = false
+	repair_timer = 0.0
+	repair_cooldown_timer = 0.0
+	shield_unlocked = false
+	shield_level = 0
+	shield_active = false
+	shield_timer = 0.0
+	shield_cooldown_timer = 0.0
+	ability_points = 0
+
+func _try_activate_repair():
+	if role != "healer":
+		return
+	if not repair_unlocked or repair_level <= 0:
+		return
+	if repair_active:
+		return
+	if repair_cooldown_timer > 0:
+		return
+	_activate_repair()
+	# Sync to all peers
+	if multiplayer.has_multiplayer_peer():
+		_rpc_activate_repair.rpc()
+
+func _activate_repair():
+	repair_active = true
+	repair_timer = REPAIR_DURATION
+	repair_cooldown_timer = REPAIR_COOLDOWN
+	_create_wrench_visual()
+	print("[%s] Repair activated! Level %d, healing for %ds" % [team, repair_level, REPAIR_DURATION])
+
+func _deactivate_repair():
+	repair_active = false
+	repair_timer = 0.0
+	_remove_wrench_visual()
+	print("[%s] Repair ended." % team)
+	# Sync deactivation
+	if multiplayer.has_multiplayer_peer() and is_multiplayer_authority():
+		_rpc_deactivate_repair.rpc()
+
+func _process_repair_healing(delta: float):
+	var heal_rate = REPAIR_BASE_HEAL_RATE + (repair_level - 1) * REPAIR_HEAL_PER_LEVEL
+	var heal_amount = heal_rate * delta
+	
+	# Heal self
+	if health < max_health:
+		health = min(health + heal_amount, max_health)
+		if is_instance_valid(health_bar):
+			health_bar.value = health
+	
+	# Heal nearby same-team units
+	var groups_to_heal = ["players", "minions", "towers", "bases"]
+	for group_name in groups_to_heal:
+		for unit in get_tree().get_nodes_in_group(group_name):
+			if unit == self:
+				continue
+			if not is_instance_valid(unit):
+				continue
+			if not unit.has_method("get_team") or unit.get_team() != team:
+				continue
+			if unit.get("is_dead") == true:
+				continue
+			var dist = global_position.distance_to(unit.global_position)
+			if dist <= REPAIR_RANGE:
+				_heal_unit(unit, heal_amount)
+	
+	# Sync health periodically
+	repair_heal_sync_timer -= delta
+	if repair_heal_sync_timer <= 0:
+		repair_heal_sync_timer = 0.5
+		if multiplayer.has_multiplayer_peer():
+			_rpc_sync_health.rpc(health)
+
+func _heal_unit(unit: Node, amount: float):
+	if unit.has_method("receive_heal"):
+		unit.receive_heal(amount)
+	elif "health" in unit and "max_health" in unit:
+		unit.health = min(unit.health + amount, unit.max_health)
+		var hbar = unit.get("health_bar")
+		if is_instance_valid(hbar):
+			hbar.value = unit.health
+
+func receive_heal(amount: float):
+	if is_dead:
+		return
+	health = min(health + amount, max_health)
+	if is_instance_valid(health_bar):
+		health_bar.value = health
+
+func upgrade_repair() -> bool:
+	if role != "healer":
+		return false
+	if repair_level >= REPAIR_MAX_LEVEL:
+		return false
+	if ability_points <= 0:
+		return false
+	ability_points -= 1
+	repair_level += 1
+	if not repair_unlocked:
+		repair_unlocked = true
+		print("[%s] Repair ability UNLOCKED! (Level %d)" % [team, repair_level])
+	else:
+		print("[%s] Repair upgraded to level %d! Heal rate: %d HP/s" % [team, repair_level, REPAIR_BASE_HEAL_RATE + (repair_level - 1) * REPAIR_HEAL_PER_LEVEL])
+	# Sync upgrade to all peers
+	if multiplayer.has_multiplayer_peer():
+		_rpc_sync_ability_state.rpc(repair_level, shield_level, ability_points)
+	return true
+
+# --- Shield Ability (Tank) ---
+
+func get_shield_reduction() -> float:
+	return SHIELD_BASE_REDUCTION + (shield_level - 1) * SHIELD_REDUCTION_PER_LEVEL
+
+func get_shield_duration() -> float:
+	return SHIELD_BASE_DURATION + (shield_level - 1) * SHIELD_DURATION_PER_LEVEL
+
+func _try_activate_shield():
+	if role != "tank":
+		return
+	if not shield_unlocked or shield_level <= 0:
+		return
+	if shield_active:
+		return
+	if shield_cooldown_timer > 0:
+		return
+	_activate_shield()
+	# Sync to all peers
+	if multiplayer.has_multiplayer_peer():
+		_rpc_activate_shield.rpc()
+
+func _activate_shield():
+	shield_active = true
+	shield_timer = get_shield_duration()
+	shield_cooldown_timer = SHIELD_COOLDOWN
+	shield_pulse_time = 0.0
+	_create_shield_visual()
+	print("[%s] Shield activated! Level %d, reduction %d%%, duration %ds" % [team, shield_level, int(get_shield_reduction() * 100), int(get_shield_duration())])
+
+func _deactivate_shield():
+	shield_active = false
+	shield_timer = 0.0
+	_remove_shield_visual()
+	print("[%s] Shield ended." % team)
+	# Sync deactivation
+	if multiplayer.has_multiplayer_peer() and is_multiplayer_authority():
+		_rpc_deactivate_shield.rpc()
+
+func upgrade_shield() -> bool:
+	if role != "tank":
+		return false
+	if shield_level >= SHIELD_MAX_LEVEL:
+		return false
+	if ability_points <= 0:
+		return false
+	ability_points -= 1
+	shield_level += 1
+	if not shield_unlocked:
+		shield_unlocked = true
+		print("[%s] Shield ability UNLOCKED! (Level %d)" % [team, shield_level])
+	else:
+		print("[%s] Shield upgraded to level %d! Reduction: %d%%, Duration: %ds" % [team, shield_level, int(get_shield_reduction() * 100), int(get_shield_duration())])
+	# Sync upgrade to all peers
+	if multiplayer.has_multiplayer_peer():
+		_rpc_sync_ability_state.rpc(repair_level, shield_level, ability_points)
+	return true
+
+# --- Shield Visual Effect ---
+
+func _create_shield_visual():
+	if is_instance_valid(shield_node):
+		return
+	
+	shield_node = Node2D.new()
+	shield_node.name = "ShieldEffect"
+	shield_node.z_index = 4
+	
+	# Hexagonal shield shape
+	var shield_poly = Polygon2D.new()
+	var points = PackedVector2Array()
+	var radius = 38.0
+	for i in range(6):
+		var angle = i * TAU / 6.0 - PI / 6.0
+		points.append(Vector2(cos(angle) * radius, sin(angle) * radius))
+	shield_poly.polygon = points
+	
+	# Team-colored semi-transparent
+	if team == "blue":
+		shield_poly.color = Color(0.3, 0.6, 1.0, 0.2)
+	else:
+		shield_poly.color = Color(1.0, 0.4, 0.3, 0.2)
+	shield_node.add_child(shield_poly)
+	
+	# Shield border ring (Line2D for outline)
+	var border = Line2D.new()
+	for i in range(7):  # 7 points to close the hexagon
+		var angle = i * TAU / 6.0 - PI / 6.0
+		border.add_point(Vector2(cos(angle) * radius, sin(angle) * radius))
+	border.width = 2.0
+	if team == "blue":
+		border.default_color = Color(0.4, 0.7, 1.0, 0.6)
+	else:
+		border.default_color = Color(1.0, 0.5, 0.4, 0.6)
+	shield_node.add_child(border)
+	
+	add_child(shield_node)
+
+func _remove_shield_visual():
+	if is_instance_valid(shield_node):
+		shield_node.queue_free()
+		shield_node = null
+
+# --- Wrench Visual Effect ---
+
+func _create_wrench_visual():
+	if is_instance_valid(wrench_node):
+		return
+	
+	wrench_node = Node2D.new()
+	wrench_node.name = "WrenchEffect"
+	wrench_node.position = Vector2(0, -50)
+	wrench_node.z_index = 5
+	
+	# Wrench head (open-end wrench shape)
+	var head = Polygon2D.new()
+	head.polygon = PackedVector2Array([
+		Vector2(-8, -3), Vector2(-4, -7), Vector2(0, -7), Vector2(2, -5),
+		Vector2(2, -3), Vector2(8, -3), Vector2(8, 3),
+		Vector2(2, 3), Vector2(2, 5), Vector2(0, 7), Vector2(-4, 7), Vector2(-8, 3)
+	])
+	head.color = Color(0.75, 0.75, 0.8, 0.9)  # Silver metallic
+	wrench_node.add_child(head)
+	
+	# Wrench handle
+	var handle = Polygon2D.new()
+	handle.polygon = PackedVector2Array([
+		Vector2(-3, -2), Vector2(14, -2), Vector2(14, 2), Vector2(-3, 2)
+	])
+	handle.color = Color(0.6, 0.6, 0.65, 0.9)
+	handle.position = Vector2(6, 0)
+	wrench_node.add_child(handle)
+	
+	# Green heal glow circle behind wrench
+	var glow = Polygon2D.new()
+	var glow_points = PackedVector2Array()
+	for i in range(16):
+		var angle = i * TAU / 16.0
+		glow_points.append(Vector2(cos(angle) * 14, sin(angle) * 14))
+	glow.polygon = glow_points
+	glow.color = Color(0.2, 0.9, 0.4, 0.25)
+	glow.z_index = -1
+	wrench_node.add_child(glow)
+	
+	add_child(wrench_node)
+
+func _remove_wrench_visual():
+	if is_instance_valid(wrench_node):
+		wrench_node.queue_free()
+		wrench_node = null
+
+# --- Ability RPCs ---
+
+@rpc("any_peer", "reliable")
+func _rpc_activate_repair():
+	_activate_repair()
+
+@rpc("any_peer", "reliable")
+func _rpc_deactivate_repair():
+	repair_active = false
+	repair_timer = 0.0
+	_remove_wrench_visual()
+
+@rpc("any_peer", "reliable")
+func _rpc_activate_shield():
+	_activate_shield()
+
+@rpc("any_peer", "reliable")
+func _rpc_deactivate_shield():
+	shield_active = false
+	shield_timer = 0.0
+	_remove_shield_visual()
+
+@rpc("any_peer", "reliable")
+func _rpc_sync_ability_state(new_repair_level: int, new_shield_level: int, new_ability_points: int):
+	repair_level = new_repair_level
+	repair_unlocked = repair_level > 0
+	shield_level = new_shield_level
+	shield_unlocked = shield_level > 0
+	ability_points = new_ability_points
