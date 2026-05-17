@@ -19,6 +19,13 @@ var ability_upgrade_btn: Button = null
 var ability_level_label: Label = null
 var ability_cooldown_overlay: ColorRect = null
 var ability_cooldown_label: Label = null
+
+var ability2_btn: Button = null
+var ability2_upgrade_btn: Button = null
+var ability2_level_label: Label = null
+var ability2_cooldown_overlay: ColorRect = null
+var ability2_cooldown_label: Label = null
+
 var ability_points_label: Label = null
 
 # Debug console
@@ -364,13 +371,95 @@ func _create_ability_bar():
 	ability_upgrade_btn.add_theme_stylebox_override("pressed", up_pressed)
 	hud_canvas.add_child(ability_upgrade_btn)
 	
+	# --- Slot 2 (Speed for Healer) ---
+	ability2_btn = Button.new()
+	ability2_btn.name = "AbilityBtn2"
+	ability2_btn.text = "⚡"
+	ability2_btn.offset_left = 850.0
+	ability2_btn.offset_top = 684.0
+	ability2_btn.offset_right = 890.0
+	ability2_btn.offset_bottom = 716.0
+	ability2_btn.add_theme_font_size_override("font_size", 16)
+	ability2_btn.disabled = true
+	ability2_btn.pressed.connect(_on_ability2_btn_pressed)
+	ability2_btn.add_theme_stylebox_override("normal", btn_style)
+	ability2_btn.add_theme_stylebox_override("disabled", btn_style_disabled)
+	ability2_btn.add_theme_stylebox_override("hover", btn_style_hover)
+	ability2_btn.add_theme_stylebox_override("pressed", btn_style_pressed)
+	hud_canvas.add_child(ability2_btn)
+	
+	var key_hint2 = Label.new()
+	key_hint2.name = "KeyHint2"
+	key_hint2.text = "2"
+	key_hint2.offset_left = 852.0
+	key_hint2.offset_top = 685.0
+	key_hint2.offset_right = 862.0
+	key_hint2.offset_bottom = 695.0
+	key_hint2.add_theme_font_size_override("font_size", 8)
+	key_hint2.add_theme_color_override("font_color", Color(0.7, 0.7, 0.8, 0.6))
+	hud_canvas.add_child(key_hint2)
+	
+	ability2_cooldown_overlay = ColorRect.new()
+	ability2_cooldown_overlay.name = "CooldownOverlay2"
+	ability2_cooldown_overlay.offset_left = 850.0
+	ability2_cooldown_overlay.offset_top = 684.0
+	ability2_cooldown_overlay.offset_right = 890.0
+	ability2_cooldown_overlay.offset_bottom = 716.0
+	ability2_cooldown_overlay.color = Color(0.0, 0.0, 0.0, 0.5)
+	ability2_cooldown_overlay.visible = false
+	ability2_cooldown_overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	hud_canvas.add_child(ability2_cooldown_overlay)
+	
+	ability2_cooldown_label = Label.new()
+	ability2_cooldown_label.name = "CooldownLabel2"
+	ability2_cooldown_label.text = ""
+	ability2_cooldown_label.offset_left = 850.0
+	ability2_cooldown_label.offset_top = 694.0
+	ability2_cooldown_label.offset_right = 890.0
+	ability2_cooldown_label.offset_bottom = 716.0
+	ability2_cooldown_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	ability2_cooldown_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	ability2_cooldown_label.add_theme_font_size_override("font_size", 12)
+	ability2_cooldown_label.add_theme_color_override("font_color", Color(1.0, 1.0, 1.0, 0.9))
+	ability2_cooldown_label.visible = false
+	ability2_cooldown_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	hud_canvas.add_child(ability2_cooldown_label)
+	
+	ability2_level_label = Label.new()
+	ability2_level_label.name = "AbilityLevelLabel2"
+	ability2_level_label.text = "Lv0"
+	ability2_level_label.offset_left = 850.0
+	ability2_level_label.offset_top = 716.0
+	ability2_level_label.offset_right = 890.0
+	ability2_level_label.offset_bottom = 726.0
+	ability2_level_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	ability2_level_label.add_theme_font_size_override("font_size", 8)
+	ability2_level_label.add_theme_color_override("font_color", Color(0.6, 0.6, 0.7))
+	ability2_level_label.visible = false
+	hud_canvas.add_child(ability2_level_label)
+	
+	ability2_upgrade_btn = Button.new()
+	ability2_upgrade_btn.name = "UpgradeBtn2"
+	ability2_upgrade_btn.text = "▲"
+	ability2_upgrade_btn.offset_left = 894.0
+	ability2_upgrade_btn.offset_top = 688.0
+	ability2_upgrade_btn.offset_right = 914.0
+	ability2_upgrade_btn.offset_bottom = 712.0
+	ability2_upgrade_btn.add_theme_font_size_override("font_size", 12)
+	ability2_upgrade_btn.visible = false
+	ability2_upgrade_btn.pressed.connect(_on_ability2_upgrade_pressed)
+	ability2_upgrade_btn.add_theme_stylebox_override("normal", up_style)
+	ability2_upgrade_btn.add_theme_stylebox_override("hover", up_hover)
+	ability2_upgrade_btn.add_theme_stylebox_override("pressed", up_pressed)
+	hud_canvas.add_child(ability2_upgrade_btn)
+	
 	# Ability points display
 	ability_points_label = Label.new()
 	ability_points_label.name = "AbilityPointsLabel"
 	ability_points_label.text = ""
-	ability_points_label.offset_left = 855.0
+	ability_points_label.offset_left = 925.0
 	ability_points_label.offset_top = 688.0
-	ability_points_label.offset_right = 960.0
+	ability_points_label.offset_right = 1030.0
 	ability_points_label.offset_bottom = 712.0
 	ability_points_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	ability_points_label.add_theme_font_size_override("font_size", 10)
@@ -386,6 +475,12 @@ func _on_ability_btn_pressed():
 	elif local_player.role == "tank" and local_player.has_method("_try_activate_shield"):
 		local_player._try_activate_shield()
 
+func _on_ability2_btn_pressed():
+	if not is_instance_valid(local_player):
+		return
+	if local_player.role == "healer" and local_player.has_method("_try_activate_speed"):
+		local_player._try_activate_speed()
+
 func _on_ability_upgrade_pressed():
 	if not is_instance_valid(local_player):
 		return
@@ -393,6 +488,12 @@ func _on_ability_upgrade_pressed():
 		local_player.upgrade_repair()
 	elif local_player.role == "tank" and local_player.has_method("upgrade_shield"):
 		local_player.upgrade_shield()
+
+func _on_ability2_upgrade_pressed():
+	if not is_instance_valid(local_player):
+		return
+	if local_player.role == "healer" and local_player.has_method("upgrade_speed"):
+		local_player.upgrade_speed()
 
 func _process(_delta):
 	# Camera follow
@@ -661,6 +762,12 @@ func _update_ability_hud():
 			ability_cooldown_label.visible = false
 		if is_instance_valid(ability_points_label):
 			ability_points_label.visible = false
+		if is_instance_valid(ability2_btn):
+			ability2_btn.visible = false
+			ability2_upgrade_btn.visible = false
+			ability2_level_label.visible = false
+			ability2_cooldown_overlay.visible = false
+			ability2_cooldown_label.visible = false
 		return
 	
 	ability_btn.visible = true
@@ -673,7 +780,7 @@ func _update_ability_hud():
 	else:
 		active_color = Color(0.3, 1.0, 0.5, 1.0)  # Green glow for repair
 	
-	# Button enabled state
+	# Button 1 enabled state
 	if not unlocked:
 		ability_btn.disabled = true
 		ability_btn.modulate = Color(0.4, 0.4, 0.4, 0.7)
@@ -687,7 +794,7 @@ func _update_ability_hud():
 		ability_btn.disabled = false
 		ability_btn.modulate = Color(1.0, 1.0, 1.0, 1.0)
 	
-	# Cooldown overlay
+	# Cooldown overlay for slot 1
 	if is_instance_valid(ability_cooldown_overlay) and is_instance_valid(ability_cooldown_label):
 		if on_cooldown:
 			ability_cooldown_overlay.visible = true
@@ -712,7 +819,7 @@ func _update_ability_hud():
 			ability_cooldown_overlay.visible = false
 			ability_cooldown_label.visible = false
 	
-	# Ability level label
+	# Ability 1 level label
 	if is_instance_valid(ability_level_label):
 		ability_level_label.visible = true
 		if unlocked:
@@ -720,11 +827,71 @@ func _update_ability_hud():
 		else:
 			ability_level_label.text = "Locked"
 	
-	# Upgrade arrow — visible when player has points and ability isn't at max
+	# Upgrade arrow 1
 	if is_instance_valid(ability_upgrade_btn):
 		var can_upgrade = local_player.ability_points > 0 and ability_level < max_level
 		ability_upgrade_btn.visible = can_upgrade
 	
+	# --- Slot 2 (Speed skill for Healer only) ---
+	if is_instance_valid(ability2_btn):
+		if is_healer:
+			ability2_btn.visible = true
+			ability2_btn.text = "⚡"
+			var s_unlocked = local_player.speed_unlocked
+			var s_on_cooldown = local_player.speed_cooldown_timer > 0 and not local_player.speed_active
+			var s_active = local_player.speed_active
+			var s_level = local_player.speed_level
+			var s_max_level = local_player.SPEED_MAX_LEVEL
+			
+			if not s_unlocked:
+				ability2_btn.disabled = true
+				ability2_btn.modulate = Color(0.4, 0.4, 0.4, 0.7)
+			elif s_active:
+				ability2_btn.disabled = true
+				ability2_btn.modulate = Color(1.0, 1.0, 0.3, 1.0) # Yellow glow for speed
+			elif s_on_cooldown:
+				ability2_btn.disabled = true
+				ability2_btn.modulate = Color(0.6, 0.6, 0.6, 0.8)
+			else:
+				ability2_btn.disabled = false
+				ability2_btn.modulate = Color(1.0, 1.0, 1.0, 1.0)
+				
+			# Slot 2 Cooldown
+			if s_on_cooldown:
+				ability2_cooldown_overlay.visible = true
+				ability2_cooldown_overlay.color = Color(0.0, 0.0, 0.0, 0.5)
+				ability2_cooldown_label.visible = true
+				var s_cd = ceil(local_player.speed_cooldown_timer)
+				ability2_cooldown_label.text = "%ds" % s_cd
+				var s_cd_ratio = local_player.speed_cooldown_timer / local_player.SPEED_COOLDOWN
+				ability2_cooldown_overlay.offset_top = 684.0 + (1.0 - s_cd_ratio) * 32.0
+			elif s_active:
+				ability2_cooldown_overlay.visible = true
+				ability2_cooldown_overlay.color = Color(0.6, 0.6, 0.1, 0.3)
+				ability2_cooldown_label.visible = true
+				var s_rem = ceil(local_player.speed_timer)
+				ability2_cooldown_label.text = "%ds" % s_rem
+				ability2_cooldown_overlay.offset_top = 684.0
+			else:
+				ability2_cooldown_overlay.visible = false
+				ability2_cooldown_label.visible = false
+			
+			ability2_level_label.visible = true
+			if s_unlocked:
+				ability2_level_label.text = "Lv%d" % s_level
+			else:
+				ability2_level_label.text = "Locked"
+			
+			var can_upg2 = local_player.ability_points > 0 and s_level < s_max_level
+			ability2_upgrade_btn.visible = can_upg2
+		else:
+			# Hide slot 2 for Tank
+			ability2_btn.visible = false
+			ability2_upgrade_btn.visible = false
+			ability2_level_label.visible = false
+			ability2_cooldown_overlay.visible = false
+			ability2_cooldown_label.visible = false
+
 	# Ability points label
 	if is_instance_valid(ability_points_label):
 		if local_player.ability_points > 0:

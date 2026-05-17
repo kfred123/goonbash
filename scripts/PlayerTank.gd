@@ -49,6 +49,20 @@ var repair_cooldown_timer: float = 0.0
 var wrench_node: Node2D = null
 var repair_heal_sync_timer: float = 0.0
 
+# Speed ability (healer only)
+var speed_unlocked: bool = false
+var speed_level: int = 0  # 0 = locked, 1+ = usable levels
+const SPEED_MAX_LEVEL: int = 10
+const SPEED_BASE_BOOST: float = 0.10  # 10% at level 1
+const SPEED_BOOST_PER_LEVEL: float = 0.05  # +5% per upgrade
+const SPEED_DURATION: float = 6.0
+const SPEED_COOLDOWN: float = 20.0
+
+var speed_active: bool = false
+var speed_timer: float = 0.0
+var speed_cooldown_timer: float = 0.0
+var speed_node: Node2D = null
+
 # Shield ability (tank only)
 var shield_unlocked: bool = false
 var shield_level: int = 0  # 0 = locked, 1+ = usable levels
@@ -252,6 +266,11 @@ func _die():
 		repair_active = false
 		repair_timer = 0.0
 		_remove_wrench_visual()
+	# Cancel any active speed
+	if speed_active:
+		speed_active = false
+		speed_timer = 0.0
+		_remove_speed_visual()
 	# Cancel any active shield
 	if shield_active:
 		shield_active = false
@@ -277,6 +296,7 @@ func _respawn():
 	# Reset ability cooldowns on respawn
 	repair_cooldown_timer = 0.0
 	shield_cooldown_timer = 0.0
+	speed_cooldown_timer = 0.0
 	print("[%s] Player respawned!" % team)
 	# Sync respawn to all peers
 	if multiplayer.has_multiplayer_peer():
@@ -392,6 +412,9 @@ func _input(event):
 				_try_activate_repair()
 			elif role == "tank":
 				_try_activate_shield()
+		elif event.keycode == KEY_2:
+			if role == "healer":
+				_try_activate_speed()
 
 func shoot_at(target: Node2D):
 	var dir = (target.global_position - global_position).normalized()
@@ -445,7 +468,10 @@ func _physics_process(delta):
 			var distance = global_position.distance_to(target_position)
 			
 			if distance > 5:
-				velocity = direction * speed
+				var current_speed = speed
+				if speed_active and speed_level > 0:
+					current_speed *= get_speed_multiplier()
+				velocity = direction * current_speed
 				var target_angle = direction.angle()
 				rotation = lerp_angle(rotation, target_angle, rotation_speed * delta)
 				move_and_slide()
@@ -476,6 +502,18 @@ func _physics_process(delta):
 			repair_cooldown_timer -= delta
 			if repair_cooldown_timer < 0:
 				repair_cooldown_timer = 0.0
+		
+		# Speed ability active
+		if speed_active:
+			speed_timer -= delta
+			if speed_timer <= 0:
+				_deactivate_speed()
+		
+		# Speed cooldown countdown
+		if speed_cooldown_timer > 0:
+			speed_cooldown_timer -= delta
+			if speed_cooldown_timer < 0:
+				speed_cooldown_timer = 0.0
 		
 		# Shield ability active
 		if shield_active:
@@ -594,6 +632,11 @@ func _init_abilities():
 	repair_active = false
 	repair_timer = 0.0
 	repair_cooldown_timer = 0.0
+	speed_unlocked = false
+	speed_level = 0
+	speed_active = false
+	speed_timer = 0.0
+	speed_cooldown_timer = 0.0
 	shield_unlocked = false
 	shield_level = 0
 	shield_active = false
@@ -696,8 +739,69 @@ func upgrade_repair() -> bool:
 		print("[%s] Repair upgraded to level %d! Heal rate: %d HP/s" % [team, repair_level, REPAIR_BASE_HEAL_RATE + (repair_level - 1) * REPAIR_HEAL_PER_LEVEL])
 	# Sync upgrade to all peers
 	if multiplayer.has_multiplayer_peer():
-		_rpc_sync_ability_state.rpc(repair_level, shield_level, ability_points)
+		_rpc_sync_ability_state.rpc(repair_level, shield_level, speed_level, ability_points)
 	return true
+
+# --- Speed Ability (Healer) ---
+
+func get_speed_multiplier() -> float:
+	return 1.0 + SPEED_BASE_BOOST + (speed_level - 1) * SPEED_BOOST_PER_LEVEL
+
+func _try_activate_speed():
+	if role != "healer":
+		return
+	if not speed_unlocked or speed_level <= 0:
+		return
+	if speed_active:
+		return
+	if speed_cooldown_timer > 0:
+		return
+	_activate_speed()
+	# Sync to all peers
+	if multiplayer.has_multiplayer_peer():
+		_rpc_activate_speed.rpc()
+
+func _activate_speed():
+	speed_active = true
+	speed_timer = SPEED_DURATION
+	speed_cooldown_timer = SPEED_COOLDOWN
+	_create_speed_visual()
+	print("[%s] Speed activated! Level %d, multiplier x%.2f, duration %ds" % [team, speed_level, get_speed_multiplier(), int(SPEED_DURATION)])
+
+func _deactivate_speed():
+	speed_active = false
+	speed_timer = 0.0
+	_remove_speed_visual()
+	print("[%s] Speed ended." % team)
+	# Sync deactivation
+	if multiplayer.has_multiplayer_peer() and is_multiplayer_authority():
+		_rpc_deactivate_speed.rpc()
+
+func upgrade_speed() -> bool:
+	if role != "healer":
+		return false
+	if speed_level >= SPEED_MAX_LEVEL:
+		return false
+	if ability_points <= 0:
+		return false
+	ability_points -= 1
+	speed_level += 1
+	if not speed_unlocked:
+		speed_unlocked = true
+		print("[%s] Speed ability UNLOCKED! (Level %d)" % [team, speed_level])
+	else:
+		print("[%s] Speed upgraded to level %d! Multiplier: x%.2f" % [team, speed_level, get_speed_multiplier()])
+	# Sync upgrade to all peers
+	if multiplayer.has_multiplayer_peer():
+		_rpc_sync_ability_state.rpc(repair_level, shield_level, speed_level, ability_points)
+	return true
+
+func _create_speed_visual():
+	# For now, just a placeholder function to satisfy the calls
+	pass
+
+func _remove_speed_visual():
+	pass
 
 # --- Shield Ability (Tank) ---
 
@@ -754,7 +858,7 @@ func upgrade_shield() -> bool:
 		print("[%s] Shield upgraded to level %d! Reduction: %d%%, Duration: %ds" % [team, shield_level, int(get_shield_reduction() * 100), int(get_shield_duration())])
 	# Sync upgrade to all peers
 	if multiplayer.has_multiplayer_peer():
-		_rpc_sync_ability_state.rpc(repair_level, shield_level, ability_points)
+		_rpc_sync_ability_state.rpc(repair_level, shield_level, speed_level, ability_points)
 	return true
 
 # --- Shield Visual Effect ---
@@ -873,9 +977,21 @@ func _rpc_deactivate_shield():
 	_remove_shield_visual()
 
 @rpc("any_peer", "reliable")
-func _rpc_sync_ability_state(new_repair_level: int, new_shield_level: int, new_ability_points: int):
+func _rpc_activate_speed():
+	_activate_speed()
+
+@rpc("any_peer", "reliable")
+func _rpc_deactivate_speed():
+	speed_active = false
+	speed_timer = 0.0
+	_remove_speed_visual()
+
+@rpc("any_peer", "reliable")
+func _rpc_sync_ability_state(new_repair_level: int, new_shield_level: int, new_speed_level: int, new_ability_points: int):
 	repair_level = new_repair_level
 	repair_unlocked = repair_level > 0
 	shield_level = new_shield_level
 	shield_unlocked = shield_level > 0
+	speed_level = new_speed_level
+	speed_unlocked = speed_level > 0
 	ability_points = new_ability_points
