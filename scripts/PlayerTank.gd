@@ -2,7 +2,7 @@ extends CharacterBody2D
 
 @export var speed: float = 300.0
 @export var rotation_speed: float = 5.0
-@export var attack_range: float = 250.0
+@export var attack_range: float = 150.0
 @export var fire_rate: float = 0.5
 @export var max_health: float = 100.0
 
@@ -88,7 +88,7 @@ func set_role(r: String):
 			max_health = 200.0
 			speed = 250.0
 			fire_rate = 0.8
-			attack_range = 200.0
+			attack_range = 150.0
 			damage = 12.0
 			if has_node("Body"):
 				$Body.polygon = TANK_BODY
@@ -102,7 +102,7 @@ func set_role(r: String):
 			max_health = 60.0
 			speed = 350.0
 			fire_rate = 1.0
-			attack_range = 300.0
+			attack_range = 200.0
 			damage = 8.0
 			if has_node("Body"):
 				$Body.polygon = HEALER_BODY

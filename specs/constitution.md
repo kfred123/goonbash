@@ -27,3 +27,6 @@ This project uses **OpenSpec** for Specification-Driven Development.
 ## 4. Documentation Language
 - **English Only:** All code comments, `specs/` files, commit messages, and project documentation MUST be written entirely in **English**. 
 - This rule applies strictly, even if the user converses or prompts in another language (e.g., German).
+
+## 5. Game Design & Balance Rules
+- **Attack Range Limit:** No player (regardless of role) may ever have a firing range that is higher than the attack range of Lane Towers or Minions.

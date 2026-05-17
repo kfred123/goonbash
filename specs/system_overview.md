@@ -27,7 +27,8 @@ The game is built on a Client-Server architecture.
 - Firing will spawn projectiles (`Bullet.gd`) in the direction the cannon is facing.
 
 ### 2.2 Role System
-There are currently two selectable roles, differing in stats and special abilities:
+There are currently two selectable roles, differing in stats and special abilities.
+**Global Rule:** Player attack ranges must never exceed the attack range of Lane Towers or Minions.
 - **Tank:** 
   - Has higher base health and armor.
   - Possesses the **"Shield"** special ability to temporarily block incoming damage.
