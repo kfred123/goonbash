@@ -1,6 +1,7 @@
 extends CharacterBody2D
 
 @export var speed: float = 150.0
+@export var rotation_speed: float = 5.0
 @export var health: float = 50.0
 @export var attack_range: float = 200.0
 @export var fire_rate: float = 1.0
@@ -65,16 +66,32 @@ func handle_moving_state(delta):
 	if not target_lane:
 		return
 
-	path_offset += speed * delta * direction_multiplier
-	
 	var curve = target_lane.curve
-	var next_pos = curve.sample_baked(path_offset)
-	var move_dir = (next_pos - global_position).normalized()
+	
+	# Look ahead to find the target direction
+	var look_ahead_offset = path_offset + (5.0 * direction_multiplier)
+	look_ahead_offset = clamp(look_ahead_offset, 0, curve.get_baked_length())
+	var target_pos = curve.sample_baked(look_ahead_offset)
+	
+	var move_dir = (target_pos - global_position).normalized()
 	
 	if move_dir.length() > 0:
-		rotation = move_dir.angle()
-	
-	global_position = next_pos
+		var target_angle = move_dir.angle()
+		var angle_diff = abs(angle_difference(rotation, target_angle))
+		
+		# Rotate towards target
+		rotation = lerp_angle(rotation, target_angle, rotation_speed * delta)
+		
+		# Only move forward if facing the target direction
+		if angle_diff < 0.1:
+			path_offset += speed * delta * direction_multiplier
+			var next_pos = curve.sample_baked(path_offset)
+			global_position = next_pos
+	else:
+		# Fallback if no direction
+		path_offset += speed * delta * direction_multiplier
+		var next_pos = curve.sample_baked(path_offset)
+		global_position = next_pos
 	
 	# Check for nearby enemies if we don't have a target
 	if not is_instance_valid(current_target):

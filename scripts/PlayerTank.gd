@@ -468,13 +468,22 @@ func _physics_process(delta):
 			var distance = global_position.distance_to(target_position)
 			
 			if distance > 5:
-				var current_speed = speed
-				if speed_active and speed_level > 0:
-					current_speed *= get_speed_multiplier()
-				velocity = direction * current_speed
 				var target_angle = direction.angle()
+				var angle_diff = abs(angle_difference(rotation, target_angle))
+				
+				# First rotate toward target
 				rotation = lerp_angle(rotation, target_angle, rotation_speed * delta)
-				move_and_slide()
+				
+				# Only move forward if we are facing the target (e.g. within ~5.7 degrees)
+				if angle_diff < 0.1:
+					var current_speed = speed
+					if speed_active and speed_level > 0:
+						current_speed *= get_speed_multiplier()
+					# Move in the direction we are currently facing
+					velocity = Vector2(cos(rotation), sin(rotation)) * current_speed
+					move_and_slide()
+				else:
+					velocity = Vector2.ZERO
 			else:
 				moving = false
 				velocity = Vector2.ZERO
