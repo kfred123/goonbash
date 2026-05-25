@@ -39,6 +39,15 @@ const ROLE_DATA = {
 		"highlight": Color(0.2, 0.7, 0.45),
 		"poly": [Vector2(-5, -15), Vector2(5, -15), Vector2(5, -5), Vector2(15, -5), Vector2(15, 5), Vector2(5, 5), Vector2(5, 15), Vector2(-5, 15), Vector2(-5, 5), Vector2(-15, 5), Vector2(-15, -5), Vector2(-5, -5)],
 		"poly_color": Color(0.3, 0.9, 0.5),
+	},
+	"damagedealer": {
+		"label": "DAMAGE",
+		"icon": "🚀",
+		"desc": "Low HP • Fast • Rockets",
+		"color": Color(0.6, 0.2, 0.2),
+		"highlight": Color(0.85, 0.3, 0.3),
+		"poly": [Vector2(0, -25), Vector2(15, 15), Vector2(0, 5), Vector2(-15, 15)],
+		"poly_color": Color(1.0, 0.4, 0.2),
 	}
 }
 
@@ -55,6 +64,21 @@ func _ready():
 	NetworkManager.connection_succeeded.connect(_on_connection_succeeded)
 	NetworkManager.connection_failed.connect(_on_connection_failed)
 	NetworkManager.player_list_changed.connect(_update_player_lists)
+	
+	# --- Dynamic Online UI ---
+	var mode_btn = Button.new()
+	mode_btn.text = "Switch to Online Mode"
+	mode_btn.pressed.connect(_on_mode_switch)
+	$ConnectScreen/VBox.add_child(mode_btn)
+	$ConnectScreen/VBox.move_child(mode_btn, 0)
+	
+	lobby_vbox = VBoxContainer.new()
+	$ConnectScreen/VBox.add_child(lobby_vbox)
+	lobby_vbox.hide()
+	
+	http_request = HTTPRequest.new()
+	add_child(http_request)
+	http_request.request_completed.connect(_on_http_request_completed)
 
 func _get_player_name() -> String:
 	var n = name_input.text.strip_edges()
@@ -63,23 +87,99 @@ func _get_player_name() -> String:
 	return n
 
 # --- Connect Screen ---
+var mode = "local"
+var lobby_vbox: VBoxContainer
+var online_lobbies: Array = []
+var http_request: HTTPRequest
+const API_URL = "http://localhost:5031/api/lobbies"
+
+func _on_mode_switch():
+	if mode == "local":
+		mode = "online"
+		$ConnectScreen/VBox.get_child(0).text = "Switch to Local Mode"
+		ip_input.hide()
+		host_button.text = "Create Online Game"
+		join_button.text = "Refresh Lobbies"
+		lobby_vbox.show()
+		_fetch_lobbies()
+	else:
+		mode = "local"
+		$ConnectScreen/VBox.get_child(0).text = "Switch to Online Mode"
+		ip_input.show()
+		host_button.text = "Host Local Game"
+		join_button.text = "Join Local Game"
+		lobby_vbox.hide()
+
+func _fetch_lobbies():
+	connect_status.text = "Fetching lobbies..."
+	http_request.request(API_URL)
+
+func _on_http_request_completed(result, response_code, headers, body):
+	if response_code == 200:
+		connect_status.text = "Lobbies fetched."
+		var text = body.get_string_from_utf8()
+		var json = JSON.parse_string(text)
+		if typeof(json) == TYPE_ARRAY:
+			online_lobbies = json
+			_update_lobby_ui()
+	else:
+		connect_status.text = "Failed to fetch lobbies."
+
+func _update_lobby_ui():
+	for c in lobby_vbox.get_children():
+		c.queue_free()
+	
+	for lobby in online_lobbies:
+		var btn = Button.new()
+		# Expecting Lobby(string Id, string Name, string Ip, int Port)
+		btn.text = "%s (%s:%d)" % [lobby.name, lobby.ip, lobby.port]
+		btn.pressed.connect(func():
+			_join_online_lobby(lobby)
+		)
+		lobby_vbox.add_child(btn)
+
+func _join_online_lobby(lobby: Dictionary):
+	var pname = _get_player_name()
+	connect_status.text = "Connecting to %s..." % lobby.name
+	var url = "ws://%s:%d" % [lobby.ip, lobby.port]
+	if not NetworkManager.join_websocket_game(url, pname):
+		connect_status.text = "Failed to connect to online game!"
 
 func _on_host_pressed():
 	var pname = _get_player_name()
-	connect_status.text = "Starting server as %s..." % pname
-	if NetworkManager.host_game(pname):
-		_show_lobby()
+	if mode == "local":
+		connect_status.text = "Starting server as %s..." % pname
+		if NetworkManager.host_game(pname):
+			_show_lobby()
+		else:
+			connect_status.text = "Failed to start server!"
 	else:
-		connect_status.text = "Failed to start server!"
+		connect_status.text = "Creating online game..."
+		var create_req = HTTPRequest.new()
+		add_child(create_req)
+		create_req.request_completed.connect(func(res, code, headers, body):
+			create_req.queue_free()
+			if code == 200:
+				var lobby = JSON.parse_string(body.get_string_from_utf8())
+				_join_online_lobby(lobby)
+			else:
+				connect_status.text = "Failed to create online game."
+		)
+		var data = JSON.stringify({"name": pname + "'s Game"})
+		var headers = ["Content-Type: application/json"]
+		create_req.request(API_URL + "/create", headers, HTTPClient.METHOD_POST, data)
 
 func _on_join_pressed():
-	var pname = _get_player_name()
-	var ip = ip_input.text.strip_edges()
-	if ip == "":
-		ip = "127.0.0.1"
-	connect_status.text = "Connecting to %s..." % ip
-	if not NetworkManager.join_game(ip, pname):
-		connect_status.text = "Failed to connect!"
+	if mode == "local":
+		var pname = _get_player_name()
+		var ip = ip_input.text.strip_edges()
+		if ip == "":
+			ip = "127.0.0.1"
+		connect_status.text = "Connecting to %s..." % ip
+		if not NetworkManager.join_game(ip, pname):
+			connect_status.text = "Failed to connect!"
+	else:
+		_fetch_lobbies()
 
 func _on_connection_succeeded():
 	_show_lobby()
@@ -92,7 +192,7 @@ func _on_connection_failed():
 func _show_lobby():
 	connect_screen.visible = false
 	lobby_screen.visible = true
-	start_button.visible = NetworkManager.is_host()
+	start_button.visible = true
 	_build_role_cards()
 	_update_player_lists()
 

@@ -2,16 +2,30 @@ extends Area2D
 
 @export var speed: float = 600.0
 @export var damage: float = 10.0
+@export var homing: bool = false
+@export var turn_speed: float = 5.0
 
 var direction: Vector2 = Vector2.ZERO
 var team: String = ""
+var target: Node2D = null
 
 func _ready():
 	body_entered.connect(_on_body_entered)
 	if has_node("VisibleOnScreenNotifier2D"):
 		$VisibleOnScreenNotifier2D.screen_exited.connect(_on_visible_on_screen_notifier_2d_screen_exited)
+		
+	if homing:
+		# Homing rockets have a long lifespan and might go offscreen
+		var timer = get_tree().create_timer(10.0)
+		timer.timeout.connect(queue_free)
 
 func _physics_process(delta):
+	if homing:
+		if is_instance_valid(target) and not target.get("is_dead"):
+			var desired_dir = (target.global_position - global_position).normalized()
+			var new_angle = lerp_angle(direction.angle(), desired_dir.angle(), turn_speed * delta)
+			direction = Vector2(cos(new_angle), sin(new_angle))
+			rotation = new_angle
 	position += direction * speed * delta
 
 func _on_body_entered(body):
@@ -35,4 +49,5 @@ func _on_body_entered(body):
 	queue_free()
 
 func _on_visible_on_screen_notifier_2d_screen_exited():
-	queue_free()
+	if not homing:
+		queue_free()

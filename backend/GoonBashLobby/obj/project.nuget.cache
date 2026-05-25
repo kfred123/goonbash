@@ -1,0 +1,11 @@
+{
+  "version": 2,
+  "dgSpecHash": "d+nprIVi99E=",
+  "success": true,
+  "projectFilePath": "C:\\projects\\goonbash\\backend\\GoonBashLobby\\GoonBashLobby.csproj",
+  "expectedPackageFiles": [
+    "C:\\Users\\pbieg\\.nuget\\packages\\microsoft.aspnetcore.openapi\\10.0.3\\microsoft.aspnetcore.openapi.10.0.3.nupkg.sha512",
+    "C:\\Users\\pbieg\\.nuget\\packages\\microsoft.openapi\\2.0.0\\microsoft.openapi.2.0.0.nupkg.sha512"
+  ],
+  "logs": []
+}

@@ -63,6 +63,13 @@ var speed_timer: float = 0.0
 var speed_cooldown_timer: float = 0.0
 var speed_node: Node2D = null
 
+# Rocket ability (damagedealer only)
+var rocket_unlocked: bool = false
+var rocket_level: int = 0
+const ROCKET_MAX_LEVEL: int = 10
+var rocket_cooldown_timer: float = 0.0
+const ROCKET_COOLDOWN: float = 25.0
+
 # Shield ability (tank only)
 var shield_unlocked: bool = false
 var shield_level: int = 0  # 0 = locked, 1+ = usable levels
@@ -95,6 +102,10 @@ const HEALER_BODY = [Vector2(-15, -12), Vector2(15, -12), Vector2(18, -6), Vecto
 const HEALER_BARREL = [Vector2(-2, -3), Vector2(30, -2), Vector2(30, 2), Vector2(-2, 3)]
 const HEALER_TURRET_BASE = [Vector2(-7, -7), Vector2(7, -7), Vector2(7, 7), Vector2(-7, 7)]
 
+const DAMAGEDEALER_BODY = [Vector2(-15, -15), Vector2(15, -15), Vector2(25, 0), Vector2(15, 15), Vector2(-15, 15), Vector2(-20, 0)]
+const DAMAGEDEALER_BARREL = [Vector2(-2, -2), Vector2(32, -2), Vector2(32, 2), Vector2(-2, 2)]
+const DAMAGEDEALER_TURRET_BASE = [Vector2(-6, -6), Vector2(8, 0), Vector2(-6, 6)]
+
 func set_role(r: String):
 	role = r
 	match role:
@@ -126,6 +137,20 @@ func set_role(r: String):
 				$Turret/Barrel.polygon = HEALER_BARREL
 			if has_node("Turret/TurretBase"):
 				$Turret/TurretBase.polygon = HEALER_TURRET_BASE
+		"damagedealer":
+			max_health = 50.0
+			speed = 400.0
+			fire_rate = 0.5
+			attack_range = 250.0
+			damage = 15.0
+			if has_node("Body"):
+				$Body.polygon = DAMAGEDEALER_BODY
+			if has_node("CollisionPolygon2D"):
+				$CollisionPolygon2D.polygon = DAMAGEDEALER_BODY
+			if has_node("Turret/Barrel"):
+				$Turret/Barrel.polygon = DAMAGEDEALER_BARREL
+			if has_node("Turret/TurretBase"):
+				$Turret/TurretBase.polygon = DAMAGEDEALER_TURRET_BASE
 	health = max_health
 	_apply_team_color()
 
@@ -147,6 +172,10 @@ func _apply_team_color():
 				body_color = Color(0.2, 0.75, 0.55)
 				turret_color = Color(0.25, 0.85, 0.65)
 				turret_base_color = Color(0.15, 0.6, 0.45)
+			"damagedealer":
+				body_color = Color(0.3, 0.2, 0.7)
+				turret_color = Color(0.4, 0.3, 0.8)
+				turret_base_color = Color(0.2, 0.1, 0.5)
 	else:
 		match role:
 			"tank":
@@ -157,6 +186,10 @@ func _apply_team_color():
 				body_color = Color(0.9, 0.55, 0.15)
 				turret_color = Color(0.95, 0.65, 0.2)
 				turret_base_color = Color(0.7, 0.45, 0.1)
+			"damagedealer":
+				body_color = Color(0.85, 0.2, 0.3)
+				turret_color = Color(0.95, 0.3, 0.4)
+				turret_base_color = Color(0.65, 0.1, 0.2)
 	if has_node("Body"):
 		$Body.color = body_color
 	if has_node("Turret/Barrel"):
@@ -412,6 +445,8 @@ func _input(event):
 				_try_activate_repair()
 			elif role == "tank":
 				_try_activate_shield()
+			elif role == "damagedealer":
+				_try_activate_rocket()
 		elif event.keycode == KEY_2:
 			if role == "healer":
 				_try_activate_speed()
@@ -419,7 +454,7 @@ func _input(event):
 func shoot_at(target: Node2D):
 	var dir = (target.global_position - global_position).normalized()
 	# Spawn bullet from turret tip
-	var barrel_length = 35.0 if role == "tank" else 30.0
+	var barrel_length = 35.0 if role == "tank" else (32.0 if role == "damagedealer" else 30.0)
 	var spawn_pos = global_position + dir * barrel_length
 	_do_spawn_bullet(team, dir, spawn_pos, damage)
 	if multiplayer.has_multiplayer_peer():
@@ -535,6 +570,12 @@ func _physics_process(delta):
 			shield_cooldown_timer -= delta
 			if shield_cooldown_timer < 0:
 				shield_cooldown_timer = 0.0
+		
+		# Rocket cooldown countdown
+		if rocket_cooldown_timer > 0:
+			rocket_cooldown_timer -= delta
+			if rocket_cooldown_timer < 0:
+				rocket_cooldown_timer = 0.0
 	
 	# Turret rotation — always aims at current target (runs on all peers for visual)
 	if is_instance_valid(turret):
@@ -651,6 +692,9 @@ func _init_abilities():
 	shield_active = false
 	shield_timer = 0.0
 	shield_cooldown_timer = 0.0
+	rocket_unlocked = false
+	rocket_level = 0
+	rocket_cooldown_timer = 0.0
 	ability_points = 0
 
 func _try_activate_repair():
@@ -748,7 +792,7 @@ func upgrade_repair() -> bool:
 		print("[%s] Repair upgraded to level %d! Heal rate: %d HP/s" % [team, repair_level, REPAIR_BASE_HEAL_RATE + (repair_level - 1) * REPAIR_HEAL_PER_LEVEL])
 	# Sync upgrade to all peers
 	if multiplayer.has_multiplayer_peer():
-		_rpc_sync_ability_state.rpc(repair_level, shield_level, speed_level, ability_points)
+		_rpc_sync_ability_state.rpc(repair_level, shield_level, speed_level, rocket_level, ability_points)
 	return true
 
 # --- Speed Ability (Healer) ---
@@ -802,7 +846,7 @@ func upgrade_speed() -> bool:
 		print("[%s] Speed upgraded to level %d! Multiplier: x%.2f" % [team, speed_level, get_speed_multiplier()])
 	# Sync upgrade to all peers
 	if multiplayer.has_multiplayer_peer():
-		_rpc_sync_ability_state.rpc(repair_level, shield_level, speed_level, ability_points)
+		_rpc_sync_ability_state.rpc(repair_level, shield_level, speed_level, rocket_level, ability_points)
 	return true
 
 func _create_speed_visual():
@@ -867,7 +911,101 @@ func upgrade_shield() -> bool:
 		print("[%s] Shield upgraded to level %d! Reduction: %d%%, Duration: %ds" % [team, shield_level, int(get_shield_reduction() * 100), int(get_shield_duration())])
 	# Sync upgrade to all peers
 	if multiplayer.has_multiplayer_peer():
-		_rpc_sync_ability_state.rpc(repair_level, shield_level, speed_level, ability_points)
+		_rpc_sync_ability_state.rpc(repair_level, shield_level, speed_level, rocket_level, ability_points)
+	return true
+
+# --- Rocket Ability (Damagedealer) ---
+
+func _try_activate_rocket():
+	if role != "damagedealer":
+		return
+	if not rocket_unlocked or rocket_level <= 0:
+		return
+	if rocket_cooldown_timer > 0:
+		return
+		
+	var target = _find_closest_enemy_in_front()
+	if not target:
+		print("[%s] No valid target for rocket!" % team)
+		return
+		
+	# Find path to target
+	var target_path = get_path_to(target)
+	
+	_activate_rocket(target_path)
+	if multiplayer.has_multiplayer_peer():
+		_rpc_activate_rocket.rpc(target_path)
+
+func _activate_rocket(target_path: NodePath):
+	rocket_cooldown_timer = ROCKET_COOLDOWN
+	var target = get_node_or_null(target_path)
+	
+	if is_instance_valid(target):
+		var turret_rot = turret.rotation if is_instance_valid(turret) else 0.0
+		var dir = Vector2(cos(turret_rot + rotation), sin(turret_rot + rotation))
+		var spawn_pos = global_position + dir * 35.0
+		# Damage scales as a multiplier of base damage (e.g. 250% at lv 1, up to 700% at lv 10)
+		var rocket_damage = damage * (2.0 + (rocket_level * 0.5))
+		
+		var scene = ResourceManager.bullet_scene
+		if scene:
+			var rocket = scene.instantiate()
+			rocket.team = team
+			rocket.direction = dir
+			rocket.damage = rocket_damage
+			rocket.rotation = dir.angle()
+			rocket.global_position = spawn_pos
+			rocket.homing = true
+			rocket.target = target
+			rocket.scale = Vector2(1.5, 1.5) # Make it bigger
+			rocket.modulate = Color(1.0, 0.5, 0.0) # Orange tint
+			get_parent().add_child(rocket)
+			print("[%s] Fired Homing Rocket at %s!" % [team, target.name])
+
+func _find_closest_enemy_in_front() -> Node2D:
+	var best_target = null
+	var best_dist = 800.0 # Max range
+	
+	var turret_rot = turret.rotation if is_instance_valid(turret) else 0.0
+	var forward_dir = Vector2(cos(turret_rot + rotation), sin(turret_rot + rotation))
+	
+	var groups_to_check = ["minions", "players", "towers", "bases"]
+	for group_name in groups_to_check:
+		for body in get_tree().get_nodes_in_group(group_name):
+			if not _is_valid_enemy(body):
+				continue
+			var dist = global_position.distance_to(body.global_position)
+			if dist > 800.0:
+				continue
+				
+			var dir_to_target = (body.global_position - global_position).normalized()
+			var angle_diff = acos(forward_dir.dot(dir_to_target))
+			
+			# Check if within a ~90 degree cone (PI/4 rads each side)
+			if angle_diff < (PI / 4):
+				if dist < best_dist:
+					best_dist = dist
+					best_target = body
+					
+	return best_target
+
+func upgrade_rocket() -> bool:
+	if role != "damagedealer":
+		return false
+	if rocket_level >= ROCKET_MAX_LEVEL:
+		return false
+	if ability_points <= 0:
+		return false
+	ability_points -= 1
+	rocket_level += 1
+	if not rocket_unlocked:
+		rocket_unlocked = true
+		print("[%s] Rocket ability UNLOCKED! (Level %d)" % [team, rocket_level])
+	else:
+		print("[%s] Rocket upgraded to level %d!" % [team, rocket_level])
+	# Sync upgrade to all peers
+	if multiplayer.has_multiplayer_peer():
+		_rpc_sync_ability_state.rpc(repair_level, shield_level, speed_level, rocket_level, ability_points)
 	return true
 
 # --- Shield Visual Effect ---
@@ -996,11 +1134,17 @@ func _rpc_deactivate_speed():
 	_remove_speed_visual()
 
 @rpc("any_peer", "reliable")
-func _rpc_sync_ability_state(new_repair_level: int, new_shield_level: int, new_speed_level: int, new_ability_points: int):
+func _rpc_activate_rocket(target_path: NodePath):
+	_activate_rocket(target_path)
+
+@rpc("any_peer", "reliable")
+func _rpc_sync_ability_state(new_repair_level: int, new_shield_level: int, new_speed_level: int, new_rocket_level: int, new_ability_points: int):
 	repair_level = new_repair_level
 	repair_unlocked = repair_level > 0
 	shield_level = new_shield_level
 	shield_unlocked = shield_level > 0
 	speed_level = new_speed_level
 	speed_unlocked = speed_level > 0
+	rocket_level = new_rocket_level
+	rocket_unlocked = rocket_level > 0
 	ability_points = new_ability_points

@@ -13,13 +13,56 @@ var player_name: String = ""
 # Dictionary of peer_id -> { "name": String, "team": String, "role": String }
 var players: Dictionary = {}
 
-const ROLES = ["tank", "healer"]
+const ROLES = ["tank", "healer", "damagedealer"]
+
+var is_dedicated_server: bool = false
+var match_started: bool = false
 
 func _ready():
 	multiplayer.peer_connected.connect(_on_peer_connected)
 	multiplayer.peer_disconnected.connect(_on_peer_disconnected)
 	multiplayer.connected_to_server.connect(_on_connected_to_server)
 	multiplayer.connection_failed.connect(_on_connection_failed)
+	
+	var args = OS.get_cmdline_args()
+	if "--server" in args:
+		is_dedicated_server = true
+		print("[Network] Headless server mode detected")
+		var port = PORT
+		var lobby_name = "Online Match"
+		for arg in args:
+			if arg.begins_with("--port="):
+				port = arg.split("=")[1].to_int()
+			elif arg.begins_with("--lobby-name="):
+				lobby_name = arg.split("=")[1]
+		
+		host_dedicated_websocket(port, lobby_name)
+
+func host_dedicated_websocket(port: int, host_name: String):
+	player_name = host_name
+	var peer = WebSocketMultiplayerPeer.new()
+	var error = peer.create_server(port)
+	if error:
+		print("[Network] Failed to create WebSocket server: %s" % error)
+		get_tree().quit()
+		return false
+	
+	multiplayer.multiplayer_peer = peer
+	print("[Network] Dedicated WebSocket Server started on port %d" % port)
+	return true
+	
+func join_websocket_game(url: String, join_name: String):
+	player_name = join_name
+	var peer = WebSocketMultiplayerPeer.new()
+	var error = peer.create_client(url)
+	if error:
+		print("[Network] Failed to connect WebSocket: %s" % error)
+		connection_failed.emit()
+		return false
+	
+	multiplayer.multiplayer_peer = peer
+	print("[Network] Connecting WebSocket to %s as %s..." % [url, join_name])
+	return true
 
 func host_game(host_name: String):
 	player_name = host_name
@@ -133,11 +176,17 @@ func _start_game_rpc():
 func start_game():
 	if not multiplayer.is_server():
 		return
+	match_started = true
 	# Start on all clients
 	_start_game_rpc.rpc()
-	# Start locally
+	# Start locally (but dedicated server doesn't need to load the full scene if it doesn't want to, but we'll load it so it can host nodes)
 	game_starting.emit()
 	get_tree().change_scene_to_file("res://scenes/MainMap.tscn")
+
+@rpc("any_peer", "reliable")
+func request_start_game():
+	if multiplayer.is_server():
+		start_game()
 
 func _sync_players_to_all():
 	player_list_changed.emit()
@@ -159,6 +208,12 @@ func _on_peer_disconnected(id):
 	if players.has(id):
 		players.erase(id)
 		_sync_players_to_all()
+	
+	# Auto-shutdown logic for dedicated server
+	if is_dedicated_server:
+		if players.is_empty():
+			print("[Network] All players left. Shutting down dedicated server.")
+			get_tree().quit()
 
 func _on_connected_to_server():
 	var my_id = multiplayer.get_unique_id()

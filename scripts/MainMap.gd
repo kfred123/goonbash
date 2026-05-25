@@ -474,6 +474,8 @@ func _on_ability_btn_pressed():
 		local_player._try_activate_repair()
 	elif local_player.role == "tank" and local_player.has_method("_try_activate_shield"):
 		local_player._try_activate_shield()
+	elif local_player.role == "damagedealer" and local_player.has_method("_try_activate_rocket"):
+		local_player._try_activate_rocket()
 
 func _on_ability2_btn_pressed():
 	if not is_instance_valid(local_player):
@@ -488,6 +490,8 @@ func _on_ability_upgrade_pressed():
 		local_player.upgrade_repair()
 	elif local_player.role == "tank" and local_player.has_method("upgrade_shield"):
 		local_player.upgrade_shield()
+	elif local_player.role == "damagedealer" and local_player.has_method("upgrade_rocket"):
+		local_player.upgrade_rocket()
 
 func _on_ability2_upgrade_pressed():
 	if not is_instance_valid(local_player):
@@ -717,6 +721,7 @@ func _update_ability_hud():
 	var player_role = local_player.role
 	var is_healer = player_role == "healer"
 	var is_tank = player_role == "tank"
+	var is_damagedealer = player_role == "damagedealer"
 	
 	# Determine ability state based on role
 	var unlocked: bool = false
@@ -749,6 +754,16 @@ func _update_ability_hud():
 		cooldown_max = local_player.SHIELD_COOLDOWN
 		active_timer = local_player.shield_timer
 		icon = "🛡️"
+	elif is_damagedealer:
+		unlocked = local_player.rocket_unlocked
+		on_cooldown = local_player.rocket_cooldown_timer > 0
+		is_active = false
+		ability_level = local_player.rocket_level
+		max_level = local_player.ROCKET_MAX_LEVEL
+		cooldown_timer = local_player.rocket_cooldown_timer
+		cooldown_max = local_player.ROCKET_COOLDOWN
+		active_timer = 0.0
+		icon = "🚀"
 	else:
 		# Unknown role — hide everything
 		ability_btn.visible = false
@@ -777,6 +792,8 @@ func _update_ability_hud():
 	var active_color: Color
 	if is_tank:
 		active_color = Color(0.3, 0.6, 1.0, 1.0)  # Blue glow for shield
+	elif is_damagedealer:
+		active_color = Color(1.0, 0.4, 0.1, 1.0)  # Orange glow for rocket
 	else:
 		active_color = Color(0.3, 1.0, 0.5, 1.0)  # Green glow for repair
 	
@@ -809,6 +826,8 @@ func _update_ability_hud():
 			ability_cooldown_overlay.visible = true
 			if is_tank:
 				ability_cooldown_overlay.color = Color(0.1, 0.3, 0.6, 0.3)
+			elif is_damagedealer:
+				ability_cooldown_overlay.color = Color(0.6, 0.2, 0.1, 0.3)
 			else:
 				ability_cooldown_overlay.color = Color(0.1, 0.6, 0.3, 0.3)
 			ability_cooldown_label.visible = true
