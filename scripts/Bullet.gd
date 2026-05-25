@@ -21,6 +21,7 @@ func _ready():
 
 func _physics_process(delta):
 	if homing:
+		turn_speed += delta * 15.0 # Gradually increase turn speed to prevent endless orbiting
 		if is_instance_valid(target) and not target.get("is_dead"):
 			var desired_dir = (target.global_position - global_position).normalized()
 			var new_angle = lerp_angle(direction.angle(), desired_dir.angle(), turn_speed * delta)
