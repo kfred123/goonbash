@@ -1,0 +1,196 @@
+[gd_scene format=3 uid="uid://d25p5tg1sgswq"]
+
+[ext_resource type="Script" uid="uid://cxud37hcpiako" path="res://scripts/Lobby.gd" id="1"]
+
+[node name="Lobby" type="Control" unique_id=1224032361]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1")
+
+[node name="Background" type="ColorRect" parent="." unique_id=1623874775]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+color = Color(0.08, 0.08, 0.12, 1)
+
+[node name="ConnectScreen" type="VBoxContainer" parent="." unique_id=685963968]
+layout_mode = 1
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -160.0
+offset_top = -160.0
+offset_right = 160.0
+offset_bottom = 160.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/separation = 12
+
+[node name="Title" type="Label" parent="ConnectScreen" unique_id=1150402174]
+layout_mode = 2
+theme_override_font_sizes/font_size = 40
+text = "GOONBASH"
+horizontal_alignment = 1
+
+[node name="Subtitle" type="Label" parent="ConnectScreen" unique_id=241367558]
+modulate = Color(0.6, 0.6, 0.6, 1)
+layout_mode = 2
+theme_override_font_sizes/font_size = 14
+text = "Tank MOBA - Multiplayer"
+horizontal_alignment = 1
+
+[node name="Spacer1" type="Control" parent="ConnectScreen" unique_id=479462662]
+custom_minimum_size = Vector2(0, 10)
+layout_mode = 2
+
+[node name="VBox" type="VBoxContainer" parent="ConnectScreen" unique_id=2147203713]
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="NameInput" type="LineEdit" parent="ConnectScreen/VBox" unique_id=1872742465]
+custom_minimum_size = Vector2(0, 36)
+layout_mode = 2
+placeholder_text = "Enter your name"
+alignment = 1
+
+[node name="HostButton" type="Button" parent="ConnectScreen/VBox" unique_id=264101981]
+custom_minimum_size = Vector2(0, 40)
+layout_mode = 2
+text = "HOST GAME"
+
+[node name="IPInput" type="LineEdit" parent="ConnectScreen/VBox" unique_id=373820488]
+custom_minimum_size = Vector2(0, 36)
+layout_mode = 2
+placeholder_text = "IP Address (default: 127.0.0.1)"
+alignment = 1
+
+[node name="JoinButton" type="Button" parent="ConnectScreen/VBox" unique_id=1591456923]
+custom_minimum_size = Vector2(0, 40)
+layout_mode = 2
+text = "JOIN GAME"
+
+[node name="StatusLabel" type="Label" parent="ConnectScreen/VBox" unique_id=1765539082]
+modulate = Color(0.5, 1, 0.5, 1)
+layout_mode = 2
+theme_override_font_sizes/font_size = 13
+text = "Enter your name to begin"
+horizontal_alignment = 1
+
+[node name="LobbyScreen" type="VBoxContainer" parent="." unique_id=340088426]
+visible = false
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 40.0
+offset_top = 20.0
+offset_right = -40.0
+offset_bottom = -20.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/separation = 16
+
+[node name="LobbyTitle" type="Label" parent="LobbyScreen" unique_id=846452734]
+layout_mode = 2
+theme_override_font_sizes/font_size = 28
+text = "TEAM SELECT"
+horizontal_alignment = 1
+
+[node name="Teams" type="HBoxContainer" parent="LobbyScreen" unique_id=1607799211]
+layout_mode = 2
+size_flags_vertical = 3
+theme_override_constants/separation = 20
+
+[node name="BluePanel" type="PanelContainer" parent="LobbyScreen/Teams" unique_id=31253064]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="BlueVBox" type="VBoxContainer" parent="LobbyScreen/Teams/BluePanel" unique_id=1836810194]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="BlueTitle" type="Label" parent="LobbyScreen/Teams/BluePanel/BlueVBox" unique_id=1102501206]
+modulate = Color(0.3, 0.6, 1, 1)
+layout_mode = 2
+theme_override_font_sizes/font_size = 22
+text = "BLUE TEAM"
+horizontal_alignment = 1
+
+[node name="BlueSep" type="HSeparator" parent="LobbyScreen/Teams/BluePanel/BlueVBox" unique_id=927643783]
+layout_mode = 2
+
+[node name="BlueList" type="VBoxContainer" parent="LobbyScreen/Teams/BluePanel/BlueVBox" unique_id=491962591]
+layout_mode = 2
+size_flags_vertical = 3
+theme_override_constants/separation = 6
+
+[node name="RedPanel" type="PanelContainer" parent="LobbyScreen/Teams" unique_id=1022175239]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="RedVBox" type="VBoxContainer" parent="LobbyScreen/Teams/RedPanel" unique_id=285648056]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="RedTitle" type="Label" parent="LobbyScreen/Teams/RedPanel/RedVBox" unique_id=1635992485]
+modulate = Color(1, 0.3, 0.3, 1)
+layout_mode = 2
+theme_override_font_sizes/font_size = 22
+text = "RED TEAM"
+horizontal_alignment = 1
+
+[node name="RedSep" type="HSeparator" parent="LobbyScreen/Teams/RedPanel/RedVBox" unique_id=825385824]
+layout_mode = 2
+
+[node name="RedList" type="VBoxContainer" parent="LobbyScreen/Teams/RedPanel/RedVBox" unique_id=1660939786]
+layout_mode = 2
+size_flags_vertical = 3
+theme_override_constants/separation = 6
+
+[node name="TeamButtons" type="HBoxContainer" parent="LobbyScreen" unique_id=853626703]
+layout_mode = 2
+theme_override_constants/separation = 20
+alignment = 1
+
+[node name="JoinBlueButton" type="Button" parent="LobbyScreen/TeamButtons" unique_id=1023378185]
+custom_minimum_size = Vector2(140, 40)
+layout_mode = 2
+text = "JOIN BLUE"
+
+[node name="JoinRedButton" type="Button" parent="LobbyScreen/TeamButtons" unique_id=785206394]
+custom_minimum_size = Vector2(140, 40)
+layout_mode = 2
+text = "JOIN RED"
+
+[node name="RoleLabel" type="Label" parent="LobbyScreen" unique_id=479420279]
+layout_mode = 2
+theme_override_font_sizes/font_size = 18
+text = "SELECT ROLE"
+horizontal_alignment = 1
+
+[node name="RoleCards" type="HBoxContainer" parent="LobbyScreen" unique_id=509852687]
+layout_mode = 2
+theme_override_constants/separation = 20
+alignment = 1
+
+[node name="StartButton" type="Button" parent="LobbyScreen" unique_id=514560270]
+custom_minimum_size = Vector2(200, 44)
+layout_mode = 2
+size_flags_horizontal = 4
+text = "START GAME"
+
+[node name="LobbyStatus" type="Label" parent="LobbyScreen" unique_id=1181210297]
+modulate = Color(0.7, 0.7, 0.7, 1)
+layout_mode = 2
+theme_override_font_sizes/font_size = 14
+text = "Waiting for players..."
+horizontal_alignment = 1

@@ -31,5 +31,33 @@ The goal is simple: **Destroy the Enemy Command Center**.
 - **Cross-Platform**: Seamless play on both **Web Browsers** and **Mobile Devices**.
 - **Aesthetic**: Vibrant, "Comic-style" 2D or stylized 3D graphics with high-impact visual effects.
 
+## Server und Client starten
+
+Voraussetzungen: [Node.js](https://nodejs.org/) und npm.
+
+1. Abhängigkeiten im Projektverzeichnis installieren:
+
+	```bash
+	npm install
+	```
+
+2. Den Server in einem Terminal starten:
+
+	```bash
+	npm run dev --workspace=backend
+	```
+
+	Der Server ist anschließend standardmäßig unter Port `2567` erreichbar.
+
+3. Den Client in einem zweiten Terminal starten:
+
+	```bash
+	npm run dev --workspace=frontend
+	```
+
+4. Die im Terminal angezeigte Vite-Adresse im Browser öffnen (standardmäßig `http://localhost:5173`). Der Client verbindet sich automatisch mit dem Server unter `ws://localhost:2567`.
+
+Der Server kann über die Umgebungsvariable `PORT` auf einen anderen Port gelegt werden. In diesem Fall muss die Serveradresse im Client entsprechend angepasst werden.
+
 ---
 *Created by Antigravity*

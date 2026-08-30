@@ -1,0 +1,29 @@
+{
+  "name": "backend",
+  "version": "1.0.0",
+  "description": "",
+  "main": "src/index.ts",
+  "scripts": {
+    "predev": "npm run build --workspace=shared",
+    "dev": "tsx watch src/index.ts",
+    "prestart": "npm run build --workspace=shared",
+    "start": "tsx src/index.ts",
+    "test": "tsx --test src/**/*.test.ts"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "@types/cors": "^2.8.19",
+    "@types/express": "^4.17.21",
+    "tsx": "^4.23.12",
+    "typescript": "^5.4.5"
+  },
+  "dependencies": {
+    "colyseus": "0.15.17",
+    "@colyseus/schema": "2.0.35",
+    "cors": "^2.8.5",
+    "express": "^4.21.0",
+    "shared": "*"
+  }
+}
