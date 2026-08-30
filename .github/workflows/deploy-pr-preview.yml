@@ -1,0 +1,155 @@
+name: Deploy PR Preview to Render
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+
+env:
+  RENDER_TEST_URL: https://goonbash-test.onrender.com
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Extract PR metadata
+        id: pr_metadata
+        run: |
+          echo "pr_number=${{ github.event.pull_request.number }}" >> $GITHUB_OUTPUT
+          echo "branch_name=${{ github.event.pull_request.head.ref }}" >> $GITHUB_OUTPUT
+          echo "commit_sha=${{ github.event.pull_request.head.sha }}" >> $GITHUB_OUTPUT
+
+      - name: Deploy to Render
+        id: render_deploy
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+          PR_NUMBER: ${{ steps.pr_metadata.outputs.pr_number }}
+          BRANCH_NAME: ${{ steps.pr_metadata.outputs.branch_name }}
+          COMMIT_SHA: ${{ steps.pr_metadata.outputs.commit_sha }}
+        run: |
+          # Trigger deployment via Render API
+          # The deployment will update the shared goonbash-test service
+          DEPLOY_RESPONSE=$(curl -X POST \
+            "https://api.render.com/v1/services/${RENDER_SERVICE_ID}/deploys" \
+            -H "Authorization: Bearer ${RENDER_API_KEY}" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "clearCache": "clear"
+            }')
+          
+          DEPLOY_ID=$(echo "$DEPLOY_RESPONSE" | jq -r '.id // empty')
+          
+          if [ -z "$DEPLOY_ID" ]; then
+            echo "❌ Failed to trigger deployment"
+            echo "Response: $DEPLOY_RESPONSE"
+            exit 1
+          fi
+          
+          echo "deploy_id=$DEPLOY_ID" >> $GITHUB_OUTPUT
+          echo "✅ Deployment triggered: $DEPLOY_ID"
+          
+          # Poll deployment status (max 10 minutes)
+          MAX_ATTEMPTS=120
+          ATTEMPT=0
+          while [ $ATTEMPT -lt $MAX_ATTEMPTS ]; do
+            STATUS_RESPONSE=$(curl -s \
+              "https://api.render.com/v1/services/${RENDER_SERVICE_ID}/deploys/${DEPLOY_ID}" \
+              -H "Authorization: Bearer ${RENDER_API_KEY}")
+            
+            STATUS=$(echo "$STATUS_RESPONSE" | jq -r '.status // empty')
+            
+            if [ "$STATUS" = "live" ]; then
+              echo "✅ Deployment successful and live!"
+              echo "deployment_status=success" >> $GITHUB_OUTPUT
+              exit 0
+            elif [ "$STATUS" = "build_failed" ] || [ "$STATUS" = "deploy_failed" ]; then
+              echo "❌ Deployment failed with status: $STATUS"
+              echo "deployment_status=failed" >> $GITHUB_OUTPUT
+              exit 1
+            fi
+            
+            ATTEMPT=$((ATTEMPT + 1))
+            sleep 5
+          done
+          
+          echo "⏱️ Deployment timeout (exceeded 10 minutes)"
+          echo "deployment_status=timeout" >> $GITHUB_OUTPUT
+          exit 1
+
+      - name: Comment on PR - Success
+        if: success()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `## 🎮 Deployment to Test Environment - Success ✅
+
+**Test URL:** [${{ env.RENDER_TEST_URL }}](${{ env.RENDER_TEST_URL }})
+
+**PR Details:**
+- PR #${{ steps.pr_metadata.outputs.pr_number }}
+- Branch: \`${{ steps.pr_metadata.outputs.branch_name }}\`
+- Commit: \`${{ steps.pr_metadata.outputs.commit_sha }}\`
+
+The latest changes from this PR are now live on the test server. You can test them at the URL above.
+
+---
+*Automated deployment via GitHub Actions*`
+            })
+
+      - name: Comment on PR - Failure
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `## 🎮 Deployment to Test Environment - Failed ❌
+
+**Status:** ${{ steps.render_deploy.outputs.deployment_status || 'unknown_error' }}
+
+**Troubleshooting:**
+1. Check that the \`RENDER_API_KEY\` and \`RENDER_SERVICE_ID\` secrets are correctly configured
+2. Verify the Render service \`goonbash-test\` exists and is properly configured
+3. Check Render dashboard for detailed build/deployment logs
+4. For manual deployment: https://dashboard.render.com
+
+**PR Details:**
+- PR #${{ steps.pr_metadata.outputs.pr_number }}
+- Branch: \`${{ steps.pr_metadata.outputs.branch_name }}\`
+- Commit: \`${{ steps.pr_metadata.outputs.commit_sha }}\`
+
+---
+*Automated deployment via GitHub Actions*`
+            })
+
+      - name: Set deployment status check
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const status = '${{ steps.render_deploy.outputs.deployment_status }}' === 'success' ? 'success' : 'failure';
+            const description = status === 'success' 
+              ? 'Deployed to test environment' 
+              : 'Failed to deploy to test environment';
+            
+            github.rest.repos.createCommitStatus({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              sha: context.payload.pull_request.head.sha,
+              state: status,
+              description: description,
+              context: 'Render Test Deployment',
+              target_url: '${{ env.RENDER_TEST_URL }}'
+            })
