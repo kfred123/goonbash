@@ -1,4 +1,4 @@
-import Phaser from 'phaser';
+﻿import Phaser from 'phaser';
 import { Client, Room } from 'colyseus.js';
 import { GameState, LobbyInfo } from 'shared';
 
@@ -12,8 +12,8 @@ export class GameScene extends Phaser.Scene {
   private waitingText!: Phaser.GameObjects.Text;
   private currentLobbyId = '';
   private menuElements: Phaser.GameObjects.GameObject[] = [];
-  private readonly backendHttpUrl = import.meta.env.VITE_BACKEND_HTTP_URL || `${window.location.protocol}//${window.location.hostname}:2567`;
-  private readonly backendWsUrl = import.meta.env.VITE_BACKEND_WS_URL || `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.hostname}:2567`;
+  private readonly backendHttpUrl = (import.meta as any).env?.VITE_BACKEND_HTTP_URL || `${window.location.protocol}//${window.location.hostname}:2567`;
+  private readonly backendWsUrl = (import.meta as any).env?.VITE_BACKEND_WS_URL || `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.hostname}:2567`;
 
   constructor() {
     super({ key: 'GameScene' });
@@ -234,3 +234,5 @@ export class GameScene extends Phaser.Scene {
     this.sendInput();
   }
 }
+
+
