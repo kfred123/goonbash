@@ -12,7 +12,8 @@ export class GameScene extends Phaser.Scene {
   private waitingText!: Phaser.GameObjects.Text;
   private currentLobbyId = '';
   private menuElements: Phaser.GameObjects.GameObject[] = [];
-  private readonly lobbyApiUrl = `${window.location.protocol}//${window.location.hostname}:2567`;
+  private readonly backendHttpUrl = import.meta.env.VITE_BACKEND_HTTP_URL || `${window.location.protocol}//${window.location.hostname}:2567`;
+  private readonly backendWsUrl = import.meta.env.VITE_BACKEND_WS_URL || `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.hostname}:2567`;
 
   constructor() {
     super({ key: 'GameScene' });
@@ -43,7 +44,7 @@ export class GameScene extends Phaser.Scene {
 
   private async loadLobbies(listStatus: Phaser.GameObjects.Text) {
     try {
-      const response = await fetch(`${this.lobbyApiUrl}/lobbies`);
+      const response = await fetch(`${this.backendHttpUrl}/lobbies`);
       if (!response.ok) throw new Error(`Lobby request failed (${response.status})`);
       const data = await response.json() as { lobbies: LobbyInfo[] };
       listStatus.destroy();
@@ -67,7 +68,7 @@ export class GameScene extends Phaser.Scene {
 
   private async createLobby() {
     try {
-      const response = await fetch(`${this.lobbyApiUrl}/lobbies`, {
+      const response = await fetch(`${this.backendHttpUrl}/lobbies`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: 'New Game' })
@@ -91,8 +92,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private async connectToLobby(lobby: LobbyInfo) {
-    const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
-    this.client = new Client(`${protocol}://${window.location.hostname}:2567`);
+    this.client = new Client(this.backendWsUrl);
     this.room = await this.client.joinOrCreate<GameState>('game_room', { lobbyId: lobby.id });
     this.statusText.setText(`Connected | ${this.room.sessionId}`);
     this.statusText.setColor('#44ff88');
