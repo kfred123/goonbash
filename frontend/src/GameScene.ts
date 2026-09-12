@@ -140,7 +140,7 @@ export class GameScene extends Phaser.Scene {
 
   private async refreshWaitingPlayers() {
     try {
-      const response = await fetch(`${this.lobbyApiUrl}/lobbies`);
+      const response = await fetch(`${this.backendHttpUrl}/lobbies`);
       if (!response.ok || !this.waitingText) return;
       const data = await response.json() as { lobbies: LobbyInfo[] };
       const currentLobby = data.lobbies.find((entry) => entry.id === this.currentLobbyId);
@@ -234,5 +234,4 @@ export class GameScene extends Phaser.Scene {
     this.sendInput();
   }
 }
-
 
