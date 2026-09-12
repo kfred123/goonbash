@@ -29,3 +29,12 @@ test("rejects unknown lobbies", () => {
 
   assert.throws(() => registry.join("missing"), /not found/);
 });
+
+test("renames an existing lobby", () => {
+  const registry = new LobbyRegistry();
+  const lobby = registry.create("Original name");
+
+  assert.equal(registry.rename(lobby.id, "Renamed game").name, "Renamed game");
+  assert.equal(registry.get(lobby.id)?.name, "Renamed game");
+  assert.throws(() => registry.rename(lobby.id, "  "), /required/);
+});

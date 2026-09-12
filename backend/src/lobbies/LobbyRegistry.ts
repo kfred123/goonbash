@@ -34,6 +34,15 @@ export class LobbyRegistry {
     return { ...lobby };
   }
 
+  rename(id: string, name: string): LobbyInfo {
+    const lobby = this.lobbies.get(id);
+    if (!lobby) throw new Error("Lobby not found");
+    const trimmedName = name.trim();
+    if (!trimmedName) throw new Error("Lobby name is required");
+    lobby.name = trimmedName;
+    return { ...lobby };
+  }
+
   leave(id: string): void {
     const lobby = this.lobbies.get(id);
     if (!lobby) return;
