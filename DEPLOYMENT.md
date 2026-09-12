@@ -1,6 +1,6 @@
 # GoonBash - PR Test Deployment Setup
 
-This document guides you through setting up automated test deployments for every pull request.
+This document guides you through setting up automated test deployments for every pull request **and every push to `main`**, so the shared test environment always runs the most recently pushed commit.
 
 ## Quick Start
 
@@ -10,7 +10,7 @@ This document guides you through setting up automated test deployments for every
 - Node.js 18+ and npm
 
 ### What's Included
-- ✅ GitHub Actions workflow (`.github/workflows/deploy-pr-preview.yml`)
+- ✅ GitHub Actions workflow (`.github/workflows/deploy-render-test.yml`)
 - ✅ Render configuration guide (`RENDER_SETUP.md`)
 - ⏳ Manual Render setup required
 
@@ -56,6 +56,8 @@ This document guides you through setting up automated test deployments for every
 3. GitHub Actions workflow will automatically trigger
 4. ✅ Check the PR for deployment status comment
 5. Visit **https://goonbash-test.onrender.com** to test the changes
+6. The game shows a small badge in the bottom-right corner with the currently deployed commit (short SHA) and deploy timestamp, so you can confirm you're testing the expected version
+7. Merge the PR (or push a commit directly to `main`) and confirm the badge updates to the new `main` commit
 
 ### Step 4: (Optional) Add Branch Protection
 
@@ -70,23 +72,25 @@ Require deployments to succeed before merging:
 ## How It Works
 
 ```
-Pull Request Created/Updated
+Pull Request Created/Updated  OR  Push to main
          ↓
-GitHub Actions Triggered
+GitHub Actions Triggered (older in-flight runs are cancelled)
          ↓
-Extract PR Metadata (number, branch, commit)
+Extract Commit Metadata (PR number if applicable, branch, commit SHA)
+         ↓
+Update Render env vars (COMMIT_SHA, COMMIT_SHORT_SHA, SOURCE_BRANCH, DEPLOYED_AT)
          ↓
 Call Render API to Deploy
          ↓
 Poll Deployment Status
          ↓
-Post Comment with Status
+Post Comment with Status (PR events only)
          ↓
-Update Commit Status Check
+Update Commit Status Check (PR events only)
 ```
 
-**Each PR deployment replaces the previous test environment**, so only the latest PR is live at:
-**https://goonbash-test.onrender.com**
+**Each deployment (from a PR push or a `main` push) replaces the previous test environment**, so only the most recently pushed commit is live at:
+**https://goonbash-test.onrender.com** — the game itself displays a badge with the current commit and deploy timestamp so this is always verifiable at a glance.
 
 ## Accessing Test Environment
 
@@ -146,10 +150,11 @@ curl -X POST https://api.render.com/v1/services/<RENDER_SERVICE_ID>/deploys \
   - Frontend connects via WebSocket
 
 ### Workflow
-- GitHub Actions triggers on PR create/update
-- Render API called to redeploy `goonbash-test` service
-- New deployment replaces previous one
-- Status updates posted to PR
+- GitHub Actions triggers on PR create/update **and on pushes to `main`**
+- Render API called to redeploy `goonbash-test` service with the latest commit's env vars
+- New deployment replaces previous one — whichever trigger fires most recently wins
+- Status updates posted to PR (for PR-triggered runs)
+- Frontend badge shows the currently live commit + deploy time
 
 ### Limitations
 - Only one PR can be tested at a time (by design)

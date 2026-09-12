@@ -4,6 +4,7 @@ import { Server } from "colyseus";
 import { createServer } from "http";
 import { GameRoom } from "./rooms/GameRoom.js";
 import { LobbyRegistry } from "./lobbies/LobbyRegistry.js";
+import { getDeploymentInfo } from "./deploymentInfo.js";
 
 const port = Number(process.env.PORT || 2567);
 const app = express();
@@ -20,6 +21,10 @@ gameServer.define('game_room', GameRoom).filterBy(["lobbyId"]);
 
 app.get("/lobbies", (_request, response) => {
   response.json({ lobbies: lobbyRegistry.list() });
+});
+
+app.get("/deployment-info", (_request, response) => {
+  response.json(getDeploymentInfo());
 });
 
 app.post("/lobbies", (request, response) => {

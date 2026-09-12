@@ -1,7 +1,7 @@
 # GoonBash PR Deployment - Setup Checklist
 
 ## ✅ Completed (Automated)
-- [x] GitHub Actions Workflow created (`.github/workflows/deploy-pr-preview.yml`)
+- [x] GitHub Actions Workflow created (`.github/workflows/deploy-render-test.yml`)
 - [x] PR metadata extraction configured
 - [x] Render API integration configured
 - [x] Failure handling and PR comments configured
