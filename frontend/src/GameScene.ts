@@ -9,9 +9,8 @@ export class GameScene extends Phaser.Scene {
   private tankTargets: Map<string, { x: number; y: number }> = new Map();
   private minionSprites: Map<string, Phaser.GameObjects.Rectangle> = new Map();
   private statusText!: Phaser.GameObjects.Text;
-  private waitingText!: Phaser.GameObjects.Text;
-  private currentLobbyId = '';
   private menuElements: Phaser.GameObjects.GameObject[] = [];
+  private arenaStarted = false;
   private readonly backendHttpUrl = (import.meta as any).env?.VITE_BACKEND_HTTP_URL || `${window.location.protocol}//${window.location.hostname}:2567`;
   private readonly backendWsUrl = (import.meta as any).env?.VITE_BACKEND_WS_URL || `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.hostname}:2567`;
 
@@ -97,57 +96,74 @@ export class GameScene extends Phaser.Scene {
     this.statusText.setText(`Connected | ${this.room.sessionId}`);
     this.statusText.setColor('#44ff88');
     this.destroyMenuElements();
-    this.currentLobbyId = lobby.id;
-    this.createArena(lobby);
-    this.upsertTank({ x: 400, y: 300 }, this.room.sessionId);
-    this.room.state.tanks.forEach((tank, sessionId) => this.upsertTank(tank, sessionId));
-    const ownTank = this.room.state.tanks.get(this.room.sessionId);
-    if (ownTank) this.upsertTank(ownTank, this.room.sessionId);
     this.room.state.tanks.onAdd((tank, sessionId) => {
-      this.upsertTank(tank, sessionId);
-      this.waitingText.setText(`Players: ${this.room.state.tanks.size}`);
+      if (this.arenaStarted) this.upsertTank(tank, sessionId);
     });
     this.room.state.minions.forEach((minion, id) => this.upsertMinion(minion, id));
-    this.room.state.minions.onAdd((minion, id) => this.upsertMinion(minion, id));
+    this.room.state.minions.onAdd((minion, id) => {
+      if (this.arenaStarted) this.upsertMinion(minion, id);
+    });
     this.room.onStateChange((state: any) => {
-      console.debug('[GameScene] State update:', {
-        tankKeys: state.tanks ? Object.keys(state.tanks) : [],
-        tankSprites: this.tankSprites.size
-      });
-      if (this.waitingText && state.tanks) {
-        this.waitingText.setText(`Players: ${state.tanks.size ?? Object.keys(state.tanks).length}`);
+      if (state.phase === 'waiting') {
+        this.showWaitingLobby(state);
+        return;
       }
-      if (state.tanks && typeof state.tanks.forEach === 'function') {
+      if (state.phase === 'started' && !this.arenaStarted) {
+        this.arenaStarted = true;
+        this.createArena(state.lobbyName);
+        state.tanks?.forEach((tank: any, sessionId: string) => this.upsertTank(tank, sessionId));
+      }
+      if (this.arenaStarted && state.tanks && typeof state.tanks.forEach === 'function') {
         state.tanks.forEach((tank: any, sessionId: string) => this.upsertTank(tank, sessionId));
       }
-      if (state.minions && typeof state.minions.forEach === 'function') {
+      if (this.arenaStarted && state.minions && typeof state.minions.forEach === 'function') {
         state.minions.forEach((minion: any, id: string) => this.upsertMinion(minion, id));
       }
     });
-    void this.refreshWaitingPlayers();
+    this.showWaitingLobby(this.room.state);
   }
 
-  private createArena(lobby: LobbyInfo) {
+  private createArena(lobbyName: string) {
+    this.destroyMenuElements();
     this.add.rectangle(400, 300, 800, 600, 0x1a1a2e);
     const graphics = this.add.graphics();
     graphics.lineStyle(1, 0x2a2a4a, 1);
     for (let x = 0; x <= 800; x += 80) graphics.lineBetween(x, 0, x, 600);
     for (let y = 0; y <= 600; y += 80) graphics.lineBetween(0, y, 800, y);
-    this.add.text(400, 105, lobby.name, { color: '#ffffff', fontSize: '30px', fontStyle: 'bold' }).setOrigin(0.5);
-    this.waitingText = this.add.text(400, 145, 'Waiting for players...', { color: '#aaaaff', fontSize: '18px' }).setOrigin(0.5);
-    this.time.addEvent({ delay: 1000, loop: true, callback: () => void this.refreshWaitingPlayers() });
+    this.add.text(400, 105, lobbyName, { color: '#ffffff', fontSize: '30px', fontStyle: 'bold' }).setOrigin(0.5);
   }
 
-  private async refreshWaitingPlayers() {
-    try {
-      const response = await fetch(`${this.backendHttpUrl}/lobbies`);
-      if (!response.ok || !this.waitingText) return;
-      const data = await response.json() as { lobbies: LobbyInfo[] };
-      const currentLobby = data.lobbies.find((entry) => entry.id === this.currentLobbyId);
-      if (currentLobby) this.waitingText.setText(`Players: ${currentLobby.players}/${currentLobby.maxPlayers}`);
-    } catch (error) {
-      console.debug('[GameScene] Failed to refresh waiting players', error);
+  private showWaitingLobby(state: GameState) {
+    if (this.arenaStarted || !this.room) return;
+    this.destroyMenuElements();
+    this.addMenuText(400, 80, state.lobbyName, 32, '#ffffff', true);
+    this.addMenuText(400, 125, 'Choose your team while the host prepares the match', 16, '#aaaaff');
+    this.addMenuText(220, 185, 'RED TEAM', 18, '#ff7777', true);
+    this.addMenuText(580, 185, 'BLUE TEAM', 18, '#7799ff', true);
+
+    let redCount = 0;
+    let blueCount = 0;
+    state.tanks.forEach((tank, sessionId) => {
+      const isRed = tank.team === 'red';
+      const x = isRed ? 220 : 580;
+      const index = isRed ? redCount++ : blueCount++;
+      const label = sessionId === this.room.sessionId ? 'YOU' : 'PLAYER';
+      this.addMenuText(x, 225 + index * 28, label, 16, isRed ? '#ffaaaa' : '#aaccff');
+    });
+
+    this.addButton(220, 470, 150, 40, 'JOIN RED', () => this.room.send('change_team', 'red'));
+    this.addButton(580, 470, 150, 40, 'JOIN BLUE', () => this.room.send('change_team', 'blue'));
+    if (state.hostSessionId === this.room.sessionId) {
+      this.addButton(315, 535, 190, 40, 'RENAME GAME', () => this.renameLobby(state.lobbyName));
+      this.addButton(535, 535, 190, 40, 'START GAME', () => this.room.send('start_game'));
+    } else {
+      this.addMenuText(400, 535, 'Waiting for the host to start the game', 16, '#c8c8d8');
     }
+  }
+
+  private renameLobby(currentName: string) {
+    const name = window.prompt('Game name', currentName);
+    if (name) this.room.send('rename_lobby', name);
   }
 
   private addMenuText(x: number, y: number, text: string, fontSize: number, color: string, bold = false) {
@@ -212,7 +228,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private sendInput() {
-    if (!this.room) return;
+    if (!this.room || this.room.state.phase !== 'started') return;
     const keys = this.input.keyboard?.createCursorKeys();
     if (!keys) return;
     const inputX = (keys.right.isDown ? 1 : 0) - (keys.left.isDown ? 1 : 0);
@@ -234,4 +250,3 @@ export class GameScene extends Phaser.Scene {
     this.sendInput();
   }
 }
-
