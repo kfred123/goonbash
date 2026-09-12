@@ -1,7 +1,7 @@
 # Render PR Deployment Setup Guide
 
 ## Overview
-This guide explains how to set up automated test deployments to Render for every pull request.
+This guide explains how to set up automated test deployments to Render for every pull request **and every push to `main`**, so the shared test environment always tracks the most recently pushed commit.
 
 ## Build & Start Commands for GoonBash
 
@@ -20,9 +20,12 @@ npm run start --workspace=backend
 **Environment Variables:**
 - `PORT`: Server port (default: 2567)
 - `NODE_ENV`: Environment (development/production)
-- `PR_NUMBER`: Current PR number (set by GitHub Actions)
-- `BRANCH_NAME`: Current branch name (set by GitHub Actions)
-- `COMMIT_SHA`: Current commit SHA (set by GitHub Actions)
+- `COMMIT_SHA`: Full SHA of the currently deployed commit (set/updated by GitHub Actions on every deploy)
+- `COMMIT_SHORT_SHA`: Short (7-char) SHA of the currently deployed commit (set by GitHub Actions)
+- `SOURCE_BRANCH`: Branch the currently deployed commit came from (set by GitHub Actions)
+- `DEPLOYED_AT`: ISO 8601 timestamp of when the current deployment was triggered (set by GitHub Actions)
+
+These four commit-tracking variables are read by the backend's `GET /deployment-info` endpoint and shown in a small badge in the frontend, so testers can always see which commit is currently live.
 
 ## Step 1: Create Render Service
 
@@ -68,7 +71,9 @@ npm run start --workspace=backend
 
 ## Step 4: Configure Render Service Webhook (Optional)
 
-To automatically redeploy when code is pushed to the main branch:
+Note: pushes to `main` are now handled automatically by the GitHub Actions workflow itself (see "How It Works" below), so this webhook is no longer required for that purpose. It remains useful only as a backup/manual trigger.
+
+To automatically redeploy when code is pushed to the main branch via a Render-native webhook instead:
 
 1. In Render Dashboard, go to your `goonbash-test` service
 2. Copy the **Deploy Hook** URL
@@ -78,16 +83,17 @@ To automatically redeploy when code is pushed to the main branch:
 
 ## How It Works
 
-1. When a PR is created or updated with new commits:
-   - GitHub Actions workflow is triggered
-   - Workflow extracts PR metadata (number, branch, commit)
+1. When a PR is created/updated, **or when a commit is pushed to `main`**:
+   - GitHub Actions workflow is triggered (a `concurrency` group cancels any older in-flight run for the same shared service)
+   - Workflow extracts commit metadata (PR number if applicable, branch, commit SHA)
+   - Workflow updates the Render service's `COMMIT_SHA`, `COMMIT_SHORT_SHA`, `SOURCE_BRANCH`, and `DEPLOYED_AT` env vars
    - Render API is called to deploy the latest code to `goonbash-test` service
-   - Deployment status is posted as a PR comment
-   - Status check is added to the commit
+   - Deployment status is posted as a PR comment (for PR-triggered runs)
+   - Status check is added to the commit (for PR-triggered runs)
 
-2. Reviewers can test the changes at: **https://goonbash-test.onrender.com**
+2. Reviewers can test the changes at: **https://goonbash-test.onrender.com**, and confirm the exact commit/deploy time via the badge shown in the game
 
-3. Each new PR deployment replaces the previous test environment
+3. Each new deployment (from a PR or from `main`) replaces the previous test environment — the environment always reflects the most recently pushed commit
 
 ## Monitoring Deployments
 
