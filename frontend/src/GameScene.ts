@@ -8,6 +8,9 @@ export class GameScene extends Phaser.Scene {
   private tankSprites: Map<string, Phaser.GameObjects.Rectangle> = new Map();
   private tankTargets: Map<string, { x: number; y: number }> = new Map();
   private minionSprites: Map<string, Phaser.GameObjects.Rectangle> = new Map();
+  private minionHealthBars: Map<string, Phaser.GameObjects.Graphics> = new Map();
+  private towerSprites: Map<string, Phaser.GameObjects.Rectangle> = new Map();
+  private towerHealthBars: Map<string, Phaser.GameObjects.Graphics> = new Map();
   private statusText!: Phaser.GameObjects.Text;
   private menuElements: Phaser.GameObjects.GameObject[] = [];
   private nameInputEl: HTMLInputElement | null = null;
@@ -189,6 +192,11 @@ export class GameScene extends Phaser.Scene {
     this.room.state.minions.onAdd((minion, id) => {
       if (this.arenaStarted) this.upsertMinion(minion, id);
     });
+    this.room.state.minions.onRemove((_minion, id) => this.removeMinion(id));
+    this.room.state.towers.forEach((tower, id) => this.upsertTower(tower, id));
+    this.room.state.towers.onAdd((tower, id) => {
+      if (this.arenaStarted) this.upsertTower(tower, id);
+    });
     this.room.onStateChange((state: any) => {
       if (state.phase === 'waiting') {
         this.showWaitingLobby(state);
@@ -198,12 +206,16 @@ export class GameScene extends Phaser.Scene {
         this.arenaStarted = true;
         this.createArena(state.lobbyName);
         state.tanks?.forEach((tank: any, sessionId: string) => this.upsertTank(tank, sessionId));
+        state.towers?.forEach((tower: any, id: string) => this.upsertTower(tower, id));
       }
       if (this.arenaStarted && state.tanks && typeof state.tanks.forEach === 'function') {
         state.tanks.forEach((tank: any, sessionId: string) => this.upsertTank(tank, sessionId));
       }
       if (this.arenaStarted && state.minions && typeof state.minions.forEach === 'function') {
         state.minions.forEach((minion: any, id: string) => this.upsertMinion(minion, id));
+      }
+      if (this.arenaStarted && state.towers && typeof state.towers.forEach === 'function') {
+        state.towers.forEach((tower: any, id: string) => this.upsertTower(tower, id));
       }
     });
     this.showWaitingLobby(this.room.state);
@@ -314,6 +326,45 @@ export class GameScene extends Phaser.Scene {
     sprite.x = minion.x ?? sprite.x;
     sprite.y = minion.y ?? sprite.y;
     this.minionSprites.set(id, sprite);
+
+    const healthBar = this.minionHealthBars.get(id) ?? this.add.graphics();
+    this.minionHealthBars.set(id, healthBar);
+    this.drawHealthBar(healthBar, sprite.x, sprite.y - 16, 20, 3, minion.hp, minion.maxHp);
+  }
+
+  private removeMinion(id: string) {
+    this.minionSprites.get(id)?.destroy();
+    this.minionSprites.delete(id);
+    this.minionHealthBars.get(id)?.destroy();
+    this.minionHealthBars.delete(id);
+  }
+
+  private upsertTower(tower: any, id: string) {
+    if (!tower) return;
+    const sprite = this.towerSprites.get(id) ?? this.add.rectangle(
+      tower.x ?? 0,
+      tower.y ?? 0,
+      48,
+      48,
+      tower.team === 'blue' ? 0x2255cc : 0xcc4422
+    );
+    sprite.x = tower.x ?? sprite.x;
+    sprite.y = tower.y ?? sprite.y;
+    this.towerSprites.set(id, sprite);
+
+    const healthBar = this.towerHealthBars.get(id) ?? this.add.graphics();
+    this.towerHealthBars.set(id, healthBar);
+    this.drawHealthBar(healthBar, sprite.x, sprite.y - 36, 50, 5, tower.hp, tower.maxHp);
+  }
+
+  private drawHealthBar(graphics: Phaser.GameObjects.Graphics, centerX: number, y: number, width: number, height: number, hp: number, maxHp: number) {
+    const ratio = maxHp > 0 ? Phaser.Math.Clamp(hp / maxHp, 0, 1) : 0;
+    const left = centerX - width / 2;
+    graphics.clear();
+    graphics.fillStyle(0x222222, 0.9);
+    graphics.fillRect(left, y, width, height);
+    graphics.fillStyle(ratio > 0.3 ? 0x44dd66 : 0xdd4444, 1);
+    graphics.fillRect(left, y, width * ratio, height);
   }
 
   private sendInput() {
