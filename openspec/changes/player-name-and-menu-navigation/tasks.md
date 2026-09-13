@@ -18,7 +18,7 @@
 ## 4. Frontend: main menu screen
 
 - [ ] 4.1 Add a `showMainMenu()` state to `GameScene` with a name input (HTML input overlay or Phaser text input) and a `Continue` button
-- [ ] 4.2 Read/write the player name from `sessionStorage` so it persists for the tab session and pre-fills the field when returning to the main menu
+- [ ] 4.2 Read/write the player name from `localStorage` so it persists across browser restarts and pre-fills the field when returning to the main menu
 - [ ] 4.3 Validate the trimmed name is non-empty before enabling `Continue`; show a validation message otherwise
 - [ ] 4.4 On `Continue`, store the trimmed name and call `showLobbyMenu()`
 - [ ] 4.5 Update `create()` in `GameScene` (and `main.ts` if needed) to start on `showMainMenu()` instead of `showLobbyMenu()`

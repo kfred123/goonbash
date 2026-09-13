@@ -18,8 +18,8 @@ The client SHALL show a main menu as the first screen on load, before any lobby 
 - **THEN** the client stores the trimmed name for the session
 - **AND** it navigates to the lobby menu
 
-### Requirement: Reuse the entered name across the session
-The client SHALL retain the player's entered name for the duration of the browser tab session and SHALL use it whenever creating or joining a lobby, without prompting again unless the player returns to the main menu.
+### Requirement: Persist the entered name across visits
+The client SHALL persist the player's entered name in durable browser storage so it survives page reloads and future visits, and SHALL use the stored name whenever creating or joining a lobby without prompting again unless the player changes it.
 
 #### Scenario: Player creates or joins a lobby after entering a name
 - **WHEN** the player creates or joins a lobby from the lobby menu
@@ -29,3 +29,8 @@ The client SHALL retain the player's entered name for the duration of the browse
 - **WHEN** the player navigates back to the main menu from the lobby menu
 - **THEN** the client pre-fills the name field with the previously entered name
 - **AND** the player can change the name before continuing again
+
+#### Scenario: Player revisits the client after closing the browser
+- **WHEN** the player reloads the page or reopens the client in a new browser session
+- **THEN** the client pre-fills the name field with the name persisted from the previous visit
+- **AND** the player can accept it or change it before continuing
