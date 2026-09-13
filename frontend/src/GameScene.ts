@@ -7,7 +7,10 @@ export class GameScene extends Phaser.Scene {
   private room!: Room<GameState>;
   private tankSprites: Map<string, Phaser.GameObjects.Rectangle> = new Map();
   private tankTargets: Map<string, { x: number; y: number }> = new Map();
+  private tankNameTexts: Map<string, Phaser.GameObjects.Text> = new Map();
   private minionSprites: Map<string, Phaser.GameObjects.Rectangle> = new Map();
+  private projectileSprites: Map<string, Phaser.GameObjects.Arc> = new Map();
+  private healthBars: Map<string, { bg: Phaser.GameObjects.Rectangle; fill: Phaser.GameObjects.Rectangle; width: number }> = new Map();
   private statusText!: Phaser.GameObjects.Text;
   private menuElements: Phaser.GameObjects.GameObject[] = [];
   private nameInputEl: HTMLInputElement | null = null;
@@ -189,6 +192,10 @@ export class GameScene extends Phaser.Scene {
     this.room.state.minions.onAdd((minion, id) => {
       if (this.arenaStarted) this.upsertMinion(minion, id);
     });
+    this.room.state.minions.onRemove((_minion, id) => this.removeMinion(id));
+    this.room.state.projectiles.forEach((projectile, id) => this.upsertProjectile(projectile, id));
+    this.room.state.projectiles.onAdd((projectile, id) => this.upsertProjectile(projectile, id));
+    this.room.state.projectiles.onRemove((_projectile, id) => this.removeProjectile(id));
     this.room.onStateChange((state: any) => {
       if (state.phase === 'waiting') {
         this.showWaitingLobby(state);
@@ -204,6 +211,9 @@ export class GameScene extends Phaser.Scene {
       }
       if (this.arenaStarted && state.minions && typeof state.minions.forEach === 'function') {
         state.minions.forEach((minion: any, id: string) => this.upsertMinion(minion, id));
+      }
+      if (this.arenaStarted && state.projectiles && typeof state.projectiles.forEach === 'function') {
+        state.projectiles.forEach((projectile: any, id: string) => this.upsertProjectile(projectile, id));
       }
     });
     this.showWaitingLobby(this.room.state);
@@ -283,41 +293,108 @@ export class GameScene extends Phaser.Scene {
 
     const x = tank.x ?? 200;
     const y = tank.y ?? 200;
+    const isDead = tank.state === 'dead';
 
     if (this.tankSprites.has(sessionId)) {
-    this.tankTargets.set(sessionId, { x, y });
-      // Update existing
+      this.tankTargets.set(sessionId, { x, y });
       const sprite = this.tankSprites.get(sessionId)!;
+      sprite.setVisible(!isDead);
+      this.tankNameTexts.get(sessionId)?.setVisible(!isDead);
     } else {
       // Spawn new
       const isMe = sessionId === this.room.sessionId;
       const color = isMe ? 0x00ff88 : 0xff4444;
       const sprite = this.add.rectangle(x, y, 40, 40, color);
-      this.add.text(x, y - 26, isMe ? 'YOU' : 'Enemy', {
+      const nameText = this.add.text(x, y - 26, isMe ? 'YOU' : 'Enemy', {
         color: isMe ? '#00ff88' : '#ff4444',
         fontSize: '11px'
       }).setOrigin(0.5);
+      sprite.setVisible(!isDead);
+      nameText.setVisible(!isDead);
       this.tankSprites.set(sessionId, sprite);
+      this.tankNameTexts.set(sessionId, nameText);
       console.log(`Spawned tank for ${sessionId} at ${x},${y}`);
     }
+
+    this.updateHealthBar(sessionId, x, y - 32, tank.hp, tank.maxHp, !isDead);
   }
 
   private upsertMinion(minion: any, id: string) {
     if (!minion) return;
+    const x = minion.x ?? 0;
+    const y = minion.y ?? 0;
     const sprite = this.minionSprites.get(id) ?? this.add.rectangle(
-      minion.x ?? 0,
-      minion.y ?? 0,
+      x,
+      y,
       18,
       18,
       minion.team === 'blue' ? 0x4d8dff : 0xff884d
     );
-    sprite.x = minion.x ?? sprite.x;
-    sprite.y = minion.y ?? sprite.y;
+    sprite.x = x;
+    sprite.y = y;
     this.minionSprites.set(id, sprite);
+    this.updateHealthBar(id, x, y - 16, minion.hp, minion.maxHp, true);
+  }
+
+  private removeMinion(id: string) {
+    this.minionSprites.get(id)?.destroy();
+    this.minionSprites.delete(id);
+    this.removeHealthBar(id);
+  }
+
+  private upsertProjectile(projectile: any, id: string) {
+    if (!projectile) return;
+    const x = projectile.x ?? 0;
+    const y = projectile.y ?? 0;
+    const sprite = this.projectileSprites.get(id) ?? this.add.circle(
+      x,
+      y,
+      4,
+      projectile.team === 'blue' ? 0x99ccff : 0xffcc99
+    );
+    sprite.x = x;
+    sprite.y = y;
+    this.projectileSprites.set(id, sprite);
+  }
+
+  private removeProjectile(id: string) {
+    this.projectileSprites.get(id)?.destroy();
+    this.projectileSprites.delete(id);
+  }
+
+  private hpRatio(hp: number, maxHp: number): number {
+    if (!maxHp) return 0;
+    return Math.max(0, Math.min(1, hp / maxHp));
+  }
+
+  private updateHealthBar(id: string, x: number, y: number, hp: number, maxHp: number, visible: boolean) {
+    const barWidth = 36;
+    const bar = this.healthBars.get(id);
+    const fillWidth = barWidth * this.hpRatio(hp, maxHp);
+    if (bar) {
+      bar.bg.setPosition(x, y);
+      bar.fill.setPosition(x - barWidth / 2, y);
+      bar.fill.width = fillWidth;
+      bar.bg.setVisible(visible);
+      bar.fill.setVisible(visible);
+      return;
+    }
+    const bg = this.add.rectangle(x, y, barWidth, 5, 0x330000).setOrigin(0.5).setVisible(visible);
+    const fill = this.add.rectangle(x - barWidth / 2, y, fillWidth, 5, 0x33cc33).setOrigin(0, 0.5).setVisible(visible);
+    this.healthBars.set(id, { bg, fill, width: barWidth });
+  }
+
+  private removeHealthBar(id: string) {
+    const bar = this.healthBars.get(id);
+    bar?.bg.destroy();
+    bar?.fill.destroy();
+    this.healthBars.delete(id);
   }
 
   private sendInput() {
     if (!this.room || this.room.state.phase !== 'started') return;
+    const myTank = this.room.state.tanks.get(this.room.sessionId);
+    if (myTank && (myTank as any).state === 'dead') return;
     const keys = this.input.keyboard?.createCursorKeys();
     if (!keys) return;
     const inputX = (keys.right.isDown ? 1 : 0) - (keys.left.isDown ? 1 : 0);
