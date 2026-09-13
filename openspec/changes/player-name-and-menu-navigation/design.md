@@ -10,6 +10,7 @@ The frontend is a single Phaser `GameScene` that renders three states by mutatin
 - Replace generic roster labels with real player names in the waiting lobby.
 - Add a "Back to Main Menu" action reachable from the lobby list and the waiting lobby that cleanly disconnects and returns to name entry.
 - Confirm/lock in lobby auto-deletion once the last active player leaves, with a regression test.
+- Reassign the lobby host to a remaining participant when the current host leaves or disconnects.
 
 **Non-Goals:**
 - No persistent account system, authentication, or server-side name uniqueness/profanity checks.
@@ -25,6 +26,7 @@ The frontend is a single Phaser `GameScene` that renders three states by mutatin
 - **Name validation**: Trim and cap length (e.g. 20 chars) client-side before enabling the "Continue" action; server trims/falls back to `Player` if empty or missing, mirroring the existing `LobbyRegistry.rename` trim-and-fallback pattern.
 - **Back-to-main-menu navigation**: Add an explicit `leave()` call on the Colyseus `Room` (client-initiated, consented) before tearing down menu elements and calling `showMainMenu()`. Rationale: this reuses the existing `onLeave` server cleanup path (including lobby deletion) rather than introducing a second disconnect code path.
 - **Lobby deletion confirmation**: No production code change is anticipated for `LobbyRegistry`; add/extend a `GameRoom`/`LobbyRegistry` test asserting the lobby is removed after the only remaining participant leaves, covering both `waiting` and `started` phases, to lock in current behavior as a spec-backed guarantee.
+- **Host reassignment**: In `GameRoom.onLeave`, when the leaving `sessionId` equals `state.hostSessionId` and other tanks remain, set `state.hostSessionId` to the `sessionId` of any remaining tank (e.g. the first entry of `state.tanks` after deletion) — arbitrary selection is acceptable since there is no seniority/ownership concept beyond "first to join". Rationale: reuses the same synchronized `hostSessionId` field the client already reads to show/hide host controls, so no new message or client logic is needed beyond what already reacts to state changes.
 
 ## Risks / Trade-offs
 
@@ -32,6 +34,7 @@ The frontend is a single Phaser `GameScene` that renders three states by mutatin
 - [Existing in-flight rooms don't have `tank.name` on already-connected clients when this ships] → Not a concern in practice since rooms are ephemeral (in-memory, deleted on empty); no migration needed.
 - [Reusing one Phaser Scene for main menu adds branching complexity to `GameScene`] → Mitigated by following the existing `showX()` + `destroyMenuElements()` pattern already used for the other two states, keeping the diff mechanical.
 - [`localStorage` name is shared across all tabs of the same browser] → Acceptable trade-off for this change: the goal is to avoid re-typing a name on return visits; the main menu still lets the player edit/overwrite it at any time.
+- [Host reassignment picks an arbitrary remaining player, which may surprise players expecting a specific successor] → Acceptable; no ordering/seniority guarantee is promised beyond "first to join becomes host", which already has no explicit UI signal today.
 
 ## Migration Plan
 

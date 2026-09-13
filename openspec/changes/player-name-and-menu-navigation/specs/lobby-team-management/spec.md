@@ -16,11 +16,17 @@ The system SHALL associate each connected player's display name with their team 
 ## MODIFIED Requirements
 
 ### Requirement: Restrict lobby management to its creator
-The system SHALL designate the first player to join a lobby as its host. Only that host SHALL be authorized to rename the lobby or start the match. The system SHALL delete the lobby once it has no remaining active players, regardless of whether the match is waiting or already started.
+The system SHALL designate the first player to join a lobby as its host. Only that host SHALL be authorized to rename the lobby or start the match. If the host leaves or disconnects while other players remain, the system SHALL designate a new host from the remaining participants. The system SHALL delete the lobby once it has no remaining active players, regardless of whether the match is waiting or already started.
 
 #### Scenario: Non-host attempts a host action
 - **WHEN** a non-host player requests a lobby rename or match start
 - **THEN** the system leaves the lobby name and match phase unchanged
+
+#### Scenario: Host leaves while other players remain
+- **WHEN** the host leaves or disconnects and at least one other player is still in the lobby
+- **THEN** the system designates one of the remaining players as the new host
+- **AND** synchronizes the new host assignment to all lobby participants
+- **AND** the new host gains authorization to rename the lobby and start the match
 
 #### Scenario: Last active player leaves a waiting lobby
 - **WHEN** the only remaining player in a waiting lobby leaves or disconnects
