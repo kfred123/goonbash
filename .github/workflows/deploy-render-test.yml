@@ -83,21 +83,28 @@ jobs:
           RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
           RENDER_BACKEND_SERVICE_ID: ${{ secrets.RENDER_BACKEND_SERVICE_ID }}
           RENDER_FRONTEND_SERVICE_ID: ${{ secrets.RENDER_FRONTEND_SERVICE_ID }}
+          COMMIT_SHA: ${{ steps.pr_metadata.outputs.commit_sha }}
         run: |
           # Trigger a deploy for one Render service and poll until it goes
           # live, fails, or times out (max 10 minutes). Prints progress and
           # returns non-zero on any failure.
+          #
+          # Render's deploy-trigger endpoint defaults to deploying the
+          # latest commit on the service's connected branch (e.g. main) if
+          # no commitId is given - it does NOT deploy whatever happens to
+          # be checked out in this job. We explicitly pass the PR/commit
+          # SHA so the correct commit is actually deployed.
           deploy_and_wait() {
             local label="$1"
             local service_id="$2"
 
-            echo "🚀 Triggering deploy for $label ($service_id)..."
+            echo "🚀 Triggering deploy for $label ($service_id) at commit ${COMMIT_SHA}..."
             local deploy_response
             deploy_response=$(curl -s -X POST \
               "https://api.render.com/v1/services/${service_id}/deploys" \
               -H "Authorization: Bearer ${RENDER_API_KEY}" \
               -H "Content-Type: application/json" \
-              -d '{"clearCache": "clear"}')
+              -d "{\"clearCache\": \"clear\", \"commitId\": \"${COMMIT_SHA}\"}")
 
             local deploy_id
             deploy_id=$(echo "$deploy_response" | jq -r '.id // empty')
