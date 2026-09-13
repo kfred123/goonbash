@@ -9,6 +9,7 @@ export class GameScene extends Phaser.Scene {
   private tankTargets: Map<string, { x: number; y: number }> = new Map();
   private tankNameTexts: Map<string, Phaser.GameObjects.Text> = new Map();
   private minionSprites: Map<string, Phaser.GameObjects.Rectangle> = new Map();
+  private baseSprites: Map<string, Phaser.GameObjects.Rectangle> = new Map();
   private projectileSprites: Map<string, Phaser.GameObjects.Arc> = new Map();
   private healthBars: Map<string, { bg: Phaser.GameObjects.Rectangle; fill: Phaser.GameObjects.Rectangle; width: number }> = new Map();
   private statusText!: Phaser.GameObjects.Text;
@@ -205,6 +206,7 @@ export class GameScene extends Phaser.Scene {
         this.arenaStarted = true;
         this.createArena(state.lobbyName);
         state.tanks?.forEach((tank: any, sessionId: string) => this.upsertTank(tank, sessionId));
+        state.bases?.forEach((base: any, id: string) => this.upsertBase(base, id));
       }
       if (this.arenaStarted && state.tanks && typeof state.tanks.forEach === 'function') {
         state.tanks.forEach((tank: any, sessionId: string) => this.upsertTank(tank, sessionId));
@@ -214,6 +216,9 @@ export class GameScene extends Phaser.Scene {
       }
       if (this.arenaStarted && state.projectiles && typeof state.projectiles.forEach === 'function') {
         state.projectiles.forEach((projectile: any, id: string) => this.upsertProjectile(projectile, id));
+      }
+      if (this.arenaStarted && state.bases && typeof state.bases.forEach === 'function') {
+        state.bases.forEach((base: any, id: string) => this.upsertBase(base, id));
       }
     });
     this.showWaitingLobby(this.room.state);
@@ -334,6 +339,23 @@ export class GameScene extends Phaser.Scene {
     sprite.y = y;
     this.minionSprites.set(id, sprite);
     this.updateHealthBar(id, x, y - 16, minion.hp, minion.maxHp, true);
+  }
+
+  private upsertBase(base: any, id: string) {
+    if (!base) return;
+    const x = base.x ?? 0;
+    const y = base.y ?? 0;
+    const sprite = this.baseSprites.get(id) ?? this.add.rectangle(
+      x,
+      y,
+      50,
+      50,
+      base.team === 'blue' ? 0x2255aa : 0xaa3322
+    ).setStrokeStyle(3, 0xffffff);
+    sprite.x = x;
+    sprite.y = y;
+    this.baseSprites.set(id, sprite);
+    this.updateHealthBar(id, x, y - 40, base.hp, base.maxHp, true);
   }
 
   private removeMinion(id: string) {

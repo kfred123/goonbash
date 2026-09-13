@@ -63,7 +63,13 @@ export class GameRoom extends Room<GameState> {
       tank.y = Math.max(20, Math.min(580, tank.y + tank.inputY / length * speed));
     });
 
+    // Resolve targeting/firing before movement so minions that are engaged
+    // with an enemy this tick hold their ground instead of marching through it.
+    this.resolveCombat(deltaTime);
+    this.resolveRespawns(now);
+
     this.state.minions.forEach((minion) => {
+      if (minion.targetId) return;
       const dx = minion.waypointX - minion.x;
       const dy = minion.waypointY - minion.y;
       const distance = Math.hypot(dx, dy);
@@ -72,9 +78,6 @@ export class GameRoom extends Room<GameState> {
         minion.y += dy / distance * minion.speed * elapsedSeconds;
       }
     });
-
-    this.resolveCombat(deltaTime);
-    this.resolveRespawns(now);
 
     this.spawnTimer -= deltaTime;
     if (this.spawnTimer <= 0) {
