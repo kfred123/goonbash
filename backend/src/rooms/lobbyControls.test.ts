@@ -4,6 +4,8 @@ import {
   canChangeTeam,
   canManageLobby,
   normalizeLobbyName,
+  normalizePlayerName,
+  resolveHostAfterLeave,
   selectBalancedTeam
 } from "./lobbyControls.js";
 
@@ -31,4 +33,22 @@ test("normalizes valid lobby names and rejects invalid ones", () => {
   assert.equal(normalizeLobbyName(""), undefined);
   assert.equal(normalizeLobbyName("x".repeat(49)), undefined);
   assert.equal(normalizeLobbyName({}), undefined);
+});
+
+test("normalizes player names and falls back to a default when missing", () => {
+  assert.equal(normalizePlayerName("  Alice  "), "Alice");
+  assert.equal(normalizePlayerName(""), "Player");
+  assert.equal(normalizePlayerName("   "), "Player");
+  assert.equal(normalizePlayerName(undefined), "Player");
+  assert.equal(normalizePlayerName(42), "Player");
+  assert.equal(normalizePlayerName("x".repeat(30)), "x".repeat(20));
+});
+
+test("reassigns the host to a remaining player when the host leaves", () => {
+  assert.equal(resolveHostAfterLeave("host", "host", ["p2", "p3"]), "p2");
+  assert.equal(resolveHostAfterLeave("host", "host", []), "");
+});
+
+test("leaves the host unchanged when a non-host player leaves", () => {
+  assert.equal(resolveHostAfterLeave("player", "host", ["host", "player2"]), "host");
 });

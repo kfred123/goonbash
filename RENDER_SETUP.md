@@ -3,19 +3,25 @@
 ## Overview
 This guide explains how to set up automated test deployments to Render for every pull request **and every push to `main`**, so the shared test environment always tracks the most recently pushed commit.
 
+GoonBash is deployed to Render as **two separate services**:
+- **`goonbash-test` (Web Service):** runs the backend (Express + Colyseus)
+- **`goonbash-test-frontend` (Static Site):** serves the built frontend (Vite build output)
+
+Both services are redeployed together by the workflow on every PR push and every push to `main`.
+
 ## Build & Start Commands for GoonBash
+
+### Backend (Web Service)
 
 **Build Command:**
 ```bash
 npm install
 ```
 
-**Start Command (Backend only):**
+**Start Command:**
 ```bash
 npm run start --workspace=backend
 ```
-
-> **Note:** The frontend runs on Vite development server in development mode. For production, you may want to build the frontend and serve it as static assets from the backend. This requires additional configuration in the backend Express.js server.
 
 **Environment Variables:**
 - `PORT`: Server port (default: 2567)
@@ -27,7 +33,27 @@ npm run start --workspace=backend
 
 These four commit-tracking variables are read by the backend's `GET /deployment-info` endpoint and shown in a small badge in the frontend, so testers can always see which commit is currently live.
 
-## Step 1: Create Render Service
+### Frontend (Static Site)
+
+**Build Command:**
+```bash
+npm install && npm run build --workspace=frontend
+```
+
+**Publish Directory:**
+```
+frontend/dist
+```
+
+**Build-time Environment Variables:**
+- `VITE_BACKEND_HTTP_URL`: full HTTPS URL of the backend Web Service (e.g. `https://goonbash-test.onrender.com`)
+- `VITE_BACKEND_WS_URL`: full WSS URL of the backend Web Service (e.g. `wss://goonbash-test.onrender.com`)
+
+These are baked into the frontend bundle at build time by Vite, so the frontend knows where to reach the backend even though it's served from a different Render domain. Set them once in the Static Site's environment settings; they don't change per deploy.
+
+## Step 1: Create Render Services
+
+### Backend
 
 1. Go to [https://dashboard.render.com](https://dashboard.render.com)
 2. Click **New +** → **Web Service**
@@ -49,6 +75,22 @@ These four commit-tracking variables are read by the backend's `GET /deployment-
 6. Deploy the service (manual initial deployment)
 7. Note the service URL: `https://goonbash-test.onrender.com` (or your custom domain)
 
+### Frontend
+
+1. In Render Dashboard, click **New +** → **Static Site**
+2. Connect the same GitHub repository
+3. Configure the service:
+   - **Name:** `goonbash-test-frontend`
+   - **Build Command:** `npm install && npm run build --workspace=frontend`
+   - **Publish Directory:** `frontend/dist`
+4. Under **Environment**, add:
+   ```
+   VITE_BACKEND_HTTP_URL = https://goonbash-test.onrender.com
+   VITE_BACKEND_WS_URL = wss://goonbash-test.onrender.com
+   ```
+5. Deploy the service (manual initial deployment)
+6. Note the service URL: `https://goonbash-test-frontend.onrender.com` (or your custom domain) — this is the URL players/testers actually open
+
 ## Step 2: Get Render API Key
 
 1. In Render Dashboard, go to **Settings** → **API Keys**
@@ -66,8 +108,12 @@ These four commit-tracking variables are read by the backend's `GET /deployment-
    - Value: (paste the API key from Step 2)
 
    **Secret 2:**
-   - Name: `RENDER_SERVICE_ID`
-   - Value: (your Render service ID - find it in the service URL: `https://dashboard.render.com/web/srv-XXXXX`)
+   - Name: `RENDER_BACKEND_SERVICE_ID`
+   - Value: (the backend Web Service ID - find it in its service URL: `https://dashboard.render.com/web/srv-XXXXX`)
+
+   **Secret 3:**
+   - Name: `RENDER_FRONTEND_SERVICE_ID`
+   - Value: (the frontend Static Site ID - find it in its service URL: `https://dashboard.render.com/static/srv-XXXXX`)
 
 ## Step 4: Configure Render Service Webhook (Optional)
 
@@ -84,16 +130,16 @@ To automatically redeploy when code is pushed to the main branch via a Render-na
 ## How It Works
 
 1. When a PR is created/updated, **or when a commit is pushed to `main`**:
-   - GitHub Actions workflow is triggered (a `concurrency` group cancels any older in-flight run for the same shared service)
+   - GitHub Actions workflow is triggered (a `concurrency` group cancels any older in-flight run for the same shared services)
    - Workflow extracts commit metadata (PR number if applicable, branch, commit SHA)
-   - Workflow updates the Render service's `COMMIT_SHA`, `COMMIT_SHORT_SHA`, `SOURCE_BRANCH`, and `DEPLOYED_AT` env vars
-   - Render API is called to deploy the latest code to `goonbash-test` service
+   - Workflow updates the backend service's `COMMIT_SHA`, `COMMIT_SHORT_SHA`, `SOURCE_BRANCH`, and `DEPLOYED_AT` env vars (the frontend Static Site doesn't have a runtime endpoint of its own, so this only targets the backend)
+   - Render API is called to deploy the latest code to **both** the `goonbash-test` backend and `goonbash-test-frontend` frontend services
    - Deployment status is posted as a PR comment (for PR-triggered runs)
    - Status check is added to the commit (for PR-triggered runs)
 
-2. Reviewers can test the changes at: **https://goonbash-test.onrender.com**, and confirm the exact commit/deploy time via the badge shown in the game
+2. Reviewers can test the changes at: **https://goonbash-test-frontend.onrender.com**, and confirm the exact commit/deploy time via the badge shown in the game
 
-3. Each new deployment (from a PR or from `main`) replaces the previous test environment — the environment always reflects the most recently pushed commit
+3. Each new deployment (from a PR or from `main`) replaces the previous test environment on both services — the environment always reflects the most recently pushed commit
 
 ## Monitoring Deployments
 
@@ -109,9 +155,9 @@ To automatically redeploy when code is pushed to the main branch via a Render-na
 - Regenerate the key if needed
 
 ### Deployment fails with "Service not found"
-- Verify `RENDER_SERVICE_ID` is correct
-- Ensure the `goonbash-test` service exists in Render
-- Check the service ID matches your service
+- Verify `RENDER_BACKEND_SERVICE_ID` and `RENDER_FRONTEND_SERVICE_ID` are correct
+- Ensure both the `goonbash-test` and `goonbash-test-frontend` services exist in Render
+- Check the service IDs match your services
 
 ### Build fails with "npm: command not found"
 - Verify Node.js environment is selected in Render
@@ -152,6 +198,7 @@ This setup is designed for **test/preview** environments only. For production de
 
 ---
 
-**Test URL:** https://goonbash-test.onrender.com
+**Test URL (frontend):** https://goonbash-test-frontend.onrender.com
+**Backend URL:** https://goonbash-test.onrender.com
 
 For more information, see the [Render documentation](https://render.com/docs).

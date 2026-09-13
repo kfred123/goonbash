@@ -10,7 +10,9 @@
 
 ## ⏳ Remaining (Manual Setup Required)
 
-### Phase 1: Render Service Setup (5 minutes)
+### Phase 1: Render Service Setup (10 minutes)
+
+**Backend (Web Service):**
 - [ ] Create Render account at https://render.com (if not already done)
 - [ ] Create new "Web Service" in Render Dashboard
 - [ ] Name it: `goonbash-test`
@@ -24,12 +26,26 @@
 - [ ] Save the Service URL (e.g., `https://goonbash-test.onrender.com`)
 - [ ] Save the Service ID (from URL: `srv-xxxxx`)
 
-**Estimated Time:** 5 minutes
+**Frontend (Static Site):**
+- [ ] Create new "Static Site" in Render Dashboard
+- [ ] Name it: `goonbash-test-frontend`
+- [ ] Connect the same GitHub repository
+- [ ] Set Build Command: `npm install && npm run build --workspace=frontend`
+- [ ] Set Publish Directory: `frontend/dist`
+- [ ] Add Environment Variables:
+  - [ ] `VITE_BACKEND_HTTP_URL = https://goonbash-test.onrender.com`
+  - [ ] `VITE_BACKEND_WS_URL = wss://goonbash-test.onrender.com`
+- [ ] Deploy
+- [ ] Save the Service URL (e.g., `https://goonbash-test-frontend.onrender.com`)
+- [ ] Save the Service ID (from URL: `srv-xxxxx`)
+
+**Estimated Time:** 10 minutes
 
 ### Phase 2: GitHub Secrets Setup (2 minutes)
 - [ ] Create Render API Key in Render Dashboard → Settings → API Keys
 - [ ] Add GitHub Secret: `RENDER_API_KEY`
-- [ ] Add GitHub Secret: `RENDER_SERVICE_ID`
+- [ ] Add GitHub Secret: `RENDER_BACKEND_SERVICE_ID`
+- [ ] Add GitHub Secret: `RENDER_FRONTEND_SERVICE_ID`
 - [ ] Verify secrets are accessible in Actions environment
 
 **Estimated Time:** 2 minutes
@@ -57,7 +73,7 @@
 
 - 📖 **Full Setup Guide:** [DEPLOYMENT.md](./DEPLOYMENT.md)
 - 📋 **Troubleshooting:** [RENDER_SETUP.md](./RENDER_SETUP.md#troubleshooting)
-- 🎮 **Test Environment:** https://goonbash-test.onrender.com (after setup)
+- 🎮 **Test Environment:** https://goonbash-test-frontend.onrender.com (after setup)
 - 📊 **Render Dashboard:** https://dashboard.render.com
 - ⚙️ **GitHub Secrets:** https://github.com/kfred123/goonbash/settings/secrets/actions
 
@@ -82,15 +98,15 @@ Pull Request → GitHub Actions Triggered
    ↓
 Workflow Extracts: PR #, Branch, Commit SHA
    ↓
-Calls Render API to Deploy to goonbash-test Service
+Calls Render API to Deploy to goonbash-test (backend) and goonbash-test-frontend (frontend) Services
    ↓
-Polls Deployment Status (max 10 minutes)
+Polls Deployment Status for both (max 10 minutes)
    ↓
 Posts Comment with Status + Test URL
    ↓
 Updates Commit Status Check
    ↓
-Test at: https://goonbash-test.onrender.com
+Test at: https://goonbash-test-frontend.onrender.com
 ```
 
 ---

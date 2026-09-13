@@ -2,6 +2,7 @@ import { type } from "@colyseus/schema";
 import { Entity } from "./Entity";
 
 export class Tank extends Entity {
+  @type("string") name: string = "Player";
   @type("number") hp: number = 100;
   @type("number") maxHp: number = 100;
   @type("string") role: string = "grunt";
