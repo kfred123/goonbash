@@ -142,19 +142,19 @@ jobs:
               repo: context.repo.repo,
               body: `## 🎮 Deployment to Test Environment - Success ✅
 
-**Test URL:** [${{ env.RENDER_TEST_URL }}](${{ env.RENDER_TEST_URL }})
+              **Test URL:** [${{ env.RENDER_TEST_URL }}](${{ env.RENDER_TEST_URL }})
 
-**PR Details:**
-- PR #${{ steps.pr_metadata.outputs.pr_number }}
-- Branch: \`${{ steps.pr_metadata.outputs.branch_name }}\`
-- Commit: \`${{ steps.pr_metadata.outputs.commit_sha }}\`
+              **PR Details:**
+              - PR #${{ steps.pr_metadata.outputs.pr_number }}
+              - Branch: \`${{ steps.pr_metadata.outputs.branch_name }}\`
+              - Commit: \`${{ steps.pr_metadata.outputs.commit_sha }}\`
 
-The latest changes from this PR are now live on the test server. The commit and deploy time are shown in a badge in the game itself.
+              The latest changes from this PR are now live on the test server. The commit and deploy time are shown in a badge in the game itself.
 
-Note: this is a **shared** test environment. It also redeploys automatically whenever another pull request is opened/updated, or whenever a commit is pushed to \`main\` — the environment always reflects whichever commit was pushed most recently, not necessarily this PR.
+              Note: this is a **shared** test environment. It also redeploys automatically whenever another pull request is opened/updated, or whenever a commit is pushed to \`main\` — the environment always reflects whichever commit was pushed most recently, not necessarily this PR.
 
----
-*Automated deployment via GitHub Actions*`
+              ---
+              *Automated deployment via GitHub Actions*`
             })
 
       - name: Comment on PR - Failure
@@ -168,21 +168,21 @@ Note: this is a **shared** test environment. It also redeploys automatically whe
               repo: context.repo.repo,
               body: `## 🎮 Deployment to Test Environment - Failed ❌
 
-**Status:** ${{ steps.render_deploy.outputs.deployment_status || 'unknown_error' }}
+              **Status:** ${{ steps.render_deploy.outputs.deployment_status || 'unknown_error' }}
 
-**Troubleshooting:**
-1. Check that the \`RENDER_API_KEY\` and \`RENDER_SERVICE_ID\` secrets are correctly configured
-2. Verify the Render service \`goonbash-test\` exists and is properly configured
-3. Check Render dashboard for detailed build/deployment logs
-4. For manual deployment: https://dashboard.render.com
+              **Troubleshooting:**
+              1. Check that the \`RENDER_API_KEY\` and \`RENDER_SERVICE_ID\` secrets are correctly configured
+              2. Verify the Render service \`goonbash-test\` exists and is properly configured
+              3. Check Render dashboard for detailed build/deployment logs
+              4. For manual deployment: https://dashboard.render.com
 
-**PR Details:**
-- PR #${{ steps.pr_metadata.outputs.pr_number }}
-- Branch: \`${{ steps.pr_metadata.outputs.branch_name }}\`
-- Commit: \`${{ steps.pr_metadata.outputs.commit_sha }}\`
+              **PR Details:**
+              - PR #${{ steps.pr_metadata.outputs.pr_number }}
+              - Branch: \`${{ steps.pr_metadata.outputs.branch_name }}\`
+              - Commit: \`${{ steps.pr_metadata.outputs.commit_sha }}\`
 
----
-*Automated deployment via GitHub Actions*`
+              ---
+              *Automated deployment via GitHub Actions*`
             })
 
       - name: Set deployment status check
