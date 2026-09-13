@@ -10,7 +10,12 @@ export class GameScene extends Phaser.Scene {
   private minionSprites: Map<string, Phaser.GameObjects.Rectangle> = new Map();
   private statusText!: Phaser.GameObjects.Text;
   private menuElements: Phaser.GameObjects.GameObject[] = [];
+  private nameInputEl: HTMLInputElement | null = null;
+  private playerName = '';
+  private leavingRoom = false;
   private arenaStarted = false;
+  private static readonly NAME_STORAGE_KEY = 'goonbash_player_name';
+  private static readonly MAX_NAME_LENGTH = 20;
   private readonly backendHttpUrl = (import.meta as any).env?.VITE_BACKEND_HTTP_URL || `${window.location.protocol}//${window.location.hostname}:2567`;
   private readonly backendWsUrl = (import.meta as any).env?.VITE_BACKEND_WS_URL || `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.hostname}:2567`;
 
@@ -27,7 +32,87 @@ export class GameScene extends Phaser.Scene {
     });
     this.input.keyboard?.on('keydown', () => this.sendInput());
     this.input.keyboard?.on('keyup', () => this.sendInput());
-    this.showLobbyMenu();
+    this.showMainMenu();
+  }
+
+  private loadStoredName(): string {
+    try {
+      return window.localStorage.getItem(GameScene.NAME_STORAGE_KEY) ?? '';
+    } catch {
+      return '';
+    }
+  }
+
+  private saveStoredName(name: string) {
+    try {
+      window.localStorage.setItem(GameScene.NAME_STORAGE_KEY, name);
+    } catch {
+      // ignore storage errors (private mode, quota, etc.)
+    }
+  }
+
+  private showMainMenu(message = '') {
+    this.destroyMenuElements();
+    if (!this.playerName) this.playerName = this.loadStoredName();
+    this.addMenuText(400, 140, 'GOONBASH', 42, '#ffffff', true);
+    this.addMenuText(400, 195, 'Enter your name to continue', 18, '#aaaaff');
+    this.createNameInput(this.playerName);
+    const validationText = this.addMenuText(400, 300, message, 16, '#ff8888');
+    this.addButton(400, 360, 200, 44, 'CONTINUE', () => {
+      const name = (this.nameInputEl?.value ?? '').trim().slice(0, GameScene.MAX_NAME_LENGTH);
+      if (!name) {
+        validationText.setText('Please enter a name to continue.');
+        return;
+      }
+      this.playerName = name;
+      this.saveStoredName(name);
+      this.showLobbyMenu();
+    });
+  }
+
+  private createNameInput(initialValue: string) {
+    const container = document.getElementById('game-container');
+    if (!container) return;
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.maxLength = GameScene.MAX_NAME_LENGTH;
+    input.value = initialValue;
+    input.placeholder = 'Your name';
+    Object.assign(input.style, {
+      position: 'absolute',
+      left: '300px',
+      top: '244px',
+      width: '200px',
+      height: '32px',
+      fontSize: '16px',
+      padding: '4px 8px',
+      boxSizing: 'border-box'
+    });
+    container.appendChild(input);
+    input.focus();
+    this.nameInputEl = input;
+  }
+
+  private removeNameInput() {
+    this.nameInputEl?.remove();
+    this.nameInputEl = null;
+  }
+
+  private backToMainMenu() {
+    if (this.leavingRoom) return;
+    this.leavingRoom = true;
+    const room = this.room;
+    const finish = () => {
+      this.leavingRoom = false;
+      this.arenaStarted = false;
+      this.room = undefined as unknown as Room<GameState>;
+      this.showMainMenu();
+    };
+    if (room) {
+      room.leave().catch(() => {}).finally(finish);
+    } else {
+      finish();
+    }
   }
 
   private showLobbyMenu(message = '') {
@@ -37,6 +122,7 @@ export class GameScene extends Phaser.Scene {
     this.addMenuText(245, 205, 'AVAILABLE GAMES', 16, '#00ff88', true);
     this.addButton(700, 205, 190, 44, 'CREATE GAME', () => void this.createLobby());
     this.addButton(520, 205, 100, 36, 'REFRESH', () => this.showLobbyMenu());
+    this.addButton(730, 30, 130, 34, 'MAIN MENU', () => this.showMainMenu());
     const listStatus = this.addMenuText(400, 275, message || 'Loading games...', 18, '#c8c8d8');
     void this.loadLobbies(listStatus);
   }
@@ -92,7 +178,7 @@ export class GameScene extends Phaser.Scene {
 
   private async connectToLobby(lobby: LobbyInfo) {
     this.client = new Client(this.backendWsUrl);
-    this.room = await this.client.joinOrCreate<GameState>('game_room', { lobbyId: lobby.id });
+    this.room = await this.client.joinOrCreate<GameState>('game_room', { lobbyId: lobby.id, playerName: this.playerName });
     this.statusText.setText(`Connected | ${this.room.sessionId}`);
     this.statusText.setColor('#44ff88');
     this.destroyMenuElements();
@@ -147,12 +233,14 @@ export class GameScene extends Phaser.Scene {
       const isRed = tank.team === 'red';
       const x = isRed ? 220 : 580;
       const index = isRed ? redCount++ : blueCount++;
-      const label = sessionId === this.room.sessionId ? 'YOU' : 'PLAYER';
+      const isMe = sessionId === this.room.sessionId;
+      const label = isMe ? `${tank.name} (You)` : tank.name;
       this.addMenuText(x, 225 + index * 28, label, 16, isRed ? '#ffaaaa' : '#aaccff');
     });
 
     this.addButton(220, 470, 150, 40, 'JOIN RED', () => this.room.send('change_team', 'red'));
     this.addButton(580, 470, 150, 40, 'JOIN BLUE', () => this.room.send('change_team', 'blue'));
+    this.addButton(730, 30, 130, 34, 'MAIN MENU', () => this.backToMainMenu());
     if (state.hostSessionId === this.room.sessionId) {
       this.addButton(315, 535, 190, 40, 'RENAME GAME', () => this.renameLobby(state.lobbyName));
       this.addButton(535, 535, 190, 40, 'START GAME', () => this.room.send('start_game'));
@@ -187,6 +275,7 @@ export class GameScene extends Phaser.Scene {
   private destroyMenuElements() {
     this.menuElements.forEach((element) => element.destroy());
     this.menuElements = [];
+    this.removeNameInput();
   }
 
   private upsertTank(tank: any, sessionId: string) {

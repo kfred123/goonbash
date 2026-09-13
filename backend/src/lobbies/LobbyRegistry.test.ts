@@ -38,3 +38,25 @@ test("renames an existing lobby", () => {
   assert.equal(registry.get(lobby.id)?.name, "Renamed game");
   assert.throws(() => registry.rename(lobby.id, "  "), /required/);
 });
+
+test("removes a lobby once its only player leaves before the match starts", () => {
+  const registry = new LobbyRegistry();
+  const lobby = registry.create("Waiting game", 4);
+
+  registry.join(lobby.id);
+  registry.leave(lobby.id);
+
+  assert.equal(registry.get(lobby.id), undefined);
+});
+
+test("removes a lobby once its only player leaves after the match has started", () => {
+  // LobbyRegistry has no notion of match phase; leaving the lobby empty removes it
+  // regardless of whether GameRoom's state.phase is "waiting" or "started".
+  const registry = new LobbyRegistry();
+  const lobby = registry.create("Started game", 4);
+
+  registry.join(lobby.id);
+  registry.leave(lobby.id);
+
+  assert.equal(registry.get(lobby.id), undefined);
+});

@@ -1,7 +1,7 @@
 import { Room, Client } from "colyseus";
 import { Base, GameState, Minion, Tank } from "shared";
 import { lobbyRegistry } from "../index.js";
-import { canChangeTeam, canManageLobby, normalizeLobbyName, selectBalancedTeam } from "./lobbyControls.js";
+import { canChangeTeam, canManageLobby, normalizeLobbyName, normalizePlayerName, resolveHostAfterLeave, selectBalancedTeam } from "./lobbyControls.js";
 
 export class GameRoom extends Room<GameState> {
   maxClients = 10;
@@ -103,6 +103,7 @@ export class GameRoom extends Room<GameState> {
     if (!this.state.hostSessionId) this.state.hostSessionId = client.sessionId;
     const tank = new Tank();
     tank.id = client.sessionId;
+    tank.name = normalizePlayerName(options?.playerName);
     tank.team = this.nextTeam();
     tank.x = Math.random() * 500;
     tank.y = Math.random() * 500;
@@ -112,6 +113,11 @@ export class GameRoom extends Room<GameState> {
   onLeave (client: Client, consented: boolean) {
     console.log(client.sessionId, "left!");
     this.state.tanks.delete(client.sessionId);
+    this.state.hostSessionId = resolveHostAfterLeave(
+      client.sessionId,
+      this.state.hostSessionId,
+      this.state.tanks.keys()
+    );
     lobbyRegistry.leave(this.metadata.lobbyId);
   }
 
