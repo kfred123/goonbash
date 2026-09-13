@@ -308,10 +308,11 @@ export class GameScene extends Phaser.Scene {
     } else {
       // Spawn new
       const isMe = sessionId === this.room.sessionId;
-      const color = isMe ? 0x00ff88 : 0xff4444;
-      const sprite = this.add.rectangle(x, y, 40, 40, color);
-      const nameText = this.add.text(x, y - 26, isMe ? 'YOU' : 'Enemy', {
-        color: isMe ? '#00ff88' : '#ff4444',
+      const teamColor = tank.team === 'blue' ? 0x4d8dff : 0xff4444;
+      const sprite = this.add.rectangle(x, y, 40, 40, teamColor);
+      if (isMe) sprite.setStrokeStyle(3, 0xffffff);
+      const nameText = this.add.text(x, y - 26, isMe ? 'YOU' : (tank.name || 'Enemy'), {
+        color: tank.team === 'blue' ? '#4d8dff' : '#ff4444',
         fontSize: '11px'
       }).setOrigin(0.5);
       sprite.setVisible(!isDead);

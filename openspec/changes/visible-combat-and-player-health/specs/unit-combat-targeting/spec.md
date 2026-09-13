@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: Automatic Enemy Targeting
-Every combat-capable unit (minion or player tank) SHALL automatically select the nearest enemy-team unit within its fire range as its current target each tick, without requiring player input to aim.
+Every combat-capable unit (minion or player tank) SHALL automatically select the nearest enemy-team unit or enemy base within its fire range as its current target each tick, without requiring player input to aim.
 
 #### Scenario: Enemy enters range
 - **WHEN** an enemy-team unit moves within a unit's fire range and no closer enemy is already targeted
@@ -10,6 +10,11 @@ Every combat-capable unit (minion or player tank) SHALL automatically select the
 #### Scenario: No enemy in range
 - **WHEN** no enemy-team unit is within a unit's fire range
 - **THEN** the unit has no current target and does not fire
+
+#### Scenario: Enemy base within range
+- **WHEN** a minion or player tank comes within fire range of the enemy team's base and no closer enemy unit is already targeted
+- **THEN** the unit selects the enemy base as its current target and fires on it like any other enemy, reducing the base's HP on each hit
+- **AND** once the base's HP reaches zero it is no longer selected as a target, though it remains present in the game state
 
 ### Requirement: Friendly Units Do Not Block Targeting or Fire
 Targeting and shot resolution SHALL only consider enemy-team units as valid targets or obstructions; friendly-team units SHALL never be selected as a target, never block target selection, and never intercept a friendly projectile in flight.

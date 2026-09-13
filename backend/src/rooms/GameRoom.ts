@@ -90,7 +90,8 @@ export class GameRoom extends Room<GameState> {
   private resolveCombat(deltaTime: number) {
     const aliveTanks = [...this.state.tanks.values()].filter((tank) => tank.state !== "dead");
     const minions = [...this.state.minions.values()];
-    const enemyCandidates: Array<Tank | Minion> = [...aliveTanks, ...minions];
+    const bases = [...this.state.bases.values()].filter((base) => !hasDied(base.hp));
+    const enemyCandidates: Array<Tank | Minion | Base> = [...aliveTanks, ...minions, ...bases];
 
     for (const tank of aliveTanks) this.updateShooter(tank, enemyCandidates, deltaTime);
     for (const minion of minions) this.updateShooter(minion, enemyCandidates, deltaTime);
@@ -98,8 +99,8 @@ export class GameRoom extends Room<GameState> {
     this.updateProjectiles(deltaTime);
   }
 
-  /** Acquires the nearest enemy target (ignoring all friendly units) and fires when ready. */
-  private updateShooter(unit: Tank | Minion, enemyCandidates: Array<Tank | Minion>, deltaTime: number) {
+  /** Acquires the nearest enemy target -- including enemy bases -- (ignoring all friendly units) and fires when ready. */
+  private updateShooter(unit: Tank | Minion, enemyCandidates: Array<Tank | Minion | Base>, deltaTime: number) {
     const target = findNearestEnemyInRange(unit, enemyCandidates, unit.fireRange);
     unit.targetId = target?.id ?? "";
     if (unit.fireCooldown > 0) unit.fireCooldown = Math.max(0, unit.fireCooldown - deltaTime);
@@ -157,19 +158,23 @@ export class GameRoom extends Room<GameState> {
     }
   }
 
-  /** Looks up a still-alive tank or minion by id (dead tanks are not valid projectile targets). */
-  private findLivingEntity(id: string): Tank | Minion | undefined {
+  /** Looks up a still-alive tank, minion, or not-yet-destroyed base by id. */
+  private findLivingEntity(id: string): Tank | Minion | Base | undefined {
     const tank = this.state.tanks.get(id);
     if (tank) return tank.state === "dead" ? undefined : tank;
-    return this.state.minions.get(id);
+    const minion = this.state.minions.get(id);
+    if (minion) return minion;
+    const base = this.state.bases.get(id);
+    if (base) return hasDied(base.hp) ? undefined : base;
+    return undefined;
   }
 
-  private applyDamage(entity: Tank | Minion, damage: number) {
+  private applyDamage(entity: Tank | Minion | Base, damage: number) {
     entity.hp = computeDamagedHp(entity.hp, damage);
     if (!hasDied(entity.hp)) return;
     if (entity instanceof Tank) {
       this.killTank(entity);
-    } else {
+    } else if (entity instanceof Minion) {
       this.state.minions.delete(entity.id);
     }
   }
