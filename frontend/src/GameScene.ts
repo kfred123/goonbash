@@ -240,7 +240,7 @@ export class GameScene extends Phaser.Scene {
 
     this.addButton(220, 470, 150, 40, 'JOIN RED', () => this.room.send('change_team', 'red'));
     this.addButton(580, 470, 150, 40, 'JOIN BLUE', () => this.room.send('change_team', 'blue'));
-    this.addButton(730, 30, 130, 34, 'MAIN MENU', () => this.backToMainMenu());
+    this.addButton(730, 30, 130, 34, 'LEAVE GAME', () => this.backToMainMenu());
     if (state.hostSessionId === this.room.sessionId) {
       this.addButton(315, 535, 190, 40, 'RENAME GAME', () => this.renameLobby(state.lobbyName));
       this.addButton(535, 535, 190, 40, 'START GAME', () => this.room.send('start_game'));
