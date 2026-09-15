@@ -210,19 +210,23 @@ export class GameRoom extends Room<GameState> {
     this.state.bases.set(base.id, base);
   }
 
+  private static readonly LANE_Y_OFFSETS = [-150, 0, 150];
+
   private spawnWave() {
     const blueBase = this.state.bases.get("blue-base");
     const redBase = this.state.bases.get("red-base");
     if (!blueBase || !redBase) return;
     for (const base of [blueBase, redBase]) {
-      const minion = new Minion();
-      minion.id = `${base.team}-minion-${Date.now()}-${Math.random()}`;
-      minion.team = base.team;
-      minion.x = base.x;
-      minion.y = base.y;
-      minion.waypointX = base.team === "blue" ? redBase.x : blueBase.x;
-      minion.waypointY = base.y;
-      this.state.minions.set(minion.id, minion);
+      for (const laneOffset of GameRoom.LANE_Y_OFFSETS) {
+        const minion = new Minion();
+        minion.id = `${base.team}-minion-${Date.now()}-${Math.random()}`;
+        minion.team = base.team;
+        minion.x = base.x;
+        minion.y = base.y + laneOffset;
+        minion.waypointX = base.team === "blue" ? redBase.x : blueBase.x;
+        minion.waypointY = base.y + laneOffset;
+        this.state.minions.set(minion.id, minion);
+      }
     }
   }
 
