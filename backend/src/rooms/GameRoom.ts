@@ -222,7 +222,7 @@ export class GameRoom extends Room<GameState> {
         minion.id = `${base.team}-minion-${Date.now()}-${Math.random()}`;
         minion.team = base.team;
         minion.x = base.x;
-        minion.y = base.y + laneOffset;
+        minion.y = base.y;
         minion.waypointX = base.team === "blue" ? redBase.x : blueBase.x;
         minion.waypointY = base.y + laneOffset;
         this.state.minions.set(minion.id, minion);
