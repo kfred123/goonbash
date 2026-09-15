@@ -12,6 +12,7 @@ export class GameRoom extends Room<GameState> {
   maxClients = 10;
   private spawnTimer = 0;
   private projectileLifetimes = new Map<string, number>();
+  private minionPaths = new Map<string, Array<{ x: number; y: number }>>();
 
   onCreate (options: any) {
     console.log("GameRoom created!", options);
@@ -76,6 +77,13 @@ export class GameRoom extends Room<GameState> {
       if (distance > 1) {
         minion.x += dx / distance * minion.speed * elapsedSeconds;
         minion.y += dy / distance * minion.speed * elapsedSeconds;
+      } else {
+        const remainingPath = this.minionPaths.get(minion.id);
+        const next = remainingPath?.shift();
+        if (next) {
+          minion.waypointX = next.x;
+          minion.waypointY = next.y;
+        }
       }
     });
 
@@ -176,6 +184,7 @@ export class GameRoom extends Room<GameState> {
       this.killTank(entity);
     } else if (entity instanceof Minion) {
       this.state.minions.delete(entity.id);
+      this.minionPaths.delete(entity.id);
     }
   }
 
@@ -210,21 +219,47 @@ export class GameRoom extends Room<GameState> {
     this.state.bases.set(base.id, base);
   }
 
-  private static readonly LANE_Y_OFFSETS = [-150, 0, 150];
+  private static readonly LANE_EDGE_Y = [50, 300, 550];
+  private static readonly LANE_TURN_X = [250, 550];
+
+  /**
+   * Builds a multi-waypoint path for a lane. The middle lane runs straight
+   * across; the top/bottom lanes go diagonally out from the base to the lane's
+   * edge, run straight across the field, then diagonally into the enemy base,
+   * mirroring a classic 3-lane MOBA layout.
+   */
+  private buildLanePath(fromBase: Base, toBase: Base, laneEdgeY: number): Array<{ x: number; y: number }> {
+    if (laneEdgeY === fromBase.y) {
+      return [{ x: toBase.x, y: toBase.y }];
+    }
+    const movingRight = fromBase.x < toBase.x;
+    const [nearTurnX, farTurnX] = movingRight
+      ? GameRoom.LANE_TURN_X
+      : [...GameRoom.LANE_TURN_X].reverse();
+    return [
+      { x: nearTurnX, y: laneEdgeY },
+      { x: farTurnX, y: laneEdgeY },
+      { x: toBase.x, y: toBase.y }
+    ];
+  }
 
   private spawnWave() {
     const blueBase = this.state.bases.get("blue-base");
     const redBase = this.state.bases.get("red-base");
     if (!blueBase || !redBase) return;
     for (const base of [blueBase, redBase]) {
-      for (const laneOffset of GameRoom.LANE_Y_OFFSETS) {
+      const enemyBase = base.team === "blue" ? redBase : blueBase;
+      for (const laneEdgeY of GameRoom.LANE_EDGE_Y) {
         const minion = new Minion();
         minion.id = `${base.team}-minion-${Date.now()}-${Math.random()}`;
         minion.team = base.team;
         minion.x = base.x;
         minion.y = base.y;
-        minion.waypointX = base.team === "blue" ? redBase.x : blueBase.x;
-        minion.waypointY = base.y + laneOffset;
+        const path = this.buildLanePath(base, enemyBase, laneEdgeY);
+        const [firstWaypoint, ...restOfPath] = path;
+        minion.waypointX = firstWaypoint.x;
+        minion.waypointY = firstWaypoint.y;
+        this.minionPaths.set(minion.id, restOfPath);
         this.state.minions.set(minion.id, minion);
       }
     }
