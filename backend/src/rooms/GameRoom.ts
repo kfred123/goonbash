@@ -2,7 +2,7 @@ import { Room, Client } from "colyseus";
 import { Base, GameState, Minion, Projectile, Tank } from "shared";
 import { lobbyRegistry } from "../index.js";
 import { canChangeTeam, canManageLobby, normalizeLobbyName, normalizePlayerName, resolveHostAfterLeave, selectBalancedTeam } from "./lobbyControls.js";
-import { findNearestEnemyInRange, hasDied, hasProjectileReachedTarget, isReadyToRespawn, applyDamage as computeDamagedHp, respawnTank } from "./combat.js";
+import { findNearestEnemyInRange, hasDied, hasProjectileReachedTarget, isReadyToRespawn, isWithinRange, stepToward, applyDamage as computeDamagedHp, respawnTank } from "./combat.js";
 
 const RESPAWN_DELAY_MS = 3000;
 const PROJECTILE_HIT_RADIUS = 12;
@@ -24,11 +24,26 @@ export class GameRoom extends Room<GameState> {
     this.setState(state);
     this.createBase("blue", 80, 300);
     this.createBase("red", 720, 300);
-    this.onMessage("input", (client, input: { x?: number; y?: number }) => {
+    this.onMessage("command", (client, command: { x?: unknown; y?: unknown; targetId?: unknown }) => {
       const tank = this.state.tanks.get(client.sessionId);
       if (!tank || this.state.phase !== "started" || tank.state === "dead") return;
-      tank.inputX = Math.max(-1, Math.min(1, Number(input?.x) || 0));
-      tank.inputY = Math.max(-1, Math.min(1, Number(input?.y) || 0));
+      const targetId = typeof command?.targetId === "string" ? command.targetId : "";
+      if (targetId) {
+        const target = this.findLivingEntity(targetId);
+        if (target && target.team !== tank.team) {
+          tank.lockedTargetId = targetId;
+          tank.hasMoveTarget = false;
+          return;
+        }
+        // invalid/friendly targetId: fall through and try to treat it as a move-to-point instead
+      }
+      const x = typeof command?.x === "number" ? command.x : NaN;
+      const y = typeof command?.y === "number" ? command.y : NaN
+      if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+      tank.moveTargetX = Math.max(20, Math.min(780, x));
+      tank.moveTargetY = Math.max(20, Math.min(580, y));
+      tank.hasMoveTarget = true;
+      tank.lockedTargetId = "";
     });
     this.onMessage("change_team", (client, team: unknown) => {
       if (!canChangeTeam(this.state.phase, team)) return;
@@ -56,18 +71,12 @@ export class GameRoom extends Room<GameState> {
     if (this.state.phase !== "started") return;
     const elapsedSeconds = deltaTime / 1000;
     const now = Date.now();
-    this.state.tanks.forEach((tank) => {
-      if (tank.state === "dead") return;
-      const length = Math.hypot(tank.inputX, tank.inputY) || 1;
-      const speed = 180 * elapsedSeconds;
-      tank.x = Math.max(20, Math.min(780, tank.x + tank.inputX / length * speed));
-      tank.y = Math.max(20, Math.min(580, tank.y + tank.inputY / length * speed));
-    });
 
-    // Resolve targeting/firing before movement so minions that are engaged
+    // Resolve targeting/firing before movement so units that are engaged
     // with an enemy this tick hold their ground instead of marching through it.
     this.resolveCombat(deltaTime);
     this.resolveRespawns(now);
+    this.updateTankMovement(elapsedSeconds);
 
     this.state.minions.forEach((minion) => {
       if (minion.targetId) return;
@@ -94,6 +103,32 @@ export class GameRoom extends Room<GameState> {
     }
   }
 
+  /**
+   * Moves each alive player tank toward its locked attack target (when out of fire
+   * range) or its commanded move-to-point destination, and leaves it standing still
+   * once it arrives, has no destination, or is in range of its locked target (where
+   * `updateLockedShooter` handles firing instead).
+   */
+  private updateTankMovement(elapsedSeconds: number) {
+    const speed = 180 * elapsedSeconds;
+    this.state.tanks.forEach((tank) => {
+      if (tank.state === "dead") return;
+      if (tank.lockedTargetId) {
+        const target = this.findLivingEntity(tank.lockedTargetId);
+        if (!target || isWithinRange(tank, target, tank.fireRange)) return;
+        const next = stepToward(tank, target, speed);
+        tank.x = Math.max(20, Math.min(780, next.x));
+        tank.y = Math.max(20, Math.min(580, next.y));
+        return;
+      }
+      if (!tank.hasMoveTarget) return;
+      const next = stepToward(tank, { x: tank.moveTargetX, y: tank.moveTargetY }, speed);
+      tank.x = Math.max(20, Math.min(780, next.x));
+      tank.y = Math.max(20, Math.min(580, next.y));
+      if (next.arrived) tank.hasMoveTarget = false;
+    });
+  }
+
   /** Assigns automatic targets, fires cooled-down units, and advances/resolves projectiles. */
   private resolveCombat(deltaTime: number) {
     const aliveTanks = [...this.state.tanks.values()].filter((tank) => tank.state !== "dead");
@@ -101,10 +136,48 @@ export class GameRoom extends Room<GameState> {
     const bases = [...this.state.bases.values()].filter((base) => !hasDied(base.hp));
     const enemyCandidates: Array<Tank | Minion | Base> = [...aliveTanks, ...minions, ...bases];
 
-    for (const tank of aliveTanks) this.updateShooter(tank, enemyCandidates, deltaTime);
+    for (const tank of aliveTanks) this.updateLockedShooter(tank, enemyCandidates, deltaTime);
     for (const minion of minions) this.updateShooter(minion, enemyCandidates, deltaTime);
 
     this.updateProjectiles(deltaTime);
+  }
+
+  /**
+   * Fires a player tank at its player-selected locked target when one is set and in
+   * range. When the tank has no locked target (or its lock was just cleared because
+   * the target became invalid), it falls back to automatically engaging the nearest
+   * enemy already within its fire range, the same way minions do -- this does not
+   * move the tank into range, it only opportunistically fires at whatever enemy is
+   * already nearby.
+   */
+  private updateLockedShooter(tank: Tank, enemyCandidates: Array<Tank | Minion | Base>, deltaTime: number) {
+    if (tank.fireCooldown > 0) tank.fireCooldown = Math.max(0, tank.fireCooldown - deltaTime);
+    if (tank.lockedTargetId) {
+      const target = this.findLivingEntity(tank.lockedTargetId);
+      if (!target || target.team === tank.team) {
+        tank.lockedTargetId = "";
+        tank.targetId = "";
+      } else if (isWithinRange(tank, target, tank.fireRange)) {
+        tank.targetId = target.id;
+        if (tank.fireCooldown <= 0) {
+          this.spawnProjectile(tank, target);
+          tank.fireCooldown = tank.fireCooldownMax;
+        }
+        return;
+      } else {
+        // Still locked but out of range: keep chasing (handled by updateTankMovement)
+        // and don't auto-engage a different, merely-nearby enemy in the meantime.
+        tank.targetId = "";
+        return;
+      }
+    }
+
+    const target = findNearestEnemyInRange(tank, enemyCandidates, tank.fireRange);
+    tank.targetId = target?.id ?? "";
+    if (target && tank.fireCooldown <= 0) {
+      this.spawnProjectile(tank, target);
+      tank.fireCooldown = tank.fireCooldownMax;
+    }
   }
 
   /** Acquires the nearest enemy target -- including enemy bases -- (ignoring all friendly units) and fires when ready. */
@@ -191,8 +264,8 @@ export class GameRoom extends Room<GameState> {
   private killTank(tank: Tank) {
     tank.state = "dead";
     tank.targetId = "";
-    tank.inputX = 0;
-    tank.inputY = 0;
+    tank.lockedTargetId = "";
+    tank.hasMoveTarget = false;
     tank.respawnAt = Date.now() + RESPAWN_DELAY_MS;
   }
 

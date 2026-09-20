@@ -7,8 +7,10 @@ export class Tank extends Entity {
   @type("number") maxHp: number = 100;
   @type("string") role: string = "grunt";
   @type("number") rotation: number = 0;
-  @type("number") inputX: number = 0;
-  @type("number") inputY: number = 0;
+  @type("number") moveTargetX: number = 0;
+  @type("number") moveTargetY: number = 0;
+  @type("boolean") hasMoveTarget: boolean = false;
+  @type("string") lockedTargetId: string = "";
   @type("string") state: "alive" | "dead" = "alive";
   @type("number") respawnAt: number = 0;
   @type("string") targetId: string = "";
