@@ -17,8 +17,9 @@
 - [x] 3.2 If the locked target is valid and farther than `fireRange`, move the tank one step toward the target's current position (reusing the tank's existing speed)
 - [x] 3.3 If the locked target is valid and within `fireRange`, stop the tank's movement and fire at that specific target id (bypassing `findNearestEnemyInRange` for player tanks with a lock)
 - [x] 3.4 Else if `hasMoveTarget` is true: move the tank one step toward `(moveTargetX, moveTargetY)`; on arrival within an arrival epsilon, clear `hasMoveTarget` and stop
-- [x] 3.5 Else (no lock, no move target): tank stands idle and does not fire
+- [x] 3.5 Else (no lock, no move target, or move-in-progress): tank does not chase, but falls through to passive auto-engage (see 3.7) instead of standing fully idle
 - [x] 3.6 Ensure minion AI targeting/firing (`findNearestEnemyInRange` usage for minions) is left unchanged
+- [x] 3.7 When a player tank has no locked target (never locked, or its lock was just cleared this tick), call `findNearestEnemyInRange(tank, enemyCandidates, tank.fireRange)` and fire at it on cooldown without moving the tank -- passive engagement never overrides an active lock chasing an out-of-range target
 
 ## 4. Frontend Input Capture
 
@@ -38,3 +39,4 @@
 - [x] 5.4 Update or remove any existing tests/manual steps referencing keyboard `inputX`/`inputY` handling
 - [x] 5.5 Manually verify in a local match: clicking ground moves the tank there and stops, showing a fading green cross; clicking a distant enemy or enemy base chases then attacks it, showing a red cross centered on and following the target until it fades; clicking elsewhere releases the lock; the lock survives multiple ticks without re-clicking
 - [x] 5.6 Run backend test suite and fix any regressions
+- [ ] 5.7 Manually verify passive auto-engage: with no lock set, a tank standing near an enemy automatically fires at it without moving; issuing a lock on a different, farther enemy takes priority over the passively-nearby one

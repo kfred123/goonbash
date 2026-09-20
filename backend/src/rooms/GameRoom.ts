@@ -136,31 +136,45 @@ export class GameRoom extends Room<GameState> {
     const bases = [...this.state.bases.values()].filter((base) => !hasDied(base.hp));
     const enemyCandidates: Array<Tank | Minion | Base> = [...aliveTanks, ...minions, ...bases];
 
-    for (const tank of aliveTanks) this.updateLockedShooter(tank, deltaTime);
+    for (const tank of aliveTanks) this.updateLockedShooter(tank, enemyCandidates, deltaTime);
     for (const minion of minions) this.updateShooter(minion, enemyCandidates, deltaTime);
 
     this.updateProjectiles(deltaTime);
   }
 
-  /** Fires a player tank at its player-selected locked target (if any, valid, and in range), clearing the lock once it's no longer valid. */
-  private updateLockedShooter(tank: Tank, deltaTime: number) {
+  /**
+   * Fires a player tank at its player-selected locked target when one is set and in
+   * range. When the tank has no locked target (or its lock was just cleared because
+   * the target became invalid), it falls back to automatically engaging the nearest
+   * enemy already within its fire range, the same way minions do -- this does not
+   * move the tank into range, it only opportunistically fires at whatever enemy is
+   * already nearby.
+   */
+  private updateLockedShooter(tank: Tank, enemyCandidates: Array<Tank | Minion | Base>, deltaTime: number) {
     if (tank.fireCooldown > 0) tank.fireCooldown = Math.max(0, tank.fireCooldown - deltaTime);
-    if (!tank.lockedTargetId) {
-      tank.targetId = "";
-      return;
+    if (tank.lockedTargetId) {
+      const target = this.findLivingEntity(tank.lockedTargetId);
+      if (!target || target.team === tank.team) {
+        tank.lockedTargetId = "";
+        tank.targetId = "";
+      } else if (isWithinRange(tank, target, tank.fireRange)) {
+        tank.targetId = target.id;
+        if (tank.fireCooldown <= 0) {
+          this.spawnProjectile(tank, target);
+          tank.fireCooldown = tank.fireCooldownMax;
+        }
+        return;
+      } else {
+        // Still locked but out of range: keep chasing (handled by updateTankMovement)
+        // and don't auto-engage a different, merely-nearby enemy in the meantime.
+        tank.targetId = "";
+        return;
+      }
     }
-    const target = this.findLivingEntity(tank.lockedTargetId);
-    if (!target || target.team === tank.team) {
-      tank.lockedTargetId = "";
-      tank.targetId = "";
-      return;
-    }
-    if (!isWithinRange(tank, target, tank.fireRange)) {
-      tank.targetId = "";
-      return;
-    }
-    tank.targetId = target.id;
-    if (tank.fireCooldown <= 0) {
+
+    const target = findNearestEnemyInRange(tank, enemyCandidates, tank.fireRange);
+    tank.targetId = target?.id ?? "";
+    if (target && tank.fireCooldown <= 0) {
       this.spawnProjectile(tank, target);
       tank.fireCooldown = tank.fireCooldownMax;
     }

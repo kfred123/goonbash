@@ -8,8 +8,9 @@ Player movement and attacking currently rely on WASD/arrow keys with automatic n
 - Add a destination-based movement mode on the backend: tanks move toward a commanded `(x, y)` point at their normal speed and stop upon arrival, replacing the raw per-tick `inputX`/`inputY` directional velocity as the primary movement command.
 - Add target-lock behavior: clicking an enemy sets it as the tank's locked target. If the enemy is out of `fireRange`, the tank first moves into range, then stops and fires (reusing existing fire-cooldown/projectile logic) at the locked target instead of the nearest-enemy auto-pick.
 - The lock persists (continuing to chase/re-engage the same target as it moves) until the player issues a new command (clicking another point or another enemy), or the locked target dies/leaves play, at which point the tank has no target and stands idle until the next click.
+- Add passive auto-engage: when a tank has no locked target, it automatically fires at the nearest enemy already within its `fireRange` (without chasing it), the same way it did before this change and the same way minions already behave. A player-issued lock always takes priority and is never displaced by a merely-nearby enemy.
 - Add a short-lived click-feedback marker at the clicked location: a green cross when the click targeted empty ground (move command), or a red cross when the click targeted an enemy tank, minion, or enemy base (attack command). Each marker fades/disappears after about one second and is purely visual (no gameplay effect).
-- **BREAKING**: Removes automatic nearest-enemy auto-targeting for player-controlled tanks; tanks only engage a target the player has explicitly clicked. Minion AI targeting is unaffected.
+- **BREAKING**: Player tanks no longer auto-*pursue* an enemy outside firing range; they only chase a target the player has explicitly clicked to lock onto. Passive in-range engagement (fire without chasing) remains automatic when no lock is set. Minion AI targeting is unaffected.
 
 ## Capabilities
 

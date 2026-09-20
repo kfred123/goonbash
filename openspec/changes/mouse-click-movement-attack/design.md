@@ -6,6 +6,7 @@ This change replaces that scheme for player tanks with point-and-click control:
 - Click empty ground → move to that point.
 - Click an enemy → lock onto it, closing distance if needed, then engage it specifically (not just "nearest enemy") once in range.
 - The lock persists across ticks (re-chasing a moving target) until the player clicks elsewhere or the target dies.
+- When no lock is set, the tank falls back to passively auto-engaging (firing at, not chasing) the nearest enemy already within its `fireRange`, matching pre-existing tank/minion auto-fire behavior.
 
 Minion AI is unaffected; it keeps using `findNearestEnemyInRange`.
 
@@ -18,6 +19,7 @@ Minion AI is unaffected; it keeps using `findNearestEnemyInRange`.
 - Persist the lock across ticks/target movement until the player issues a new click (elsewhere or on another enemy) or the target dies.
 - Show a short-lived visual marker at the click location: green cross for a move command, red cross for an attack command, fading after ~1 second.
 - Keep all authoritative movement/targeting/combat resolution on the backend (client only sends intents).
+- When a tank has no locked target, passively auto-engage (fire at, without chasing) the nearest enemy already within its fire range, so tanks aren't defenseless bystanders while the player hasn't issued an attack command.
 
 **Non-Goals:**
 - Changing minion AI targeting or projectile/damage mechanics.
@@ -47,16 +49,16 @@ Alternative considered: two separate message names (`move_to`, `attack_target`).
 For each alive player tank, each tick:
 1. If `lockedTargetId` is set:
    - Look up the target entity (tank or minion) by id.
-   - If it no longer exists or is dead (`hasDied`/`state === "dead"`), clear `lockedTargetId` and stop (tank goes idle).
+   - If it no longer exists or is dead (`hasDied`/`state === "dead"`), clear `lockedTargetId` and fall through to step 3 (passive auto-engage) instead of remaining idle.
    - Else compute distance to the target's current position.
-     - If distance > `fireRange`: move the tank straight toward the target's current position at its normal speed (steer-toward, recomputed every tick since the target moves).
+     - If distance > `fireRange`: move the tank straight toward the target's current position at its normal speed (steer-toward, recomputed every tick since the target moves); do not passively auto-engage any other nearby enemy while chasing a lock.
      - If distance <= `fireRange`: stop moving; existing fire-cooldown/projectile spawn logic fires at this specific `lockedTargetId` instead of calling `findNearestEnemyInRange`.
 2. Else if `hasMoveTarget`:
    - Move straight toward `(moveTargetX, moveTargetY)` at normal speed.
    - On arrival (distance <= a small arrival epsilon), clear `hasMoveTarget` and stop.
-3. Else: tank stands idle.
+3. Whenever `lockedTargetId` is not set (whether the tank is idle, moving to a point, or its lock was just invalidated this tick): call `findNearestEnemyInRange(tank, enemyCandidates, tank.fireRange)` and fire at it on cooldown, exactly like the pre-existing minion auto-fire logic. This does not alter movement -- the tank only opportunistically fires at whatever enemy already happens to be in range, it never chases an unlocked enemy.
 
-This reuses the existing fire-cooldown/projectile-spawn code path (`combat.ts`), only changing *which* candidate is selected as the shooting target for player tanks (explicit lock vs. nearest-enemy scan).
+This reuses the existing fire-cooldown/projectile-spawn code path (`combat.ts`) for both the locked-target case and the passive auto-engage fallback -- only *which* candidate is selected as the shooting target changes (explicit lock vs. nearest-enemy scan).
 
 ### 4. Frontend hit-testing for clicks
 `GameScene.ts` registers a single `pointerdown` handler on the scene. It hit-tests the click against currently-rendered enemy tank/minion/base sprites (existing sprite maps used for interpolation) within a small click-radius tolerance:

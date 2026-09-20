@@ -42,6 +42,25 @@ A player tank SHALL attack an enemy the player clicks (tank, minion, or enemy ba
 - **WHEN** the player left-clicks a friendly (same-team) tank or minion
 - **THEN** no attack lock is set and the tank's current move/attack state is unchanged
 
+### Requirement: Passive Auto-Engage Nearby Enemies
+When a player tank has no locked attack target, it SHALL automatically fire at the nearest enemy already within its fire range, without moving toward it, so the tank is not defenseless while the player has not issued an attack command. A player-issued target lock always takes priority over this passive engagement.
+
+#### Scenario: No lock, enemy already in range
+- **WHEN** a player tank has no locked target and an enemy tank, minion, or enemy base is within its fire range
+- **THEN** the tank automatically fires at that enemy on cooldown without moving toward it
+
+#### Scenario: No lock, no enemy in range
+- **WHEN** a player tank has no locked target and no enemy is within its fire range
+- **THEN** the tank does not fire
+
+#### Scenario: A locked target takes priority over a passively-nearby enemy
+- **WHEN** a player tank has a locked target (in or out of range) and a different, closer enemy is also within fire range
+- **THEN** the tank continues engaging only its locked target and does not switch to the closer, merely-nearby enemy
+
+#### Scenario: Auto-engage resumes once a lock is cleared
+- **WHEN** a player tank's locked target dies or becomes invalid and the player has not issued a new command
+- **THEN** the tank falls back to automatically firing at the nearest enemy already within its fire range, if any
+
 ### Requirement: Click Feedback Marker
 The frontend SHALL display a short-lived visual marker at the location the player clicked, indicating whether the click was interpreted as a move command or an attack command, and the marker SHALL disappear automatically after about one second.
 
