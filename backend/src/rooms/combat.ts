@@ -5,6 +5,11 @@ export interface CombatCandidate {
   team: string;
 }
 
+export interface Point {
+  x: number;
+  y: number;
+}
+
 /**
  * Finds the closest candidate belonging to an enemy team within range.
  * Friendly-team candidates are always excluded from consideration, so they
@@ -70,4 +75,37 @@ export function respawnTank(maxHp: number, baseX: number, baseY: number): Respaw
 /** Whether a dead tank's respawn delay has elapsed and it should reappear. */
 export function isReadyToRespawn(tank: { state: string; respawnAt: number }, now: number): boolean {
   return tank.state === "dead" && now >= tank.respawnAt;
+}
+
+/** Whether a point is within a given range of another point (inclusive). */
+export function isWithinRange(a: Point, b: Point, range: number): boolean {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  return dx * dx + dy * dy <= range * range;
+}
+
+/**
+ * Moves a point one step toward a destination at the given speed (units per tick).
+ * Snaps to the destination and reports arrival once within `arrivalEpsilon`, or once
+ * this step's speed is enough to cover the remaining distance, so a unit stops
+ * exactly on its target instead of oscillating around it.
+ */
+export function stepToward(
+  current: Point,
+  destination: Point,
+  speed: number,
+  arrivalEpsilon: number = 2
+): { x: number; y: number; arrived: boolean } {
+  const dx = destination.x - current.x;
+  const dy = destination.y - current.y;
+  const distance = Math.hypot(dx, dy);
+  if (distance <= arrivalEpsilon || distance <= speed) {
+    return { x: destination.x, y: destination.y, arrived: true };
+  }
+  const step = Math.min(distance, speed);
+  return {
+    x: current.x + (dx / distance) * step,
+    y: current.y + (dy / distance) * step,
+    arrived: false
+  };
 }

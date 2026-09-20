@@ -12,6 +12,7 @@ export class GameScene extends Phaser.Scene {
   private baseSprites: Map<string, Phaser.GameObjects.Rectangle> = new Map();
   private projectileSprites: Map<string, Phaser.GameObjects.Arc> = new Map();
   private healthBars: Map<string, { bg: Phaser.GameObjects.Rectangle; fill: Phaser.GameObjects.Rectangle; width: number }> = new Map();
+  private attackMarkers: Array<{ graphics: Phaser.GameObjects.Graphics; targetId: string }> = [];
   private statusText!: Phaser.GameObjects.Text;
   private menuElements: Phaser.GameObjects.GameObject[] = [];
   private nameInputEl: HTMLInputElement | null = null;
@@ -20,6 +21,10 @@ export class GameScene extends Phaser.Scene {
   private arenaStarted = false;
   private static readonly NAME_STORAGE_KEY = 'goonbash_player_name';
   private static readonly MAX_NAME_LENGTH = 20;
+  private static readonly CLICK_HIT_RADIUS_TANK = 24;
+  private static readonly CLICK_HIT_RADIUS_MINION = 14;
+  private static readonly CLICK_HIT_RADIUS_BASE = 30;
+  private static readonly CLICK_MARKER_DURATION_MS = 1000;
   private readonly backendHttpUrl = (import.meta as any).env?.VITE_BACKEND_HTTP_URL || `${window.location.protocol}//${window.location.hostname}:2567`;
   private readonly backendWsUrl = (import.meta as any).env?.VITE_BACKEND_WS_URL || `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.hostname}:2567`;
 
@@ -34,8 +39,7 @@ export class GameScene extends Phaser.Scene {
       color: '#aaaaff', fontSize: '14px',
       backgroundColor: '#00000088', padding: { x: 6, y: 4 }
     });
-    this.input.keyboard?.on('keydown', () => this.sendInput());
-    this.input.keyboard?.on('keyup', () => this.sendInput());
+    this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => this.handlePointerClick(pointer));
     this.showMainMenu();
   }
 
@@ -414,18 +418,94 @@ export class GameScene extends Phaser.Scene {
     this.healthBars.delete(id);
   }
 
-  private sendInput() {
-    if (!this.room || this.room.state.phase !== 'started') return;
-    const myTank = this.room.state.tanks.get(this.room.sessionId);
-    if (myTank && (myTank as any).state === 'dead') return;
-    const keys = this.input.keyboard?.createCursorKeys();
-    if (!keys) return;
-    const inputX = (keys.right.isDown ? 1 : 0) - (keys.left.isDown ? 1 : 0);
-    const inputY = (keys.down.isDown ? 1 : 0) - (keys.up.isDown ? 1 : 0);
-    const wasd = this.input.keyboard?.addKeys('W,A,S,D') as Record<string, Phaser.Input.Keyboard.Key> | undefined;
-    const x = inputX || ((wasd?.D.isDown ? 1 : 0) - (wasd?.A.isDown ? 1 : 0));
-    const y = inputY || ((wasd?.S.isDown ? 1 : 0) - (wasd?.W.isDown ? 1 : 0));
-    this.room.send('input', { x, y });
+  private hitTestClick(worldX: number, worldY: number): { id: string; team: string; x: number; y: number } | null {
+    let closest: { id: string; team: string; x: number; y: number; distSq: number } | null = null;
+    const consider = (id: string, x: number, y: number, team: string, radius: number) => {
+      const dx = x - worldX;
+      const dy = y - worldY;
+      const distSq = dx * dx + dy * dy;
+      if (distSq > radius * radius) return;
+      if (!closest || distSq < closest.distSq) closest = { id, team, x, y, distSq };
+    };
+    this.room.state.tanks.forEach((tank: any, sessionId: string) => {
+      if (tank.state === 'dead') return;
+      consider(sessionId, tank.x, tank.y, tank.team, GameScene.CLICK_HIT_RADIUS_TANK);
+    });
+    this.room.state.minions.forEach((minion: any, id: string) => {
+      consider(id, minion.x, minion.y, minion.team, GameScene.CLICK_HIT_RADIUS_MINION);
+    });
+    this.room.state.bases.forEach((base: any, id: string) => {
+      consider(id, base.x, base.y, base.team, GameScene.CLICK_HIT_RADIUS_BASE);
+    });
+    return closest;
+  }
+
+  /** Looks up the current live position of a tank, minion, or base by id (used to keep an attack marker centered on a moving target). */
+  private findEntityPosition(id: string): { x: number; y: number } | null {
+    const tank = this.room.state.tanks.get(id) as any;
+    if (tank) return { x: tank.x, y: tank.y };
+    const minion = this.room.state.minions.get(id) as any;
+    if (minion) return { x: minion.x, y: minion.y };
+    const base = this.room.state.bases.get(id) as any;
+    if (base) return { x: base.x, y: base.y };
+    return null;
+  }
+
+  private createCrossGraphics(color: number): Phaser.GameObjects.Graphics {
+    const size = 10;
+    const marker = this.add.graphics().setDepth(1000);
+    marker.lineStyle(3, color, 1);
+    marker.beginPath();
+    marker.moveTo(-size, -size);
+    marker.lineTo(size, size);
+    marker.moveTo(size, -size);
+    marker.lineTo(-size, size);
+    marker.strokePath();
+    return marker;
+  }
+
+  /** Draws a short-lived cross at a fixed point (used for a move command) that fades out after ~1 second. */
+  private showClickMarker(x: number, y: number, color: number) {
+    const marker = this.createCrossGraphics(color).setPosition(x, y);
+    this.tweens.add({
+      targets: marker,
+      alpha: 0,
+      duration: GameScene.CLICK_MARKER_DURATION_MS,
+      onComplete: () => marker.destroy()
+    });
+  }
+
+  /** Draws a short-lived cross centered on an attack target, that re-centers on the target's live position every frame until it fades out after ~1 second. */
+  private showAttackMarker(targetId: string, x: number, y: number, color: number) {
+    const marker = this.createCrossGraphics(color).setPosition(x, y);
+    const entry = { graphics: marker, targetId };
+    this.attackMarkers.push(entry);
+    this.tweens.add({
+      targets: marker,
+      alpha: 0,
+      duration: GameScene.CLICK_MARKER_DURATION_MS,
+      onComplete: () => {
+        marker.destroy();
+        this.attackMarkers = this.attackMarkers.filter((m) => m !== entry);
+      }
+    });
+  }
+
+  private handlePointerClick(pointer: Phaser.Input.Pointer) {
+    if (!this.arenaStarted || !this.room || this.room.state.phase !== 'started') return;
+    const myTank = this.room.state.tanks.get(this.room.sessionId) as any;
+    if (!myTank || myTank.state === 'dead') return;
+    const worldX = pointer.worldX;
+    const worldY = pointer.worldY;
+    const hit = this.hitTestClick(worldX, worldY);
+    if (hit) {
+      if (hit.team === myTank.team) return; // friendly unit: no command, no marker
+      this.room.send('command', { targetId: hit.id });
+      this.showAttackMarker(hit.id, hit.x, hit.y, 0xff3333);
+      return;
+    }
+    this.room.send('command', { x: worldX, y: worldY });
+    this.showClickMarker(worldX, worldY, 0x33ff55);
   }
 
   update() {
@@ -436,6 +516,9 @@ export class GameScene extends Phaser.Scene {
         sprite.y = Phaser.Math.Linear(sprite.y, target.y, 0.25);
       }
     });
-    this.sendInput();
+    this.attackMarkers.forEach(({ graphics, targetId }) => {
+      const position = this.findEntityPosition(targetId);
+      if (position) graphics.setPosition(position.x, position.y);
+    });
   }
 }

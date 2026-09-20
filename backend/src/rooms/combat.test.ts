@@ -6,7 +6,9 @@ import {
   hasDied,
   hasProjectileReachedTarget,
   isReadyToRespawn,
-  respawnTank
+  isWithinRange,
+  respawnTank,
+  stepToward
 } from "./combat.js";
 
 test("finds the nearest enemy-team candidate within range", () => {
@@ -61,4 +63,33 @@ test("reduces HP by the damage amount and clamps it at zero", () => {
 test("respawning a tank restores full HP and positions it at the given base", () => {
   const respawned = respawnTank(100, 80, 300);
   assert.deepEqual(respawned, { hp: 100, x: 80, y: 300, state: "alive", respawnAt: 0 });
+});
+
+test("a point within the given range is considered within range, inclusive of the boundary", () => {
+  assert.equal(isWithinRange({ x: 0, y: 0 }, { x: 100, y: 0 }, 100), true);
+  assert.equal(isWithinRange({ x: 0, y: 0 }, { x: 101, y: 0 }, 100), false);
+});
+
+test("stepToward moves a point partway toward a distant destination without overshooting", () => {
+  const next = stepToward({ x: 0, y: 0 }, { x: 100, y: 0 }, 30);
+  assert.equal(next.arrived, false);
+  assert.equal(next.x, 30);
+  assert.equal(next.y, 0);
+});
+
+test("stepToward snaps to the destination and reports arrival once within range in a single step", () => {
+  const next = stepToward({ x: 0, y: 0 }, { x: 10, y: 0 }, 30);
+  assert.deepEqual(next, { x: 10, y: 0, arrived: true });
+});
+
+test("stepToward reports arrival immediately when already within the arrival epsilon", () => {
+  const next = stepToward({ x: 99, y: 0 }, { x: 100, y: 0 }, 30);
+  assert.deepEqual(next, { x: 100, y: 0, arrived: true });
+});
+
+test("stepToward keeps steering toward a moving destination's latest position", () => {
+  const firstStep = stepToward({ x: 0, y: 0 }, { x: 100, y: 0 }, 30);
+  const secondStep = stepToward({ x: firstStep.x, y: firstStep.y }, { x: 130, y: 0 }, 30);
+  assert.equal(secondStep.x, 60);
+  assert.equal(secondStep.arrived, false);
 });
