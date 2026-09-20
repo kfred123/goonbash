@@ -435,6 +435,7 @@ export class GameScene extends Phaser.Scene {
       consider(id, minion.x, minion.y, minion.team, GameScene.CLICK_HIT_RADIUS_MINION);
     });
     this.room.state.bases.forEach((base: any, id: string) => {
+      if (base.hp <= 0) return;
       consider(id, base.x, base.y, base.team, GameScene.CLICK_HIT_RADIUS_BASE);
     });
     return closest;
@@ -492,7 +493,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private handlePointerClick(pointer: Phaser.Input.Pointer) {
-    if (!this.arenaStarted || !this.room || this.room.state.phase !== 'started') return;
+    if (pointer.button !== 0 || !this.arenaStarted || !this.room || this.room.state.phase !== 'started') return;
     const myTank = this.room.state.tanks.get(this.room.sessionId) as any;
     if (!myTank || myTank.state === 'dead') return;
     const worldX = pointer.worldX;

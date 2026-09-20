@@ -37,8 +37,8 @@ export class GameRoom extends Room<GameState> {
         }
         // invalid/friendly targetId: fall through and try to treat it as a move-to-point instead
       }
-      const x = Number(command?.x);
-      const y = Number(command?.y);
+      const x = typeof command?.x === "number" ? command.x : NaN;
+      const y = typeof command?.y === "number" ? command.y : NaN
       if (!Number.isFinite(x) || !Number.isFinite(y)) return;
       tank.moveTargetX = Math.max(20, Math.min(780, x));
       tank.moveTargetY = Math.max(20, Math.min(580, y));
