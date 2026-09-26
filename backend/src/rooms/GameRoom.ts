@@ -3,12 +3,21 @@ import { Base, GameState, Minion, Projectile, Tank } from "shared";
 import { isRole, resolveRoleAbilityConfig, resolveRoleStats, ROLE_ABILITY_CONFIG } from "shared";
 import { lobbyRegistry } from "../index.js";
 import { canChangeRole, canChangeTeam, canManageLobby, normalizeLobbyName, normalizePlayerName, resolveHostAfterLeave, selectBalancedTeam } from "./lobbyControls.js";
-import { findNearestEnemyInRange, hasDied, hasProjectileReachedTarget, isReadyToRespawn, isWithinRange, stepToward, applyDamage as computeDamagedHp, respawnTank } from "./combat.js";
+import { clampToBounds, findNearestEnemyInRange, hasDied, hasProjectileReachedTarget, isReadyToRespawn, isWithinRange, stepToward, applyDamage as computeDamagedHp, respawnTank } from "./combat.js";
 import { activateRoleAbility, applyShieldReduction, canActivateAbility, effectiveFireCooldown, healOverTick, isAbilityActive } from "./ability.js";
 
 const RESPAWN_DELAY_MS = 3000;
 const PROJECTILE_HIT_RADIUS = 12;
 const PROJECTILE_MAX_LIFETIME_MS = 3000;
+
+// World is 3x the original 800x600 arena so the camera only shows part of the map at once.
+export const WORLD_WIDTH = 2400;
+export const WORLD_HEIGHT = 1800;
+const WORLD_MARGIN = 60;
+const MIN_X = WORLD_MARGIN;
+const MAX_X = WORLD_WIDTH - WORLD_MARGIN;
+const MIN_Y = WORLD_MARGIN;
+const MAX_Y = WORLD_HEIGHT - WORLD_MARGIN;
 
 export class GameRoom extends Room<GameState> {
   maxClients = 10;
@@ -24,8 +33,8 @@ export class GameRoom extends Room<GameState> {
     const state = new GameState();
     state.lobbyName = lobby.name;
     this.setState(state);
-    this.createBase("blue", 80, 300);
-    this.createBase("red", 720, 300);
+    this.createBase("blue", 240, 900);
+    this.createBase("red", 2160, 900);
     this.onMessage("command", (client, command: { x?: unknown; y?: unknown; targetId?: unknown }) => {
       const tank = this.state.tanks.get(client.sessionId);
       if (!tank || this.state.phase !== "started" || tank.state === "dead") return;
@@ -42,8 +51,9 @@ export class GameRoom extends Room<GameState> {
       const x = typeof command?.x === "number" ? command.x : NaN;
       const y = typeof command?.y === "number" ? command.y : NaN
       if (!Number.isFinite(x) || !Number.isFinite(y)) return;
-      tank.moveTargetX = Math.max(20, Math.min(780, x));
-      tank.moveTargetY = Math.max(20, Math.min(580, y));
+      const clamped = clampToBounds({ x, y }, MIN_X, MAX_X, MIN_Y, MAX_Y);
+      tank.moveTargetX = clamped.x;
+      tank.moveTargetY = clamped.y;
       tank.hasMoveTarget = true;
       tank.lockedTargetId = "";
     });
@@ -137,14 +147,16 @@ export class GameRoom extends Room<GameState> {
         const target = this.findLivingEntity(tank.lockedTargetId);
         if (!target || isWithinRange(tank, target, tank.fireRange)) return;
         const next = stepToward(tank, target, speed);
-        tank.x = Math.max(20, Math.min(780, next.x));
-        tank.y = Math.max(20, Math.min(580, next.y));
+        const clamped = clampToBounds(next, MIN_X, MAX_X, MIN_Y, MAX_Y);
+        tank.x = clamped.x;
+        tank.y = clamped.y;
         return;
       }
       if (!tank.hasMoveTarget) return;
       const next = stepToward(tank, { x: tank.moveTargetX, y: tank.moveTargetY }, speed);
-      tank.x = Math.max(20, Math.min(780, next.x));
-      tank.y = Math.max(20, Math.min(580, next.y));
+      const clamped = clampToBounds(next, MIN_X, MAX_X, MIN_Y, MAX_Y);
+      tank.x = clamped.x;
+      tank.y = clamped.y;
       if (next.arrived) tank.hasMoveTarget = false;
     });
   }
@@ -348,8 +360,8 @@ export class GameRoom extends Room<GameState> {
     this.state.bases.set(base.id, base);
   }
 
-  private static readonly LANE_EDGE_Y = [50, 300, 550];
-  private static readonly LANE_TURN_X = [250, 550];
+  private static readonly LANE_EDGE_Y = [150, 900, 1650];
+  private static readonly LANE_TURN_X = [750, 1650];
 
   /**
    * Builds a multi-waypoint path for a lane. The middle lane runs straight
@@ -402,8 +414,8 @@ export class GameRoom extends Room<GameState> {
     tank.id = client.sessionId;
     tank.name = normalizePlayerName(options?.playerName);
     tank.team = this.nextTeam();
-    tank.x = Math.random() * 500;
-    tank.y = Math.random() * 500;
+    tank.x = Math.random() * 1500;
+    tank.y = Math.random() * 1500;
     this.applyRoleStats(tank);
     this.state.tanks.set(client.sessionId, tank);
   }

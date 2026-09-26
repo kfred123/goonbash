@@ -77,6 +77,20 @@ export function isReadyToRespawn(tank: { state: string; respawnAt: number }, now
   return tank.state === "dead" && now >= tank.respawnAt;
 }
 
+/** Clamps a point's coordinates to stay within the given rectangular world bounds. */
+export function clampToBounds(
+  point: Point,
+  minX: number,
+  maxX: number,
+  minY: number,
+  maxY: number
+): Point {
+  return {
+    x: Math.max(minX, Math.min(maxX, point.x)),
+    y: Math.max(minY, Math.min(maxY, point.y))
+  };
+}
+
 /** Whether a point is within a given range of another point (inclusive). */
 export function isWithinRange(a: Point, b: Point, range: number): boolean {
   const dx = b.x - a.x;

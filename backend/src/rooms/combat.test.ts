@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   applyDamage,
+  clampToBounds,
   findNearestEnemyInRange,
   hasDied,
   hasProjectileReachedTarget,
@@ -92,4 +93,13 @@ test("stepToward keeps steering toward a moving destination's latest position", 
   const secondStep = stepToward({ x: firstStep.x, y: firstStep.y }, { x: 130, y: 0 }, 30);
   assert.equal(secondStep.x, 60);
   assert.equal(secondStep.arrived, false);
+});
+
+test("clampToBounds leaves a point inside the bounds unchanged", () => {
+  assert.deepEqual(clampToBounds({ x: 1200, y: 900 }, 60, 2340, 60, 1740), { x: 1200, y: 900 });
+});
+
+test("clampToBounds pulls a point back to the world-scale boundary on each axis", () => {
+  assert.deepEqual(clampToBounds({ x: -50, y: 5000 }, 60, 2340, 60, 1740), { x: 60, y: 1740 });
+  assert.deepEqual(clampToBounds({ x: 5000, y: -50 }, 60, 2340, 60, 1740), { x: 2340, y: 60 });
 });
