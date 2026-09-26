@@ -1,11 +1,13 @@
 ﻿import Phaser from 'phaser';
 import { Client, Room } from 'colyseus.js';
-import { GameState, LobbyInfo } from 'shared';
+import { GameState, LobbyInfo, ROLE_ABILITY_CONFIG, ROLE_VISUALS, Role, RoleVisual } from 'shared';
+
+const ROLE_ORDER: Role[] = ['healer', 'tank', 'damagedealer'];
 
 export class GameScene extends Phaser.Scene {
   private client!: Client;
   private room!: Room<GameState>;
-  private tankSprites: Map<string, Phaser.GameObjects.Rectangle> = new Map();
+  private tankSprites: Map<string, Phaser.GameObjects.Shape> = new Map();
   private tankTargets: Map<string, { x: number; y: number }> = new Map();
   private tankNameTexts: Map<string, Phaser.GameObjects.Text> = new Map();
   private minionSprites: Map<string, Phaser.GameObjects.Rectangle> = new Map();
@@ -19,12 +21,27 @@ export class GameScene extends Phaser.Scene {
   private playerName = '';
   private leavingRoom = false;
   private arenaStarted = false;
+  private abilityHud?: {
+    bar: Phaser.GameObjects.Rectangle;
+    barBorder: Phaser.GameObjects.Rectangle;
+    slotBg: Phaser.GameObjects.Rectangle;
+    icon: Phaser.GameObjects.Graphics;
+    cooldownOverlay: Phaser.GameObjects.Rectangle;
+    titleText: Phaser.GameObjects.Text;
+    statusText: Phaser.GameObjects.Text;
+    slotSize: number;
+    slotTop: number;
+    role: string;
+  };
+  private myAbilityState: { role: string; cooldownEndsAt: number; cooldownMax: number; activeUntil: number } | null = null;
+  private healEffectIcons: Map<string, Phaser.GameObjects.Graphics> = new Map();
   private static readonly NAME_STORAGE_KEY = 'goonbash_player_name';
   private static readonly MAX_NAME_LENGTH = 20;
   private static readonly CLICK_HIT_RADIUS_TANK = 24;
   private static readonly CLICK_HIT_RADIUS_MINION = 14;
   private static readonly CLICK_HIT_RADIUS_BASE = 30;
   private static readonly CLICK_MARKER_DURATION_MS = 1000;
+  private static readonly HUD_BAR_HEIGHT = 92;
   private readonly backendHttpUrl = (import.meta as any).env?.VITE_BACKEND_HTTP_URL || `${window.location.protocol}//${window.location.hostname}:2567`;
   private readonly backendWsUrl = (import.meta as any).env?.VITE_BACKEND_WS_URL || `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.hostname}:2567`;
 
@@ -40,6 +57,7 @@ export class GameScene extends Phaser.Scene {
       backgroundColor: '#00000088', padding: { x: 6, y: 4 }
     });
     this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => this.handlePointerClick(pointer));
+    this.input.keyboard?.on('keydown-SPACE', () => this.activateAbility());
     this.showMainMenu();
   }
 
@@ -113,6 +131,7 @@ export class GameScene extends Phaser.Scene {
     const finish = () => {
       this.leavingRoom = false;
       this.arenaStarted = false;
+      this.destroyAbilityHud();
       this.room = undefined as unknown as Room<GameState>;
       this.showMainMenu();
     };
@@ -230,21 +249,25 @@ export class GameScene extends Phaser.Scene {
 
   private createArena(lobbyName: string) {
     this.destroyMenuElements();
-    this.add.rectangle(400, 300, 800, 600, 0x1a1a2e);
+    this.destroyAbilityHud();
+    const playfieldHeight = 600 - GameScene.HUD_BAR_HEIGHT;
+    this.add.rectangle(400, playfieldHeight / 2, 800, playfieldHeight, 0x1a1a2e).setOrigin(0.5);
     const graphics = this.add.graphics();
     graphics.lineStyle(1, 0x2a2a4a, 1);
-    for (let x = 0; x <= 800; x += 80) graphics.lineBetween(x, 0, x, 600);
-    for (let y = 0; y <= 600; y += 80) graphics.lineBetween(0, y, 800, y);
+    for (let x = 0; x <= 800; x += 80) graphics.lineBetween(x, 0, x, playfieldHeight);
+    for (let y = 0; y <= playfieldHeight; y += 80) graphics.lineBetween(0, y, 800, y);
     this.add.text(400, 105, lobbyName, { color: '#ffffff', fontSize: '30px', fontStyle: 'bold' }).setOrigin(0.5);
+    this.createAbilityHud();
   }
 
   private showWaitingLobby(state: GameState) {
     if (this.arenaStarted || !this.room) return;
     this.destroyMenuElements();
-    this.addMenuText(400, 80, state.lobbyName, 32, '#ffffff', true);
-    this.addMenuText(400, 125, 'Choose your team while the host prepares the match', 16, '#aaaaff');
-    this.addMenuText(220, 185, 'RED TEAM', 18, '#ff7777', true);
-    this.addMenuText(580, 185, 'BLUE TEAM', 18, '#7799ff', true);
+    const myTank = state.tanks.get(this.room.sessionId) as any;
+    this.addMenuText(400, 65, state.lobbyName, 30, '#ffffff', true);
+    this.addMenuText(400, 100, 'Choose your team and role while the host prepares the match', 15, '#aaaaff');
+    this.addMenuText(220, 145, 'RED TEAM', 17, '#ff7777', true);
+    this.addMenuText(580, 145, 'BLUE TEAM', 17, '#7799ff', true);
 
     let redCount = 0;
     let blueCount = 0;
@@ -253,12 +276,21 @@ export class GameScene extends Phaser.Scene {
       const x = isRed ? 220 : 580;
       const index = isRed ? redCount++ : blueCount++;
       const isMe = sessionId === this.room.sessionId;
-      const label = isMe ? `${tank.name} (You)` : tank.name;
-      this.addMenuText(x, 225 + index * 28, label, 16, isRed ? '#ffaaaa' : '#aaccff');
+      const roleVisual = this.resolveRoleVisual((tank as any).role);
+      const namePart = isMe ? `${tank.name} (You)` : tank.name;
+      this.addMenuText(x, 180 + index * 24, `${namePart} · ${roleVisual.label}`, 14, isRed ? '#ffaaaa' : '#aaccff');
     });
 
-    this.addButton(220, 470, 150, 40, 'JOIN RED', () => this.room.send('change_team', 'red'));
-    this.addButton(580, 470, 150, 40, 'JOIN BLUE', () => this.room.send('change_team', 'blue'));
+    this.addButton(220, 370, 150, 38, 'JOIN RED', () => this.room.send('change_team', 'red'));
+    this.addButton(580, 370, 150, 38, 'JOIN BLUE', () => this.room.send('change_team', 'blue'));
+
+    this.addMenuText(400, 415, 'CHOOSE YOUR ROLE', 15, '#00ff88', true);
+    ROLE_ORDER.forEach((role, index) => {
+      const x = 250 + index * 150;
+      const teamColor = myTank?.team === 'blue' ? 0x4d8dff : 0xff4444;
+      this.addRoleCard(x, 460, role, myTank?.role === role, teamColor, () => this.room.send('select_role', role));
+    });
+
     this.addButton(730, 30, 130, 34, 'LEAVE GAME', () => this.backToMainMenu());
     if (state.hostSessionId === this.room.sessionId) {
       this.addButton(315, 535, 190, 40, 'RENAME GAME', () => this.renameLobby(state.lobbyName));
@@ -291,6 +323,38 @@ export class GameScene extends Phaser.Scene {
     return button;
   }
 
+  /** Renders a selectable role card (shape preview + label) for the lobby role picker; colored with the player's team color, never a per-role color. */
+  private addRoleCard(x: number, y: number, role: Role, selected: boolean, teamColor: number, action: () => void) {
+    const visual = ROLE_VISUALS[role];
+    const width = 130;
+    const height = 60;
+    const card = this.add.rectangle(x, y, width, height, teamColor, selected ? 0.85 : 0.25).setInteractive({ useHandCursor: true });
+    card.setStrokeStyle(selected ? 4 : 2, teamColor, selected ? 1 : 0.6);
+    const icon = this.createRoleShape(x, y - 8, visual.shape, 20, teamColor);
+    icon.setAlpha(selected ? 1 : 0.85);
+    const text = this.add.text(x, y + 18, visual.label, { color: '#ffffff', fontSize: '13px', fontStyle: 'bold' }).setOrigin(0.5);
+    card.on('pointerover', () => card.setFillStyle(teamColor, selected ? 0.85 : 0.45));
+    card.on('pointerout', () => card.setFillStyle(teamColor, selected ? 0.85 : 0.25));
+    card.on('pointerdown', action);
+    this.menuElements.push(card, icon, text);
+    return card;
+  }
+
+  /** Looks up the color/shape visual for a role, falling back to the Tank visual for an unset/unknown role. */
+  private resolveRoleVisual(role: unknown): RoleVisual {
+    return ROLE_VISUALS[(role as Role)] ?? ROLE_VISUALS.tank;
+  }
+
+  /** Creates the Phaser shape used to represent a role (circle/square/triangle), centered at the given position. */
+  private createRoleShape(x: number, y: number, shape: RoleVisual['shape'], size: number, color: number): Phaser.GameObjects.Shape {
+    if (shape === 'circle') return this.add.circle(x, y, size / 2, color);
+    if (shape === 'triangle') {
+      const half = size / 2;
+      return this.add.triangle(x, y, 0, -half, -half, half, half, half, color);
+    }
+    return this.add.rectangle(x, y, size, size, color);
+  }
+
   private destroyMenuElements() {
     this.menuElements.forEach((element) => element.destroy());
     this.menuElements = [];
@@ -303,6 +367,8 @@ export class GameScene extends Phaser.Scene {
     const x = tank.x ?? 200;
     const y = tank.y ?? 200;
     const isDead = tank.state === 'dead';
+    const roleVisual = this.resolveRoleVisual(tank.role);
+    const teamColor = tank.team === 'blue' ? 0x4d8dff : 0xff4444;
 
     if (this.tankSprites.has(sessionId)) {
       this.tankTargets.set(sessionId, { x, y });
@@ -312,9 +378,8 @@ export class GameScene extends Phaser.Scene {
     } else {
       // Spawn new
       const isMe = sessionId === this.room.sessionId;
-      const teamColor = tank.team === 'blue' ? 0x4d8dff : 0xff4444;
-      const sprite = this.add.rectangle(x, y, 40, 40, teamColor);
-      if (isMe) sprite.setStrokeStyle(3, 0xffffff);
+      const sprite = this.createRoleShape(x, y, roleVisual.shape, 40, teamColor);
+      sprite.setStrokeStyle(isMe ? 4 : 2, isMe ? 0xffffff : teamColor);
       const nameText = this.add.text(x, y - 26, isMe ? 'YOU' : (tank.name || 'Enemy'), {
         color: tank.team === 'blue' ? '#4d8dff' : '#ff4444',
         fontSize: '11px'
@@ -327,6 +392,15 @@ export class GameScene extends Phaser.Scene {
     }
 
     this.updateHealthBar(sessionId, x, y - 32, tank.hp, tank.maxHp, !isDead);
+
+    if (sessionId === this.room.sessionId) {
+      this.myAbilityState = {
+        role: tank.role,
+        cooldownEndsAt: tank.abilityCooldownEndsAt ?? 0,
+        cooldownMax: tank.abilityCooldownMax ?? 0,
+        activeUntil: tank.abilityActiveUntil ?? 0
+      };
+    }
   }
 
   private upsertMinion(minion: any, id: string) {
@@ -494,6 +568,7 @@ export class GameScene extends Phaser.Scene {
 
   private handlePointerClick(pointer: Phaser.Input.Pointer) {
     if (pointer.button !== 0 || !this.arenaStarted || !this.room || this.room.state.phase !== 'started') return;
+    if (pointer.y >= 600 - GameScene.HUD_BAR_HEIGHT) return; // clicks on the HUD bar are not movement/attack commands
     const myTank = this.room.state.tanks.get(this.room.sessionId) as any;
     if (!myTank || myTank.state === 'dead') return;
     const worldX = pointer.worldX;
@@ -521,5 +596,185 @@ export class GameScene extends Phaser.Scene {
       const position = this.findEntityPosition(targetId);
       if (position) graphics.setPosition(position.x, position.y);
     });
+    this.refreshAbilityHud();
+    this.applyRoleAbilityVisuals();
+  }
+
+  /**
+   * Renders the visible side-effects of an active role ability on the units themselves:
+   * the tank's hull turns thick and black while its shield is up, and a bobbing wrench icon
+   * hovers over every unit currently receiving the healer's heal-aura.
+   */
+  private applyRoleAbilityVisuals() {
+    if (!this.arenaStarted || !this.room) return;
+    const now = Date.now();
+    const healRadius = ROLE_ABILITY_CONFIG.healer.radius ?? 0;
+    const healedSessionIds = new Set<string>();
+
+    this.room.state.tanks.forEach((healerTank: any, healerId: string) => {
+      if (healerTank.role !== 'healer' || healerTank.state === 'dead') return;
+      if (now >= (healerTank.abilityActiveUntil ?? 0)) return;
+      this.room.state.tanks.forEach((allyTank: any, allyId: string) => {
+        if (allyTank.team !== healerTank.team || allyTank.state === 'dead') return;
+        const dx = (allyTank.x ?? 0) - (healerTank.x ?? 0);
+        const dy = (allyTank.y ?? 0) - (healerTank.y ?? 0);
+        if (dx * dx + dy * dy <= healRadius * healRadius) healedSessionIds.add(allyId);
+      });
+    });
+
+    this.room.state.tanks.forEach((tank: any, sessionId: string) => {
+      const sprite = this.tankSprites.get(sessionId);
+      if (!sprite) return;
+      const shieldActive = tank.role === 'tank' && now < (tank.abilityActiveUntil ?? 0);
+      if (shieldActive) {
+        sprite.setStrokeStyle(7, 0x000000);
+      } else {
+        const isMe = sessionId === this.room.sessionId;
+        const teamColor = tank.team === 'blue' ? 0x4d8dff : 0xff4444;
+        sprite.setStrokeStyle(isMe ? 4 : 2, isMe ? 0xffffff : teamColor);
+      }
+    });
+
+    healedSessionIds.forEach((sessionId) => {
+      if (this.healEffectIcons.has(sessionId)) return;
+      const icon = this.add.graphics().setDepth(500);
+      this.drawWrenchIcon(icon, 0, 0, 22);
+      this.healEffectIcons.set(sessionId, icon);
+    });
+    Array.from(this.healEffectIcons.keys()).forEach((sessionId) => {
+      if (healedSessionIds.has(sessionId)) return;
+      this.healEffectIcons.get(sessionId)?.destroy();
+      this.healEffectIcons.delete(sessionId);
+    });
+    const t = this.time.now;
+    this.healEffectIcons.forEach((icon, sessionId) => {
+      const sprite = this.tankSprites.get(sessionId);
+      if (!sprite) return;
+      const bob = Math.sin((t + sessionId.length * 137) / 260) * 5;
+      icon.setPosition(sprite.x, sprite.y - 40 + bob);
+    });
+  }
+
+  /** Creates a full-width bottom HUD bar, clearly separated from the arena, with a role-iconic ability button. */
+  private createAbilityHud() {
+    const gameWidth = 800;
+    const gameHeight = 600;
+    const barHeight = GameScene.HUD_BAR_HEIGHT;
+    const barTop = gameHeight - barHeight;
+    const barCenterY = barTop + barHeight / 2;
+    const slotSize = 60;
+    const slotTop = barCenterY - slotSize / 2;
+
+    const bar = this.add.rectangle(gameWidth / 2, barCenterY, gameWidth, barHeight, 0x0b0d10, 0.95).setDepth(2000);
+    const barBorder = this.add.rectangle(gameWidth / 2, barTop, gameWidth, 3, 0x3a4a63, 1).setOrigin(0.5, 0).setDepth(2001);
+    const slotBg = this.add.rectangle(gameWidth / 2, barCenterY, slotSize, slotSize, 0x1c2430, 0.9)
+      .setStrokeStyle(3, 0xffffff)
+      .setDepth(2001)
+      .setInteractive({ useHandCursor: true });
+    const icon = this.add.graphics().setDepth(2002);
+    const cooldownOverlay = this.add.rectangle(gameWidth / 2, slotTop, slotSize, 0, 0x000000, 0.65).setOrigin(0.5, 0).setDepth(2002);
+    const titleText = this.add.text(gameWidth / 2, barTop + 14, '', { color: '#ffffff', fontSize: '12px', fontStyle: 'bold' }).setOrigin(0.5, 0).setDepth(2001);
+    const statusText = this.add.text(gameWidth / 2, gameHeight - 14, '', { color: '#cfe8ff', fontSize: '12px' }).setOrigin(0.5, 1).setDepth(2001);
+    slotBg.on('pointerdown', () => this.activateAbility());
+    this.abilityHud = { bar, barBorder, slotBg, icon, cooldownOverlay, titleText, statusText, slotSize, slotTop, role: '' };
+  }
+
+  private destroyAbilityHud() {
+    this.healEffectIcons.forEach((icon) => icon.destroy());
+    this.healEffectIcons.clear();
+    if (!this.abilityHud) return;
+    this.abilityHud.bar.destroy();
+    this.abilityHud.barBorder.destroy();
+    this.abilityHud.slotBg.destroy();
+    this.abilityHud.icon.destroy();
+    this.abilityHud.cooldownOverlay.destroy();
+    this.abilityHud.titleText.destroy();
+    this.abilityHud.statusText.destroy();
+    this.abilityHud = undefined;
+    this.myAbilityState = null;
+  }
+
+  /** Draws a stylized wrench glyph (healer) centered at cx/cy within the given icon size. */
+  private drawWrenchIcon(g: Phaser.GameObjects.Graphics, cx: number, cy: number, size: number) {
+    const half = size / 2;
+    g.lineStyle(4, 0xffffff, 1);
+    g.beginPath();
+    g.moveTo(cx - half * 0.5, cy + half * 0.6);
+    g.lineTo(cx + half * 0.3, cy - half * 0.3);
+    g.strokePath();
+    g.beginPath();
+    g.arc(cx + half * 0.45, cy - half * 0.45, half * 0.35, Phaser.Math.DegToRad(30), Phaser.Math.DegToRad(300), false);
+    g.strokePath();
+    g.fillStyle(0xffffff, 1);
+    g.fillCircle(cx - half * 0.55, cy + half * 0.55, half * 0.18);
+  }
+
+  /** Draws a stylized shield glyph (tank) centered at cx/cy within the given icon size. */
+  private drawShieldIcon(g: Phaser.GameObjects.Graphics, cx: number, cy: number, size: number) {
+    const w = size * 0.7;
+    const h = size * 0.9;
+    g.lineStyle(4, 0xffffff, 1);
+    g.fillStyle(0xffffff, 0.15);
+    g.beginPath();
+    g.moveTo(cx - w / 2, cy - h / 2 + h * 0.15);
+    g.lineTo(cx - w / 2, cy + h * 0.1);
+    g.lineTo(cx, cy + h / 2);
+    g.lineTo(cx + w / 2, cy + h * 0.1);
+    g.lineTo(cx + w / 2, cy - h / 2 + h * 0.15);
+    g.lineTo(cx, cy - h / 2);
+    g.closePath();
+    g.fillPath();
+    g.strokePath();
+  }
+
+  /** Draws stacked dashed lines (damagedealer) symbolizing rapid shots, centered at cx/cy within the given icon size. */
+  private drawRapidFireIcon(g: Phaser.GameObjects.Graphics, cx: number, cy: number, size: number) {
+    g.lineStyle(4, 0xffffff, 1);
+    const dashLen = size * 0.55;
+    const gapY = size * 0.28;
+    for (let i = -1; i <= 1; i++) {
+      g.beginPath();
+      g.moveTo(cx - dashLen / 2, cy + i * gapY);
+      g.lineTo(cx + dashLen / 2, cy + i * gapY);
+      g.strokePath();
+    }
+  }
+
+  /** Dispatches to the role-specific icon glyph so each ability button is recognizable at a glance. */
+  private drawRoleIcon(g: Phaser.GameObjects.Graphics, role: string, cx: number, cy: number, size: number) {
+    g.clear();
+    if (role === 'healer') this.drawWrenchIcon(g, cx, cy, size);
+    else if (role === 'tank') this.drawShieldIcon(g, cx, cy, size);
+    else if (role === 'damagedealer') this.drawRapidFireIcon(g, cx, cy, size);
+  }
+
+  /** Sends the ability-activation request for the local player's role, unless it is clearly still on cooldown. */
+  private activateAbility() {
+    if (!this.arenaStarted || !this.room || this.room.state.phase !== 'started') return;
+    const myTank = this.room.state.tanks.get(this.room.sessionId) as any;
+    if (!myTank || myTank.state === 'dead') return;
+    if (Date.now() < (myTank.abilityCooldownEndsAt ?? 0)) return;
+    this.room.send('activate_ability');
+  }
+
+  /** Redraws the ability HUD's icon, cooldown overlay, and status text every frame from the last-synced ability state. */
+  private refreshAbilityHud() {
+    if (!this.abilityHud || !this.myAbilityState) return;
+    const { role, cooldownEndsAt, cooldownMax, activeUntil } = this.myAbilityState;
+    const visual = this.resolveRoleVisual(role);
+    const gameWidth = 800;
+    const slotCenterY = this.abilityHud.slotTop + this.abilityHud.slotSize / 2;
+    if (this.abilityHud.role !== role) {
+      this.abilityHud.slotBg.setStrokeStyle(3, visual.color);
+      this.drawRoleIcon(this.abilityHud.icon, role, gameWidth / 2, slotCenterY, this.abilityHud.slotSize);
+      this.abilityHud.titleText.setText(`${visual.abilityLabel.toUpperCase()} (SPACE)`);
+      this.abilityHud.role = role;
+    }
+    const now = Date.now();
+    const remainingMs = Math.max(0, cooldownEndsAt - now);
+    const fraction = cooldownMax > 0 ? Math.min(1, remainingMs / cooldownMax) : 0;
+    this.abilityHud.cooldownOverlay.setSize(this.abilityHud.slotSize, this.abilityHud.slotSize * fraction);
+    const active = now < activeUntil;
+    this.abilityHud.statusText.setText(active ? 'ACTIVE' : fraction > 0 ? `${Math.ceil(remainingMs / 1000)}s` : 'READY');
   }
 }

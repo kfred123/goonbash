@@ -4,7 +4,9 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
+    "predev": "npm run build --workspace=shared",
     "dev": "vite",
+    "prebuild": "npm run build --workspace=shared",
     "build": "tsc && vite build",
     "preview": "vite preview"
   },

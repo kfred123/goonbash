@@ -1,4 +1,5 @@
-import type { LobbyTeam, MatchPhase } from "shared";
+import type { LobbyTeam, MatchPhase, Role } from "shared";
+import { isRole } from "shared";
 
 const MAX_PLAYER_NAME_LENGTH = 20;
 const DEFAULT_PLAYER_NAME = "Player";
@@ -15,6 +16,10 @@ export function selectBalancedTeam(players: Iterable<{ team: string }>): LobbyTe
 
 export function canChangeTeam(phase: MatchPhase, team: unknown): team is LobbyTeam {
   return phase === "waiting" && (team === "red" || team === "blue");
+}
+
+export function canChangeRole(phase: MatchPhase, role: unknown): role is Role {
+  return phase === "waiting" && isRole(role);
 }
 
 export function canManageLobby(phase: MatchPhase, clientSessionId: string, hostSessionId: string): boolean {
