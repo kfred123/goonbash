@@ -42,6 +42,11 @@ export class GameScene extends Phaser.Scene {
   private static readonly CLICK_HIT_RADIUS_BASE = 30;
   private static readonly CLICK_MARKER_DURATION_MS = 1000;
   private static readonly HUD_BAR_HEIGHT = 92;
+  // World is 3x the 800x600 viewport (matching backend GameRoom's WORLD_WIDTH/WORLD_HEIGHT)
+  // so the camera only ever shows a portion of the map at once.
+  private static readonly WORLD_WIDTH = 2400;
+  private static readonly WORLD_HEIGHT = 1800;
+  private static readonly CAMERA_LERP = 0.1;
   private readonly backendHttpUrl = (import.meta as any).env?.VITE_BACKEND_HTTP_URL || `${window.location.protocol}//${window.location.hostname}:2567`;
   private readonly backendWsUrl = (import.meta as any).env?.VITE_BACKEND_WS_URL || `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.hostname}:2567`;
 
@@ -52,13 +57,20 @@ export class GameScene extends Phaser.Scene {
   preload() {}
 
   create() {
+    this.cameras.main.setBounds(0, 0, GameScene.WORLD_WIDTH, GameScene.WORLD_HEIGHT);
     this.statusText = this.add.text(10, 10, 'Lobby menu', {
       color: '#aaaaff', fontSize: '14px',
       backgroundColor: '#00000088', padding: { x: 6, y: 4 }
-    });
+    }).setScrollFactor(0);
     this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => this.handlePointerClick(pointer));
     this.input.keyboard?.on('keydown-SPACE', () => this.activateAbility());
     this.showMainMenu();
+  }
+
+  /** Stops the camera following the local player and resets it to the origin, for menu/lobby screens with no arena. */
+  private resetCamera() {
+    this.cameras.main.stopFollow();
+    this.cameras.main.setScroll(0, 0);
   }
 
   private loadStoredName(): string {
@@ -78,6 +90,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private showMainMenu(message = '') {
+    this.resetCamera();
     this.destroyMenuElements();
     if (!this.playerName) this.playerName = this.loadStoredName();
     this.addMenuText(400, 140, 'GOONBASH', 42, '#ffffff', true);
@@ -143,6 +156,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private showLobbyMenu(message = '') {
+    this.resetCamera();
     this.destroyMenuElements();
     this.addMenuText(400, 90, 'GOONBASH', 42, '#ffffff', true);
     this.addMenuText(400, 140, 'Choose a game or create your own', 18, '#aaaaff');
@@ -250,18 +264,20 @@ export class GameScene extends Phaser.Scene {
   private createArena(lobbyName: string) {
     this.destroyMenuElements();
     this.destroyAbilityHud();
-    const playfieldHeight = 600 - GameScene.HUD_BAR_HEIGHT;
-    this.add.rectangle(400, playfieldHeight / 2, 800, playfieldHeight, 0x1a1a2e).setOrigin(0.5);
+    const worldWidth = GameScene.WORLD_WIDTH;
+    const worldHeight = GameScene.WORLD_HEIGHT;
+    this.add.rectangle(worldWidth / 2, worldHeight / 2, worldWidth, worldHeight, 0x1a1a2e).setOrigin(0.5);
     const graphics = this.add.graphics();
     graphics.lineStyle(1, 0x2a2a4a, 1);
-    for (let x = 0; x <= 800; x += 80) graphics.lineBetween(x, 0, x, playfieldHeight);
-    for (let y = 0; y <= playfieldHeight; y += 80) graphics.lineBetween(0, y, 800, y);
-    this.add.text(400, 105, lobbyName, { color: '#ffffff', fontSize: '30px', fontStyle: 'bold' }).setOrigin(0.5);
+    for (let x = 0; x <= worldWidth; x += 80) graphics.lineBetween(x, 0, x, worldHeight);
+    for (let y = 0; y <= worldHeight; y += 80) graphics.lineBetween(0, y, worldWidth, y);
+    this.add.text(400, 20, lobbyName, { color: '#ffffff', fontSize: '24px', fontStyle: 'bold' }).setOrigin(0.5).setScrollFactor(0).setDepth(1500);
     this.createAbilityHud();
   }
 
   private showWaitingLobby(state: GameState) {
     if (this.arenaStarted || !this.room) return;
+    this.resetCamera();
     this.destroyMenuElements();
     const myTank = state.tanks.get(this.room.sessionId) as any;
     this.addMenuText(400, 65, state.lobbyName, 30, '#ffffff', true);
@@ -389,6 +405,9 @@ export class GameScene extends Phaser.Scene {
       this.tankSprites.set(sessionId, sprite);
       this.tankNameTexts.set(sessionId, nameText);
       console.log(`Spawned tank for ${sessionId} at ${x},${y}`);
+      if (isMe) {
+        this.cameras.main.startFollow(sprite, true, GameScene.CAMERA_LERP, GameScene.CAMERA_LERP);
+      }
     }
 
     this.updateHealthBar(sessionId, x, y - 32, tank.hp, tank.maxHp, !isDead);
@@ -665,16 +684,17 @@ export class GameScene extends Phaser.Scene {
     const slotSize = 60;
     const slotTop = barCenterY - slotSize / 2;
 
-    const bar = this.add.rectangle(gameWidth / 2, barCenterY, gameWidth, barHeight, 0x0b0d10, 0.95).setDepth(2000);
-    const barBorder = this.add.rectangle(gameWidth / 2, barTop, gameWidth, 3, 0x3a4a63, 1).setOrigin(0.5, 0).setDepth(2001);
+    const bar = this.add.rectangle(gameWidth / 2, barCenterY, gameWidth, barHeight, 0x0b0d10, 0.95).setDepth(2000).setScrollFactor(0);
+    const barBorder = this.add.rectangle(gameWidth / 2, barTop, gameWidth, 3, 0x3a4a63, 1).setOrigin(0.5, 0).setDepth(2001).setScrollFactor(0);
     const slotBg = this.add.rectangle(gameWidth / 2, barCenterY, slotSize, slotSize, 0x1c2430, 0.9)
       .setStrokeStyle(3, 0xffffff)
       .setDepth(2001)
+      .setScrollFactor(0)
       .setInteractive({ useHandCursor: true });
-    const icon = this.add.graphics().setDepth(2002);
-    const cooldownOverlay = this.add.rectangle(gameWidth / 2, slotTop, slotSize, 0, 0x000000, 0.65).setOrigin(0.5, 0).setDepth(2002);
-    const titleText = this.add.text(gameWidth / 2, barTop + 14, '', { color: '#ffffff', fontSize: '12px', fontStyle: 'bold' }).setOrigin(0.5, 0).setDepth(2001);
-    const statusText = this.add.text(gameWidth / 2, gameHeight - 14, '', { color: '#cfe8ff', fontSize: '12px' }).setOrigin(0.5, 1).setDepth(2001);
+    const icon = this.add.graphics().setDepth(2002).setScrollFactor(0);
+    const cooldownOverlay = this.add.rectangle(gameWidth / 2, slotTop, slotSize, 0, 0x000000, 0.65).setOrigin(0.5, 0).setDepth(2002).setScrollFactor(0);
+    const titleText = this.add.text(gameWidth / 2, barTop + 14, '', { color: '#ffffff', fontSize: '12px', fontStyle: 'bold' }).setOrigin(0.5, 0).setDepth(2001).setScrollFactor(0);
+    const statusText = this.add.text(gameWidth / 2, gameHeight - 14, '', { color: '#cfe8ff', fontSize: '12px' }).setOrigin(0.5, 1).setDepth(2001).setScrollFactor(0);
     slotBg.on('pointerdown', () => this.activateAbility());
     this.abilityHud = { bar, barBorder, slotBg, icon, cooldownOverlay, titleText, statusText, slotSize, slotTop, role: '' };
   }

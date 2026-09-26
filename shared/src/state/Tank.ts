@@ -18,7 +18,7 @@ export class Tank extends Entity {
   @type("number") fireCooldown: number = 0;
   @type("number") fireCooldownMax: number = 800;
   @type("number") fireDamage: number = 8;
-  @type("number") moveSpeed: number = 180;
+  @type("number") moveSpeed: number = 90;
   /** Timestamp (ms) at/after which the role's special ability can be activated again. */
   @type("number") abilityCooldownEndsAt: number = 0;
   /** Length (ms) of the ability's cooldown, for HUD progress display. */

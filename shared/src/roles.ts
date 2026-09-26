@@ -15,9 +15,9 @@ export interface RoleStats {
 }
 
 export const ROLE_STATS: Record<Role, RoleStats> = {
-  healer: { maxHp: 90, moveSpeed: 190, fireRange: 140, fireCooldownMax: 900, fireDamage: 6 },
-  tank: { maxHp: 160, moveSpeed: 140, fireRange: 130, fireCooldownMax: 900, fireDamage: 7 },
-  damagedealer: { maxHp: 80, moveSpeed: 200, fireRange: 160, fireCooldownMax: 700, fireDamage: 10 }
+  healer: { maxHp: 90, moveSpeed: 95, fireRange: 140, fireCooldownMax: 900, fireDamage: 6 },
+  tank: { maxHp: 160, moveSpeed: 70, fireRange: 130, fireCooldownMax: 900, fireDamage: 7 },
+  damagedealer: { maxHp: 80, moveSpeed: 100, fireRange: 160, fireCooldownMax: 700, fireDamage: 10 }
 };
 
 /** Resolves the base stats for a role, defaulting to Tank stats for an unset/invalid role. */
