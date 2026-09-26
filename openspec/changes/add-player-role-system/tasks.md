@@ -40,8 +40,8 @@
 
 ## 7. Ability HUD (Frontend)
 
-- [x] 7.1 Add a bottom-screen HUD element (icon + cooldown fill) bound to the local player's tank/role
-- [x] 7.2 Map each role to its ability icon asset (placeholder icons acceptable initially) (role color/shape + text label used as the placeholder icon)
+- [x] 7.1 Add a full-width bottom HUD bar (icon slot + cooldown fill), clearly separated from the arena, bound to the local player's tank/role
+- [x] 7.2 Map each role to an iconic vector glyph (wrench = healer, shield = tank, dashed rapid-fire lines = damagedealer), drawn via Phaser Graphics
 - [x] 7.3 Bind a dedicated key (e.g. Space) and a click/tap on the HUD icon to send the `activateAbility` message (implemented as `activate_ability`)
 - [x] 7.4 Reconcile HUD cooldown display from synced server state (server remains source of truth)
 - [x] 7.5 Add basic visual feedback in the game view for active shield/heal-aura/rapid-fire (e.g. tint or particle, minimal effort) (HUD label shows "ACTIVE" while the effect is running)

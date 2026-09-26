@@ -21,7 +21,18 @@ export class GameScene extends Phaser.Scene {
   private playerName = '';
   private leavingRoom = false;
   private arenaStarted = false;
-  private abilityHud?: { icon: Phaser.GameObjects.Shape; cooldownOverlay: Phaser.GameObjects.Rectangle; label: Phaser.GameObjects.Text; iconSize: number; role: string };
+  private abilityHud?: {
+    bar: Phaser.GameObjects.Rectangle;
+    barBorder: Phaser.GameObjects.Rectangle;
+    slotBg: Phaser.GameObjects.Rectangle;
+    icon: Phaser.GameObjects.Graphics;
+    cooldownOverlay: Phaser.GameObjects.Rectangle;
+    titleText: Phaser.GameObjects.Text;
+    statusText: Phaser.GameObjects.Text;
+    slotSize: number;
+    slotTop: number;
+    role: string;
+  };
   private myAbilityState: { role: string; cooldownEndsAt: number; cooldownMax: number; activeUntil: number } | null = null;
   private static readonly NAME_STORAGE_KEY = 'goonbash_player_name';
   private static readonly MAX_NAME_LENGTH = 20;
@@ -583,25 +594,95 @@ export class GameScene extends Phaser.Scene {
     this.refreshAbilityHud();
   }
 
-  /** Creates the bottom-screen ability HUD (icon + cooldown overlay + label) for the arena view. */
+  /** Creates a full-width bottom HUD bar, clearly separated from the arena, with a role-iconic ability button. */
   private createAbilityHud() {
-    const x = 400;
-    const y = 560;
-    const size = 52;
-    const icon = this.add.rectangle(x, y, size, size, 0x333333).setStrokeStyle(3, 0xffffff).setDepth(2000).setInteractive({ useHandCursor: true });
-    const cooldownOverlay = this.add.rectangle(x, y - size / 2, size, 0, 0x000000, 0.65).setOrigin(0.5, 0).setDepth(2001);
-    const label = this.add.text(x, y + size / 2 + 14, '', { color: '#ffffff', fontSize: '13px', fontStyle: 'bold' }).setOrigin(0.5).setDepth(2000);
-    icon.on('pointerdown', () => this.activateAbility());
-    this.abilityHud = { icon, cooldownOverlay, label, iconSize: size, role: '' };
+    const gameWidth = 800;
+    const gameHeight = 600;
+    const barHeight = 92;
+    const barTop = gameHeight - barHeight;
+    const barCenterY = barTop + barHeight / 2;
+    const slotSize = 60;
+    const slotTop = barCenterY - slotSize / 2;
+
+    const bar = this.add.rectangle(gameWidth / 2, barCenterY, gameWidth, barHeight, 0x0b0d10, 0.95).setDepth(2000);
+    const barBorder = this.add.rectangle(gameWidth / 2, barTop, gameWidth, 3, 0x3a4a63, 1).setOrigin(0.5, 0).setDepth(2001);
+    const slotBg = this.add.rectangle(gameWidth / 2, barCenterY, slotSize, slotSize, 0x1c2430, 0.9)
+      .setStrokeStyle(3, 0xffffff)
+      .setDepth(2001)
+      .setInteractive({ useHandCursor: true });
+    const icon = this.add.graphics().setDepth(2002);
+    const cooldownOverlay = this.add.rectangle(gameWidth / 2, slotTop, slotSize, 0, 0x000000, 0.65).setOrigin(0.5, 0).setDepth(2002);
+    const titleText = this.add.text(gameWidth / 2, barTop + 14, '', { color: '#ffffff', fontSize: '12px', fontStyle: 'bold' }).setOrigin(0.5, 0).setDepth(2001);
+    const statusText = this.add.text(gameWidth / 2, gameHeight - 14, '', { color: '#cfe8ff', fontSize: '12px' }).setOrigin(0.5, 1).setDepth(2001);
+    slotBg.on('pointerdown', () => this.activateAbility());
+    this.abilityHud = { bar, barBorder, slotBg, icon, cooldownOverlay, titleText, statusText, slotSize, slotTop, role: '' };
   }
 
   private destroyAbilityHud() {
     if (!this.abilityHud) return;
+    this.abilityHud.bar.destroy();
+    this.abilityHud.barBorder.destroy();
+    this.abilityHud.slotBg.destroy();
     this.abilityHud.icon.destroy();
     this.abilityHud.cooldownOverlay.destroy();
-    this.abilityHud.label.destroy();
+    this.abilityHud.titleText.destroy();
+    this.abilityHud.statusText.destroy();
     this.abilityHud = undefined;
     this.myAbilityState = null;
+  }
+
+  /** Draws a stylized wrench glyph (healer) centered at cx/cy within the given icon size. */
+  private drawWrenchIcon(g: Phaser.GameObjects.Graphics, cx: number, cy: number, size: number) {
+    const half = size / 2;
+    g.lineStyle(4, 0xffffff, 1);
+    g.beginPath();
+    g.moveTo(cx - half * 0.5, cy + half * 0.6);
+    g.lineTo(cx + half * 0.3, cy - half * 0.3);
+    g.strokePath();
+    g.beginPath();
+    g.arc(cx + half * 0.45, cy - half * 0.45, half * 0.35, Phaser.Math.DegToRad(30), Phaser.Math.DegToRad(300), false);
+    g.strokePath();
+    g.fillStyle(0xffffff, 1);
+    g.fillCircle(cx - half * 0.55, cy + half * 0.55, half * 0.18);
+  }
+
+  /** Draws a stylized shield glyph (tank) centered at cx/cy within the given icon size. */
+  private drawShieldIcon(g: Phaser.GameObjects.Graphics, cx: number, cy: number, size: number) {
+    const w = size * 0.7;
+    const h = size * 0.9;
+    g.lineStyle(4, 0xffffff, 1);
+    g.fillStyle(0xffffff, 0.15);
+    g.beginPath();
+    g.moveTo(cx - w / 2, cy - h / 2 + h * 0.15);
+    g.lineTo(cx - w / 2, cy + h * 0.1);
+    g.lineTo(cx, cy + h / 2);
+    g.lineTo(cx + w / 2, cy + h * 0.1);
+    g.lineTo(cx + w / 2, cy - h / 2 + h * 0.15);
+    g.lineTo(cx, cy - h / 2);
+    g.closePath();
+    g.fillPath();
+    g.strokePath();
+  }
+
+  /** Draws stacked dashed lines (damagedealer) symbolizing rapid shots, centered at cx/cy within the given icon size. */
+  private drawRapidFireIcon(g: Phaser.GameObjects.Graphics, cx: number, cy: number, size: number) {
+    g.lineStyle(4, 0xffffff, 1);
+    const dashLen = size * 0.55;
+    const gapY = size * 0.28;
+    for (let i = -1; i <= 1; i++) {
+      g.beginPath();
+      g.moveTo(cx - dashLen / 2, cy + i * gapY);
+      g.lineTo(cx + dashLen / 2, cy + i * gapY);
+      g.strokePath();
+    }
+  }
+
+  /** Dispatches to the role-specific icon glyph so each ability button is recognizable at a glance. */
+  private drawRoleIcon(g: Phaser.GameObjects.Graphics, role: string, cx: number, cy: number, size: number) {
+    g.clear();
+    if (role === 'healer') this.drawWrenchIcon(g, cx, cy, size);
+    else if (role === 'tank') this.drawShieldIcon(g, cx, cy, size);
+    else if (role === 'damagedealer') this.drawRapidFireIcon(g, cx, cy, size);
   }
 
   /** Sends the ability-activation request for the local player's role, unless it is clearly still on cooldown. */
@@ -613,25 +694,24 @@ export class GameScene extends Phaser.Scene {
     this.room.send('activate_ability');
   }
 
-  /** Redraws the ability HUD's icon color, cooldown overlay, and label every frame from the last-synced ability state. */
+  /** Redraws the ability HUD's icon, cooldown overlay, and status text every frame from the last-synced ability state. */
   private refreshAbilityHud() {
     if (!this.abilityHud || !this.myAbilityState) return;
     const { role, cooldownEndsAt, cooldownMax, activeUntil } = this.myAbilityState;
     const visual = this.resolveRoleVisual(role);
+    const gameWidth = 800;
+    const slotCenterY = this.abilityHud.slotTop + this.abilityHud.slotSize / 2;
     if (this.abilityHud.role !== role) {
-      this.abilityHud.icon.setFillStyle(visual.color);
+      this.abilityHud.slotBg.setStrokeStyle(3, visual.color);
+      this.drawRoleIcon(this.abilityHud.icon, role, gameWidth / 2, slotCenterY, this.abilityHud.slotSize);
+      this.abilityHud.titleText.setText(`${visual.abilityLabel.toUpperCase()} (SPACE)`);
       this.abilityHud.role = role;
     }
     const now = Date.now();
     const remainingMs = Math.max(0, cooldownEndsAt - now);
     const fraction = cooldownMax > 0 ? Math.min(1, remainingMs / cooldownMax) : 0;
-    this.abilityHud.cooldownOverlay.setSize(this.abilityHud.iconSize, this.abilityHud.iconSize * fraction);
+    this.abilityHud.cooldownOverlay.setSize(this.abilityHud.slotSize, this.abilityHud.slotSize * fraction);
     const active = now < activeUntil;
-    const statusText = active
-      ? `${visual.abilityLabel}: ACTIVE`
-      : fraction > 0
-        ? `${visual.abilityLabel}: ${Math.ceil(remainingMs / 1000)}s`
-        : `${visual.abilityLabel}: READY (SPACE)`;
-    this.abilityHud.label.setText(statusText);
+    this.abilityHud.statusText.setText(active ? 'ACTIVE' : fraction > 0 ? `${Math.ceil(remainingMs / 1000)}s` : 'READY');
   }
 }
