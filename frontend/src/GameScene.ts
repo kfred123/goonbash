@@ -41,6 +41,7 @@ export class GameScene extends Phaser.Scene {
   private static readonly CLICK_HIT_RADIUS_MINION = 14;
   private static readonly CLICK_HIT_RADIUS_BASE = 30;
   private static readonly CLICK_MARKER_DURATION_MS = 1000;
+  private static readonly HUD_BAR_HEIGHT = 92;
   private readonly backendHttpUrl = (import.meta as any).env?.VITE_BACKEND_HTTP_URL || `${window.location.protocol}//${window.location.hostname}:2567`;
   private readonly backendWsUrl = (import.meta as any).env?.VITE_BACKEND_WS_URL || `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.hostname}:2567`;
 
@@ -249,11 +250,12 @@ export class GameScene extends Phaser.Scene {
   private createArena(lobbyName: string) {
     this.destroyMenuElements();
     this.destroyAbilityHud();
-    this.add.rectangle(400, 300, 800, 600, 0x1a1a2e);
+    const playfieldHeight = 600 - GameScene.HUD_BAR_HEIGHT;
+    this.add.rectangle(400, playfieldHeight / 2, 800, playfieldHeight, 0x1a1a2e).setOrigin(0.5);
     const graphics = this.add.graphics();
     graphics.lineStyle(1, 0x2a2a4a, 1);
-    for (let x = 0; x <= 800; x += 80) graphics.lineBetween(x, 0, x, 600);
-    for (let y = 0; y <= 600; y += 80) graphics.lineBetween(0, y, 800, y);
+    for (let x = 0; x <= 800; x += 80) graphics.lineBetween(x, 0, x, playfieldHeight);
+    for (let y = 0; y <= playfieldHeight; y += 80) graphics.lineBetween(0, y, 800, y);
     this.add.text(400, 105, lobbyName, { color: '#ffffff', fontSize: '30px', fontStyle: 'bold' }).setOrigin(0.5);
     this.createAbilityHud();
   }
@@ -566,6 +568,7 @@ export class GameScene extends Phaser.Scene {
 
   private handlePointerClick(pointer: Phaser.Input.Pointer) {
     if (pointer.button !== 0 || !this.arenaStarted || !this.room || this.room.state.phase !== 'started') return;
+    if (pointer.y >= 600 - GameScene.HUD_BAR_HEIGHT) return; // clicks on the HUD bar are not movement/attack commands
     const myTank = this.room.state.tanks.get(this.room.sessionId) as any;
     if (!myTank || myTank.state === 'dead') return;
     const worldX = pointer.worldX;
@@ -656,7 +659,7 @@ export class GameScene extends Phaser.Scene {
   private createAbilityHud() {
     const gameWidth = 800;
     const gameHeight = 600;
-    const barHeight = 92;
+    const barHeight = GameScene.HUD_BAR_HEIGHT;
     const barTop = gameHeight - barHeight;
     const barCenterY = barTop + barHeight / 2;
     const slotSize = 60;
