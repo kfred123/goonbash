@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+  canChangeRole,
   canChangeTeam,
   canManageLobby,
   normalizeLobbyName,
@@ -26,6 +27,15 @@ test("allows only the waiting-lobby host to manage the lobby", () => {
   assert.equal(canManageLobby("waiting", "host", "host"), true);
   assert.equal(canManageLobby("waiting", "player", "host"), false);
   assert.equal(canManageLobby("started", "host", "host"), false);
+});
+
+test("allows only valid role changes during the waiting phase", () => {
+  assert.equal(canChangeRole("waiting", "healer"), true);
+  assert.equal(canChangeRole("waiting", "tank"), true);
+  assert.equal(canChangeRole("waiting", "damagedealer"), true);
+  assert.equal(canChangeRole("waiting", "grunt"), false);
+  assert.equal(canChangeRole("waiting", undefined), false);
+  assert.equal(canChangeRole("started", "healer"), false);
 });
 
 test("normalizes valid lobby names and rejects invalid ones", () => {

@@ -1,8 +1,10 @@
 import { Room, Client } from "colyseus";
 import { Base, GameState, Minion, Projectile, Tank } from "shared";
+import { isRole, resolveRoleAbilityConfig, resolveRoleStats, ROLE_ABILITY_CONFIG } from "shared";
 import { lobbyRegistry } from "../index.js";
-import { canChangeTeam, canManageLobby, normalizeLobbyName, normalizePlayerName, resolveHostAfterLeave, selectBalancedTeam } from "./lobbyControls.js";
+import { canChangeRole, canChangeTeam, canManageLobby, normalizeLobbyName, normalizePlayerName, resolveHostAfterLeave, selectBalancedTeam } from "./lobbyControls.js";
 import { findNearestEnemyInRange, hasDied, hasProjectileReachedTarget, isReadyToRespawn, isWithinRange, stepToward, applyDamage as computeDamagedHp, respawnTank } from "./combat.js";
+import { activateRoleAbility, applyShieldReduction, canActivateAbility, effectiveFireCooldown, healOverTick, isAbilityActive } from "./ability.js";
 
 const RESPAWN_DELAY_MS = 3000;
 const PROJECTILE_HIT_RADIUS = 12;
@@ -50,6 +52,22 @@ export class GameRoom extends Room<GameState> {
       const tank = this.state.tanks.get(client.sessionId);
       if (tank) tank.team = team;
     });
+    this.onMessage("select_role", (client, role: unknown) => {
+      if (!canChangeRole(this.state.phase, role)) return;
+      const tank = this.state.tanks.get(client.sessionId);
+      if (tank) tank.role = role;
+    });
+    this.onMessage("activate_ability", (client) => {
+      const tank = this.state.tanks.get(client.sessionId);
+      if (!tank || this.state.phase !== "started" || tank.state === "dead") return;
+      const now = Date.now();
+      if (!canActivateAbility(now, tank.abilityCooldownEndsAt)) return;
+      const role = isRole(tank.role) ? tank.role : "tank";
+      const timing = activateRoleAbility(role, now);
+      tank.abilityCooldownEndsAt = timing.abilityCooldownEndsAt;
+      tank.abilityCooldownMax = timing.abilityCooldownMax;
+      tank.abilityActiveUntil = timing.abilityActiveUntil;
+    });
     this.onMessage("rename_lobby", (client, name: unknown) => {
       if (!canManageLobby(this.state.phase, client.sessionId, this.state.hostSessionId)) return;
       const trimmedName = normalizeLobbyName(name);
@@ -60,6 +78,7 @@ export class GameRoom extends Room<GameState> {
     });
     this.onMessage("start_game", (client) => {
       if (!canManageLobby(this.state.phase, client.sessionId, this.state.hostSessionId)) return;
+      this.state.tanks.forEach((tank) => this.applyRoleStats(tank));
       this.state.phase = "started";
     });
 
@@ -77,6 +96,7 @@ export class GameRoom extends Room<GameState> {
     this.resolveCombat(deltaTime);
     this.resolveRespawns(now);
     this.updateTankMovement(elapsedSeconds);
+    this.resolveHealerAuras(elapsedSeconds, now);
 
     this.state.minions.forEach((minion) => {
       if (minion.targetId) return;
@@ -110,9 +130,9 @@ export class GameRoom extends Room<GameState> {
    * `updateLockedShooter` handles firing instead).
    */
   private updateTankMovement(elapsedSeconds: number) {
-    const speed = 180 * elapsedSeconds;
     this.state.tanks.forEach((tank) => {
       if (tank.state === "dead") return;
+      const speed = tank.moveSpeed * elapsedSeconds;
       if (tank.lockedTargetId) {
         const target = this.findLivingEntity(tank.lockedTargetId);
         if (!target || isWithinRange(tank, target, tank.fireRange)) return;
@@ -161,7 +181,7 @@ export class GameRoom extends Room<GameState> {
         tank.targetId = target.id;
         if (tank.fireCooldown <= 0) {
           this.spawnProjectile(tank, target);
-          tank.fireCooldown = tank.fireCooldownMax;
+          tank.fireCooldown = this.computeFireCooldown(tank);
         }
         return;
       } else {
@@ -176,8 +196,15 @@ export class GameRoom extends Room<GameState> {
     tank.targetId = target?.id ?? "";
     if (target && tank.fireCooldown <= 0) {
       this.spawnProjectile(tank, target);
-      tank.fireCooldown = tank.fireCooldownMax;
+      tank.fireCooldown = this.computeFireCooldown(tank);
     }
+  }
+
+  /** Computes a tank's next fire cooldown, applying the Damagedealer's rapid-fire multiplier while active. */
+  private computeFireCooldown(tank: Tank): number {
+    if (tank.role !== "damagedealer") return tank.fireCooldownMax;
+    const active = isAbilityActive(Date.now(), tank.abilityActiveUntil);
+    return effectiveFireCooldown(tank.fireCooldownMax, active, ROLE_ABILITY_CONFIG.damagedealer.magnitude);
   }
 
   /** Acquires the nearest enemy target -- including enemy bases -- (ignoring all friendly units) and fires when ready. */
@@ -251,7 +278,10 @@ export class GameRoom extends Room<GameState> {
   }
 
   private applyDamage(entity: Tank | Minion | Base, damage: number) {
-    entity.hp = computeDamagedHp(entity.hp, damage);
+    const effectiveDamage = entity instanceof Tank && entity.role === "tank"
+      ? applyShieldReduction(damage, isAbilityActive(Date.now(), entity.abilityActiveUntil), ROLE_ABILITY_CONFIG.tank.magnitude)
+      : damage;
+    entity.hp = computeDamagedHp(entity.hp, effectiveDamage);
     if (!hasDied(entity.hp)) return;
     if (entity instanceof Tank) {
       this.killTank(entity);
@@ -267,6 +297,32 @@ export class GameRoom extends Room<GameState> {
     tank.lockedTargetId = "";
     tank.hasMoveTarget = false;
     tank.respawnAt = Date.now() + RESPAWN_DELAY_MS;
+  }
+
+  /** Applies the base stats for a tank's currently selected role (spawn/match-start stat setup). */
+  private applyRoleStats(tank: Tank) {
+    const stats = resolveRoleStats(tank.role);
+    tank.maxHp = stats.maxHp;
+    tank.hp = stats.maxHp;
+    tank.moveSpeed = stats.moveSpeed;
+    tank.fireRange = stats.fireRange;
+    tank.fireCooldownMax = stats.fireCooldownMax;
+    tank.fireDamage = stats.fireDamage;
+    tank.abilityCooldownMax = resolveRoleAbilityConfig(tank.role).cooldownMs;
+  }
+
+  /** Heals every Healer with an active aura, and every allied tank within its radius, once per tick. */
+  private resolveHealerAuras(elapsedSeconds: number, now: number) {
+    this.state.tanks.forEach((healer) => {
+      if (healer.role !== "healer" || healer.state === "dead") return;
+      if (!isAbilityActive(now, healer.abilityActiveUntil)) return;
+      const config = ROLE_ABILITY_CONFIG.healer;
+      this.state.tanks.forEach((ally) => {
+        if (ally.state === "dead" || ally.team !== healer.team) return;
+        if (!isWithinRange(healer, ally, config.radius ?? 0)) return;
+        ally.hp = healOverTick(ally.hp, ally.maxHp, config.magnitude, elapsedSeconds);
+      });
+    });
   }
 
   /** Restores a dead tank to full HP at its team's base once its respawn delay has elapsed. */
@@ -348,6 +404,7 @@ export class GameRoom extends Room<GameState> {
     tank.team = this.nextTeam();
     tank.x = Math.random() * 500;
     tank.y = Math.random() * 500;
+    this.applyRoleStats(tank);
     this.state.tanks.set(client.sessionId, tank);
   }
 
