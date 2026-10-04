@@ -497,6 +497,14 @@ export class GameScene extends Phaser.Scene {
     return Math.max(0, Math.min(1, hp / maxHp));
   }
 
+  /** Repositions an existing health bar to follow its tank's current (interpolated) screen position, without altering fill/visibility. */
+  private updateHealthBarPosition(id: string, x: number, y: number) {
+    const bar = this.healthBars.get(id);
+    if (!bar) return;
+    bar.bg.setPosition(x, y);
+    bar.fill.setPosition(x - bar.width / 2, y);
+  }
+
   private updateHealthBar(id: string, x: number, y: number, hp: number, maxHp: number, visible: boolean) {
     const barWidth = 36;
     const bar = this.healthBars.get(id);
@@ -619,6 +627,8 @@ export class GameScene extends Phaser.Scene {
       if (sprite) {
         sprite.x = Phaser.Math.Linear(sprite.x, target.x, 0.25);
         sprite.y = Phaser.Math.Linear(sprite.y, target.y, 0.25);
+        this.tankNameTexts.get(sessionId)?.setPosition(sprite.x, sprite.y - 26);
+        this.updateHealthBarPosition(sessionId, sprite.x, sprite.y - 32);
       }
     });
     this.attackMarkers.forEach(({ graphics, targetId }) => {
