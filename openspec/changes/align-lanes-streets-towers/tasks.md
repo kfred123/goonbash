@@ -15,6 +15,7 @@
 
 - [x] 3.1 Remove the cobblestone street tiles from `frontend/public/assets/maps/arena.json`'s `ground` layer data (keep the grass tiles), so the tilemap only renders the background; verify the file still validates as Tiled JSON (loads without error) and the arena preview shows only grass.
 - [x] 3.2 In `frontend/src/GameScene.ts`, add a street-drawing step that imports the same `shared/src/lanes.ts` lane waypoints (using the known base positions) and draws a textured, team-neutral road (e.g. `cobblestone` texture tiled along rectangle-strip segments) following each lane's diagonal-straight-diagonal/straight path, drawn before entity sprites so it sits under tanks/minions/towers; verify visually in the running frontend (`npm run dev`) that all 3 lanes' roads align with where minions actually walk, and the outer lanes show the diagonal turn segments.
+- [x] 3.3 Replace the per-segment road `TileSprite`s with a single transparent road canvas: stroke each complete lane polyline once using a repeating 64x64 cobblestone atlas tile, rounded joins/caps, and a road width matching lane traffic; ensure the generated texture renders above grass and below game entities. Inspect an outer-lane turn in a live match for seamless joins and natural texture scale.
 
 ## 4. Frontend tower rendering
 

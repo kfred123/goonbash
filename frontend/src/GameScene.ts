@@ -297,23 +297,54 @@ export class GameScene extends Phaser.Scene {
   private drawLaneStreets() {
     const lanes = getLaneWaypoints({ x: 240, y: 900 }, { x: 2160, y: 900 });
     const roadWidth = 112;
-    for (const lane of lanes) {
-      for (let index = 1; index < lane.length; index += 1) {
-        const from = lane[index - 1];
-        const to = lane[index];
-        const dx = to.x - from.x;
-        const dy = to.y - from.y;
-        const length = Math.hypot(dx, dy);
-        const angle = Math.atan2(dy, dx);
-        const extension = roadWidth / 2;
-        const centerX = (from.x + to.x) / 2;
-        const centerY = (from.y + to.y) / 2;
-        this.add.tileSprite(centerX, centerY, length + extension * 2, roadWidth, 'cobblestone')
-          .setRotation(angle)
-          .setTileScale(0.5, 0.5)
-          .setDepth(-0.5);
-      }
+    const borderWidth = 124;
+    const textureKey = 'lane-roads';
+    if (this.textures.exists(textureKey)) this.textures.remove(textureKey);
+    const roadTexture = this.textures.createCanvas(textureKey, GameScene.WORLD_WIDTH, GameScene.WORLD_HEIGHT);
+    if (!roadTexture) throw new Error('Could not create lane road texture');
+
+    const stoneSource = this.textures.get('cobblestone').getSourceImage();
+    if (!(stoneSource instanceof HTMLImageElement) && !(stoneSource instanceof HTMLCanvasElement)) {
+      throw new Error('Cobblestone texture source is not a drawable image');
     }
+    const tileCanvas = document.createElement('canvas');
+    tileCanvas.width = 64;
+    tileCanvas.height = 64;
+    const tileContext = tileCanvas.getContext('2d');
+    if (!tileContext) throw new Error('Could not create cobblestone pattern canvas');
+    tileContext.drawImage(stoneSource, 0, 0, 64, 64, 0, 0, 64, 64);
+
+    const context = roadTexture.context;
+    const cobblestonePattern = context.createPattern(tileCanvas, 'repeat');
+    if (!cobblestonePattern) throw new Error('Could not create repeating cobblestone pattern');
+
+    const traceLanes = () => {
+      for (const lane of lanes) {
+        context.moveTo(lane[0].x, lane[0].y);
+        for (let index = 1; index < lane.length; index += 1) {
+          context.lineTo(lane[index].x, lane[index].y);
+        }
+      }
+    };
+
+    context.beginPath();
+    traceLanes();
+    context.lineCap = 'round';
+    context.lineJoin = 'round';
+    context.lineWidth = borderWidth;
+    context.strokeStyle = '#403a32';
+    context.stroke();
+
+    context.beginPath();
+    traceLanes();
+    context.lineCap = 'round';
+    context.lineJoin = 'round';
+    context.lineWidth = roadWidth;
+    context.strokeStyle = cobblestonePattern;
+    context.stroke();
+
+    roadTexture.refresh();
+    this.add.image(GameScene.WORLD_WIDTH / 2, GameScene.WORLD_HEIGHT / 2, textureKey).setDepth(-0.5);
   }
 
   private showWaitingLobby(state: GameState) {
