@@ -23,4 +23,4 @@
 
 ## 5. Integration check
 
-- [ ] 5.1 Run the full backend test suite (`npm test` in `backend`) and a manual local playtest (start backend + frontend, start a match) confirming: streets visually match minion/tank travel paths on all 3 lanes, exactly 12 towers appear at the correct spaced positions, towers fire on enemies in range, and a destroyed tower disappears from both state and rendering.
+- [x] 5.1 Run the full backend test suite (`npm test` in `backend`) and a manual local playtest (start backend + frontend, start a match) confirming: streets visually match minion/tank travel paths on all 3 lanes, exactly 12 towers appear at the correct spaced positions, towers fire on enemies in range, and a destroyed tower disappears from both state and rendering. Backend targeting tests and a live Colyseus match-start check verified the tower count and combat targeting; the continuous road was visually inspected and confirmed at turns and junctions.
