@@ -1,10 +1,11 @@
 import { Room, Client } from "colyseus";
-import { Base, GameState, Minion, Projectile, Tank } from "shared";
+import { Base, GameState, getLaneWaypoints, Minion, Projectile, Tank, Tower } from "shared";
 import { isRole, resolveRoleAbilityConfig, resolveRoleStats, ROLE_ABILITY_CONFIG } from "shared";
 import { lobbyRegistry } from "../index.js";
 import { canChangeRole, canChangeTeam, canManageLobby, normalizeLobbyName, normalizePlayerName, resolveHostAfterLeave, selectBalancedTeam } from "./lobbyControls.js";
-import { clampToBounds, findNearestEnemyInRange, hasDied, hasProjectileReachedTarget, isReadyToRespawn, isWithinRange, stepToward, applyDamage as computeDamagedHp, nearBasePosition, respawnTank } from "./combat.js";
+import { clampToBounds, findNearestEnemyInRange, getLivingTowers, hasDied, hasProjectileReachedTarget, isReadyToRespawn, isWithinRange, stepToward, applyDamage as computeDamagedHp, nearBasePosition, respawnTank, tickShooter } from "./combat.js";
 import { activateRoleAbility, applyShieldReduction, canActivateAbility, effectiveFireCooldown, healOverTick, isAbilityActive } from "./ability.js";
+import { getLaneTowerPlacements } from "./towerPlacement.js";
 
 const RESPAWN_DELAY_MS = 3000;
 const PROJECTILE_HIT_RADIUS = 12;
@@ -90,6 +91,7 @@ export class GameRoom extends Room<GameState> {
     this.onMessage("start_game", (client) => {
       if (!canManageLobby(this.state.phase, client.sessionId, this.state.hostSessionId)) return;
       this.state.tanks.forEach((tank) => this.applyRoleStats(tank));
+      this.createLaneTowers();
       this.state.phase = "started";
     });
 
@@ -167,10 +169,12 @@ export class GameRoom extends Room<GameState> {
     const aliveTanks = [...this.state.tanks.values()].filter((tank) => tank.state !== "dead");
     const minions = [...this.state.minions.values()];
     const bases = [...this.state.bases.values()].filter((base) => !hasDied(base.hp));
-    const enemyCandidates: Array<Tank | Minion | Base> = [...aliveTanks, ...minions, ...bases];
+    const towers = getLivingTowers(this.state.towers.values());
+    const enemyCandidates: Array<Tank | Minion | Base | Tower> = [...aliveTanks, ...minions, ...bases, ...towers];
 
     for (const tank of aliveTanks) this.updateLockedShooter(tank, enemyCandidates, deltaTime);
     for (const minion of minions) this.updateShooter(minion, enemyCandidates, deltaTime);
+    for (const tower of towers) this.updateShooter(tower, enemyCandidates, deltaTime);
 
     this.updateProjectiles(deltaTime);
   }
@@ -183,7 +187,7 @@ export class GameRoom extends Room<GameState> {
    * move the tank into range, it only opportunistically fires at whatever enemy is
    * already nearby.
    */
-  private updateLockedShooter(tank: Tank, enemyCandidates: Array<Tank | Minion | Base>, deltaTime: number) {
+  private updateLockedShooter(tank: Tank, enemyCandidates: Array<Tank | Minion | Base | Tower>, deltaTime: number) {
     if (tank.fireCooldown > 0) tank.fireCooldown = Math.max(0, tank.fireCooldown - deltaTime);
     if (tank.lockedTargetId) {
       const target = this.findLivingEntity(tank.lockedTargetId);
@@ -221,17 +225,11 @@ export class GameRoom extends Room<GameState> {
   }
 
   /** Acquires the nearest enemy target -- including enemy bases -- (ignoring all friendly units) and fires when ready. */
-  private updateShooter(unit: Tank | Minion, enemyCandidates: Array<Tank | Minion | Base>, deltaTime: number) {
-    const target = findNearestEnemyInRange(unit, enemyCandidates, unit.fireRange);
-    unit.targetId = target?.id ?? "";
-    if (unit.fireCooldown > 0) unit.fireCooldown = Math.max(0, unit.fireCooldown - deltaTime);
-    if (target && unit.fireCooldown <= 0) {
-      this.spawnProjectile(unit, target);
-      unit.fireCooldown = unit.fireCooldownMax;
-    }
+  private updateShooter(unit: Tank | Minion | Tower, enemyCandidates: Array<Tank | Minion | Base | Tower>, deltaTime: number) {
+    tickShooter(unit, enemyCandidates, deltaTime, (shooter, target) => this.spawnProjectile(shooter, target));
   }
 
-  private spawnProjectile(shooter: Tank | Minion, target: { id: string }) {
+  private spawnProjectile(shooter: Tank | Minion | Tower, target: { id: string }) {
     const projectile = new Projectile();
     projectile.id = `shot-${Date.now()}-${Math.random()}`;
     projectile.team = shooter.team;
@@ -280,17 +278,19 @@ export class GameRoom extends Room<GameState> {
   }
 
   /** Looks up a still-alive tank, minion, or not-yet-destroyed base by id. */
-  private findLivingEntity(id: string): Tank | Minion | Base | undefined {
+  private findLivingEntity(id: string): Tank | Minion | Base | Tower | undefined {
     const tank = this.state.tanks.get(id);
     if (tank) return tank.state === "dead" ? undefined : tank;
     const minion = this.state.minions.get(id);
     if (minion) return minion;
     const base = this.state.bases.get(id);
     if (base) return hasDied(base.hp) ? undefined : base;
+    const tower = this.state.towers.get(id);
+    if (tower) return hasDied(tower.hp) ? undefined : tower;
     return undefined;
   }
 
-  private applyDamage(entity: Tank | Minion | Base, damage: number) {
+  private applyDamage(entity: Tank | Minion | Base | Tower, damage: number) {
     const effectiveDamage = entity instanceof Tank && entity.role === "tank"
       ? applyShieldReduction(damage, isAbilityActive(Date.now(), entity.abilityActiveUntil), ROLE_ABILITY_CONFIG.tank.magnitude)
       : damage;
@@ -301,6 +301,8 @@ export class GameRoom extends Room<GameState> {
     } else if (entity instanceof Minion) {
       this.state.minions.delete(entity.id);
       this.minionPaths.delete(entity.id);
+    } else if (entity instanceof Tower) {
+      this.state.towers.delete(entity.id);
     }
   }
 
@@ -361,44 +363,37 @@ export class GameRoom extends Room<GameState> {
     this.state.bases.set(base.id, base);
   }
 
-  private static readonly LANE_EDGE_Y = [150, 900, 1650];
-  private static readonly LANE_TURN_X = [750, 1650];
-
-  /**
-   * Builds a multi-waypoint path for a lane. The middle lane runs straight
-   * across; the top/bottom lanes go diagonally out from the base to the lane's
-   * edge, run straight across the field, then diagonally into the enemy base,
-   * mirroring a classic 3-lane MOBA layout.
-   */
-  private buildLanePath(fromBase: Base, toBase: Base, laneEdgeY: number): Array<{ x: number; y: number }> {
-    if (laneEdgeY === fromBase.y) {
-      return [{ x: toBase.x, y: toBase.y }];
+  private createLaneTowers() {
+    const blueBase = this.state.bases.get("blue-base");
+    const redBase = this.state.bases.get("red-base");
+    if (!blueBase || !redBase) return;
+    for (const placement of getLaneTowerPlacements(blueBase, redBase)) {
+      const tower = new Tower();
+      tower.id = `${placement.team}-tower-lane-${placement.laneIndex}-${placement.towerIndex}`;
+      tower.team = placement.team;
+      tower.x = placement.x;
+      tower.y = placement.y;
+      tower.radius = 24;
+      this.state.towers.set(tower.id, tower);
     }
-    const movingRight = fromBase.x < toBase.x;
-    const [nearTurnX, farTurnX] = movingRight
-      ? GameRoom.LANE_TURN_X
-      : [...GameRoom.LANE_TURN_X].reverse();
-    return [
-      { x: nearTurnX, y: laneEdgeY },
-      { x: farTurnX, y: laneEdgeY },
-      { x: toBase.x, y: toBase.y }
-    ];
   }
 
   private spawnWave() {
     const blueBase = this.state.bases.get("blue-base");
     const redBase = this.state.bases.get("red-base");
     if (!blueBase || !redBase) return;
+    const lanePaths = getLaneWaypoints(blueBase, redBase);
     for (const base of [blueBase, redBase]) {
-      const enemyBase = base.team === "blue" ? redBase : blueBase;
-      for (const laneEdgeY of GameRoom.LANE_EDGE_Y) {
+      for (const lanePath of lanePaths) {
         const minion = new Minion();
         minion.id = `${base.team}-minion-${Date.now()}-${Math.random()}`;
         minion.team = base.team;
         minion.x = base.x;
         minion.y = base.y;
-        const path = this.buildLanePath(base, enemyBase, laneEdgeY);
-        const [firstWaypoint, ...restOfPath] = path;
+        const path = base.team === "blue" ? lanePath : [...lanePath].reverse();
+        const [start, firstWaypoint, ...restOfPath] = path;
+        minion.x = start.x;
+        minion.y = start.y;
         minion.waypointX = firstWaypoint.x;
         minion.waypointY = firstWaypoint.y;
         this.minionPaths.set(minion.id, restOfPath);

@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { Client, Room } from 'colyseus.js';
-import { GameState, LobbyInfo, ROLE_ABILITY_CONFIG, ROLE_VISUALS, Role, RoleVisual } from 'shared';
+import { GameState, getLaneWaypoints, LobbyInfo, ROLE_ABILITY_CONFIG, ROLE_VISUALS, Role, RoleVisual } from 'shared';
 
 const ROLE_ORDER: Role[] = ['healer', 'tank', 'damagedealer'];
 
@@ -12,6 +12,7 @@ export class GameScene extends Phaser.Scene {
   private tankNameTexts: Map<string, Phaser.GameObjects.Text> = new Map();
   private minionSprites: Map<string, Phaser.GameObjects.Rectangle> = new Map();
   private baseSprites: Map<string, Phaser.GameObjects.Rectangle> = new Map();
+  private towerSprites: Map<string, Phaser.GameObjects.Rectangle> = new Map();
   private projectileSprites: Map<string, Phaser.GameObjects.Arc> = new Map();
   private healthBars: Map<string, { bg: Phaser.GameObjects.Rectangle; fill: Phaser.GameObjects.Rectangle; width: number }> = new Map();
   private attackMarkers: Array<{ graphics: Phaser.GameObjects.Graphics; targetId: string }> = [];
@@ -40,6 +41,7 @@ export class GameScene extends Phaser.Scene {
   private static readonly CLICK_HIT_RADIUS_TANK = 24;
   private static readonly CLICK_HIT_RADIUS_MINION = 14;
   private static readonly CLICK_HIT_RADIUS_BASE = 30;
+  private static readonly CLICK_HIT_RADIUS_TOWER = 20;
   private static readonly CLICK_MARKER_DURATION_MS = 1000;
   private static readonly HUD_BAR_HEIGHT = 92;
   // World is 3x the 800x600 viewport (matching backend GameRoom's WORLD_WIDTH/WORLD_HEIGHT)
@@ -235,6 +237,10 @@ export class GameScene extends Phaser.Scene {
       if (this.arenaStarted) this.upsertMinion(minion, id);
     });
     this.room.state.minions.onRemove((_minion, id) => this.removeMinion(id));
+    this.room.state.towers.onAdd((tower, id) => {
+      if (this.arenaStarted) this.upsertTower(tower, id);
+    });
+    this.room.state.towers.onRemove((_tower, id) => this.removeTower(id));
     this.room.state.projectiles.forEach((projectile, id) => this.upsertProjectile(projectile, id));
     this.room.state.projectiles.onAdd((projectile, id) => this.upsertProjectile(projectile, id));
     this.room.state.projectiles.onRemove((_projectile, id) => this.removeProjectile(id));
@@ -248,6 +254,7 @@ export class GameScene extends Phaser.Scene {
         this.createArena(state.lobbyName);
         state.tanks?.forEach((tank: any, sessionId: string) => this.upsertTank(tank, sessionId));
         state.bases?.forEach((base: any, id: string) => this.upsertBase(base, id));
+        state.towers?.forEach((tower: any, id: string) => this.upsertTower(tower, id));
       }
       if (this.arenaStarted && state.tanks && typeof state.tanks.forEach === 'function') {
         state.tanks.forEach((tank: any, sessionId: string) => this.upsertTank(tank, sessionId));
@@ -260,6 +267,9 @@ export class GameScene extends Phaser.Scene {
       }
       if (this.arenaStarted && state.bases && typeof state.bases.forEach === 'function') {
         state.bases.forEach((base: any, id: string) => this.upsertBase(base, id));
+      }
+      if (this.arenaStarted && state.towers && typeof state.towers.forEach === 'function') {
+        state.towers.forEach((tower: any, id: string) => this.upsertTower(tower, id));
       }
     });
     this.showWaitingLobby(this.room.state);
@@ -277,11 +287,64 @@ export class GameScene extends Phaser.Scene {
   private createTilemap() {
     const map = this.make.tilemap({ key: 'arena-map' });
     const grassTileset = map.addTilesetImage('grass', 'grass');
-    const cobbleTileset = map.addTilesetImage('cobblestone', 'cobblestone');
-    if (grassTileset && cobbleTileset) {
-      const layer = map.createLayer('ground', [grassTileset, cobbleTileset]);
+    if (grassTileset) {
+      const layer = map.createLayer('ground', grassTileset);
       layer?.setDepth(-1);
     }
+    this.drawLaneStreets();
+  }
+
+  private drawLaneStreets() {
+    const lanes = getLaneWaypoints({ x: 240, y: 900 }, { x: 2160, y: 900 });
+    const roadWidth = 112;
+    const borderWidth = 124;
+    const textureKey = 'lane-roads';
+    if (this.textures.exists(textureKey)) this.textures.remove(textureKey);
+    const roadTexture = this.textures.createCanvas(textureKey, GameScene.WORLD_WIDTH, GameScene.WORLD_HEIGHT);
+    if (!roadTexture) throw new Error('Could not create lane road texture');
+
+    const stoneSource = this.textures.get('cobblestone').getSourceImage();
+    if (!(stoneSource instanceof HTMLImageElement) && !(stoneSource instanceof HTMLCanvasElement)) {
+      throw new Error('Cobblestone texture source is not a drawable image');
+    }
+    const tileCanvas = document.createElement('canvas');
+    tileCanvas.width = 64;
+    tileCanvas.height = 64;
+    const tileContext = tileCanvas.getContext('2d');
+    if (!tileContext) throw new Error('Could not create cobblestone pattern canvas');
+    tileContext.drawImage(stoneSource, 0, 0, 64, 64, 0, 0, 64, 64);
+
+    const context = roadTexture.context;
+    const cobblestonePattern = context.createPattern(tileCanvas, 'repeat');
+    if (!cobblestonePattern) throw new Error('Could not create repeating cobblestone pattern');
+
+    const traceLanes = () => {
+      for (const lane of lanes) {
+        context.moveTo(lane[0].x, lane[0].y);
+        for (let index = 1; index < lane.length; index += 1) {
+          context.lineTo(lane[index].x, lane[index].y);
+        }
+      }
+    };
+
+    context.beginPath();
+    traceLanes();
+    context.lineCap = 'round';
+    context.lineJoin = 'round';
+    context.lineWidth = borderWidth;
+    context.strokeStyle = '#403a32';
+    context.stroke();
+
+    context.beginPath();
+    traceLanes();
+    context.lineCap = 'round';
+    context.lineJoin = 'round';
+    context.lineWidth = roadWidth;
+    context.strokeStyle = cobblestonePattern;
+    context.stroke();
+
+    roadTexture.refresh();
+    this.add.image(GameScene.WORLD_WIDTH / 2, GameScene.WORLD_HEIGHT / 2, textureKey).setDepth(-0.5);
   }
 
   private showWaitingLobby(state: GameState) {
@@ -466,9 +529,31 @@ export class GameScene extends Phaser.Scene {
     this.updateHealthBar(id, x, y - 40, base.hp, base.maxHp, true);
   }
 
+  private upsertTower(tower: any, id: string) {
+    if (!tower) return;
+    const x = tower.x ?? 0;
+    const y = tower.y ?? 0;
+    const sprite = this.towerSprites.get(id) ?? this.add.rectangle(
+      x,
+      y,
+      34,
+      34,
+      tower.team === 'blue' ? 0x4d8dff : 0xff4444
+    ).setStrokeStyle(2, 0xffffff);
+    sprite.setPosition(x, y);
+    this.towerSprites.set(id, sprite);
+    this.updateHealthBar(id, x, y - 24, tower.hp, tower.maxHp, true);
+  }
+
   private removeMinion(id: string) {
     this.minionSprites.get(id)?.destroy();
     this.minionSprites.delete(id);
+    this.removeHealthBar(id);
+  }
+
+  private removeTower(id: string) {
+    this.towerSprites.get(id)?.destroy();
+    this.towerSprites.delete(id);
     this.removeHealthBar(id);
   }
 
@@ -549,6 +634,10 @@ export class GameScene extends Phaser.Scene {
       if (base.hp <= 0) return;
       consider(id, base.x, base.y, base.team, GameScene.CLICK_HIT_RADIUS_BASE);
     });
+    this.room.state.towers.forEach((tower: any, id: string) => {
+      if (tower.hp <= 0) return;
+      consider(id, tower.x, tower.y, tower.team, GameScene.CLICK_HIT_RADIUS_TOWER);
+    });
     return closest;
   }
 
@@ -560,6 +649,8 @@ export class GameScene extends Phaser.Scene {
     if (minion) return { x: minion.x, y: minion.y };
     const base = this.room.state.bases.get(id) as any;
     if (base) return { x: base.x, y: base.y };
+    const tower = this.room.state.towers.get(id) as any;
+    if (tower) return { x: tower.x, y: tower.y };
     return null;
   }
 
