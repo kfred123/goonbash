@@ -10,6 +10,39 @@ export interface Point {
   y: number;
 }
 
+export interface ShootingUnit extends CombatCandidate {
+  targetId: string;
+  fireRange: number;
+  fireCooldown: number;
+  fireCooldownMax: number;
+  fireDamage: number;
+}
+
+export interface ShootableTarget {
+  id: string;
+}
+
+/** Keeps destroyed towers out of targeting without removing them from the caller's collection. */
+export function getLivingTowers<T extends { hp: number }>(towers: Iterable<T>): T[] {
+  return [...towers].filter((tower) => !hasDied(tower.hp));
+}
+
+/** Acquires a target and fires when ready; returns the target only when a shot is fired. */
+export function tickShooter<T extends ShootingUnit, U extends CombatCandidate>(
+  unit: T,
+  candidates: Iterable<U>,
+  deltaTime: number,
+  fire: (shooter: T, target: U) => void
+): U | null {
+  const target = findNearestEnemyInRange(unit, candidates, unit.fireRange);
+  unit.targetId = target?.id ?? "";
+  if (unit.fireCooldown > 0) unit.fireCooldown = Math.max(0, unit.fireCooldown - deltaTime);
+  if (!target || unit.fireCooldown > 0) return null;
+  fire(unit, target);
+  unit.fireCooldown = unit.fireCooldownMax;
+  return target;
+}
+
 /**
  * Finds the closest candidate belonging to an enemy team within range.
  * Friendly-team candidates are always excluded from consideration, so they

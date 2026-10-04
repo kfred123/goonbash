@@ -1,16 +1,19 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { Minion, Tower } from "shared";
 import {
   applyDamage,
   clampToBounds,
   findNearestEnemyInRange,
+  getLivingTowers,
   hasDied,
   hasProjectileReachedTarget,
   isReadyToRespawn,
   isWithinRange,
   nearBasePosition,
   respawnTank,
-  stepToward
+  stepToward,
+  tickShooter
 } from "./combat.js";
 
 const TEST_BOUNDS = { minX: 0, maxX: 2000, minY: 0, maxY: 2000 };
@@ -128,4 +131,43 @@ test("clampToBounds leaves a point inside the bounds unchanged", () => {
 test("clampToBounds pulls a point back to the world-scale boundary on each axis", () => {
   assert.deepEqual(clampToBounds({ x: -50, y: 5000 }, 60, 2340, 60, 1740), { x: 60, y: 1740 });
   assert.deepEqual(clampToBounds({ x: 5000, y: -50 }, 60, 2340, 60, 1740), { x: 2340, y: 60 });
+});
+
+test("a lane tower fires at the nearest enemy and observes its cooldown", () => {
+  const tower = new Tower();
+  tower.id = "blue-tower";
+  tower.team = "blue";
+  tower.x = 0;
+  tower.y = 0;
+  const nearEnemy = new Minion();
+  nearEnemy.id = "near-minion";
+  nearEnemy.team = "red";
+  nearEnemy.x = 80;
+  nearEnemy.y = 0;
+  const farEnemy = { id: "far-minion", team: "red", x: 150, y: 0 };
+  const shots: string[] = [];
+  const fire = (_shooter: Tower, target: { id: string }) => shots.push(target.id);
+
+  assert.equal(tickShooter(tower, [farEnemy, nearEnemy], 16, fire)?.id, "near-minion");
+  assert.deepEqual(shots, ["near-minion"]);
+  assert.equal(tower.targetId, "near-minion");
+  assert.equal(tower.fireCooldown, tower.fireCooldownMax);
+  assert.equal(tickShooter(tower, [nearEnemy], 500, fire), null);
+  assert.deepEqual(shots, ["near-minion"]);
+});
+
+test("destroyed towers are excluded from candidates while living towers remain targetable", () => {
+  const livingTower = new Tower();
+  livingTower.id = "living-tower";
+  livingTower.team = "blue";
+  livingTower.x = 100;
+  const destroyedTower = new Tower();
+  destroyedTower.id = "destroyed-tower";
+  destroyedTower.team = "blue";
+  destroyedTower.x = 10;
+  destroyedTower.hp = 0;
+  const candidates = getLivingTowers([livingTower, destroyedTower]);
+
+  assert.deepEqual(candidates.map((tower) => tower.id), ["living-tower"]);
+  assert.equal(findNearestEnemyInRange({ x: 0, y: 0, team: "red" }, candidates, 250)?.id, "living-tower");
 });

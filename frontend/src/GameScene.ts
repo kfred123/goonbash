@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { Client, Room } from 'colyseus.js';
-import { GameState, LobbyInfo, ROLE_ABILITY_CONFIG, ROLE_VISUALS, Role, RoleVisual } from 'shared';
+import { GameState, getLaneWaypoints, LobbyInfo, ROLE_ABILITY_CONFIG, ROLE_VISUALS, Role, RoleVisual } from 'shared';
 
 const ROLE_ORDER: Role[] = ['healer', 'tank', 'damagedealer'];
 
@@ -12,6 +12,7 @@ export class GameScene extends Phaser.Scene {
   private tankNameTexts: Map<string, Phaser.GameObjects.Text> = new Map();
   private minionSprites: Map<string, Phaser.GameObjects.Rectangle> = new Map();
   private baseSprites: Map<string, Phaser.GameObjects.Rectangle> = new Map();
+  private towerSprites: Map<string, Phaser.GameObjects.Rectangle> = new Map();
   private projectileSprites: Map<string, Phaser.GameObjects.Arc> = new Map();
   private healthBars: Map<string, { bg: Phaser.GameObjects.Rectangle; fill: Phaser.GameObjects.Rectangle; width: number }> = new Map();
   private attackMarkers: Array<{ graphics: Phaser.GameObjects.Graphics; targetId: string }> = [];
@@ -40,6 +41,7 @@ export class GameScene extends Phaser.Scene {
   private static readonly CLICK_HIT_RADIUS_TANK = 24;
   private static readonly CLICK_HIT_RADIUS_MINION = 14;
   private static readonly CLICK_HIT_RADIUS_BASE = 30;
+  private static readonly CLICK_HIT_RADIUS_TOWER = 20;
   private static readonly CLICK_MARKER_DURATION_MS = 1000;
   private static readonly HUD_BAR_HEIGHT = 92;
   // World is 3x the 800x600 viewport (matching backend GameRoom's WORLD_WIDTH/WORLD_HEIGHT)
@@ -235,6 +237,10 @@ export class GameScene extends Phaser.Scene {
       if (this.arenaStarted) this.upsertMinion(minion, id);
     });
     this.room.state.minions.onRemove((_minion, id) => this.removeMinion(id));
+    this.room.state.towers.onAdd((tower, id) => {
+      if (this.arenaStarted) this.upsertTower(tower, id);
+    });
+    this.room.state.towers.onRemove((_tower, id) => this.removeTower(id));
     this.room.state.projectiles.forEach((projectile, id) => this.upsertProjectile(projectile, id));
     this.room.state.projectiles.onAdd((projectile, id) => this.upsertProjectile(projectile, id));
     this.room.state.projectiles.onRemove((_projectile, id) => this.removeProjectile(id));
@@ -248,6 +254,7 @@ export class GameScene extends Phaser.Scene {
         this.createArena(state.lobbyName);
         state.tanks?.forEach((tank: any, sessionId: string) => this.upsertTank(tank, sessionId));
         state.bases?.forEach((base: any, id: string) => this.upsertBase(base, id));
+        state.towers?.forEach((tower: any, id: string) => this.upsertTower(tower, id));
       }
       if (this.arenaStarted && state.tanks && typeof state.tanks.forEach === 'function') {
         state.tanks.forEach((tank: any, sessionId: string) => this.upsertTank(tank, sessionId));
@@ -260,6 +267,9 @@ export class GameScene extends Phaser.Scene {
       }
       if (this.arenaStarted && state.bases && typeof state.bases.forEach === 'function') {
         state.bases.forEach((base: any, id: string) => this.upsertBase(base, id));
+      }
+      if (this.arenaStarted && state.towers && typeof state.towers.forEach === 'function') {
+        state.towers.forEach((tower: any, id: string) => this.upsertTower(tower, id));
       }
     });
     this.showWaitingLobby(this.room.state);
@@ -277,10 +287,32 @@ export class GameScene extends Phaser.Scene {
   private createTilemap() {
     const map = this.make.tilemap({ key: 'arena-map' });
     const grassTileset = map.addTilesetImage('grass', 'grass');
-    const cobbleTileset = map.addTilesetImage('cobblestone', 'cobblestone');
-    if (grassTileset && cobbleTileset) {
-      const layer = map.createLayer('ground', [grassTileset, cobbleTileset]);
+    if (grassTileset) {
+      const layer = map.createLayer('ground', grassTileset);
       layer?.setDepth(-1);
+    }
+    this.drawLaneStreets();
+  }
+
+  private drawLaneStreets() {
+    const lanes = getLaneWaypoints({ x: 240, y: 900 }, { x: 2160, y: 900 });
+    const roadWidth = 112;
+    for (const lane of lanes) {
+      for (let index = 1; index < lane.length; index += 1) {
+        const from = lane[index - 1];
+        const to = lane[index];
+        const dx = to.x - from.x;
+        const dy = to.y - from.y;
+        const length = Math.hypot(dx, dy);
+        const angle = Math.atan2(dy, dx);
+        const extension = roadWidth / 2;
+        const centerX = (from.x + to.x) / 2;
+        const centerY = (from.y + to.y) / 2;
+        this.add.tileSprite(centerX, centerY, length + extension * 2, roadWidth, 'cobblestone')
+          .setRotation(angle)
+          .setTileScale(0.5, 0.5)
+          .setDepth(-0.5);
+      }
     }
   }
 
@@ -466,9 +498,31 @@ export class GameScene extends Phaser.Scene {
     this.updateHealthBar(id, x, y - 40, base.hp, base.maxHp, true);
   }
 
+  private upsertTower(tower: any, id: string) {
+    if (!tower) return;
+    const x = tower.x ?? 0;
+    const y = tower.y ?? 0;
+    const sprite = this.towerSprites.get(id) ?? this.add.rectangle(
+      x,
+      y,
+      34,
+      34,
+      tower.team === 'blue' ? 0x4d8dff : 0xff4444
+    ).setStrokeStyle(2, 0xffffff);
+    sprite.setPosition(x, y);
+    this.towerSprites.set(id, sprite);
+    this.updateHealthBar(id, x, y - 24, tower.hp, tower.maxHp, true);
+  }
+
   private removeMinion(id: string) {
     this.minionSprites.get(id)?.destroy();
     this.minionSprites.delete(id);
+    this.removeHealthBar(id);
+  }
+
+  private removeTower(id: string) {
+    this.towerSprites.get(id)?.destroy();
+    this.towerSprites.delete(id);
     this.removeHealthBar(id);
   }
 
@@ -549,6 +603,10 @@ export class GameScene extends Phaser.Scene {
       if (base.hp <= 0) return;
       consider(id, base.x, base.y, base.team, GameScene.CLICK_HIT_RADIUS_BASE);
     });
+    this.room.state.towers.forEach((tower: any, id: string) => {
+      if (tower.hp <= 0) return;
+      consider(id, tower.x, tower.y, tower.team, GameScene.CLICK_HIT_RADIUS_TOWER);
+    });
     return closest;
   }
 
@@ -560,6 +618,8 @@ export class GameScene extends Phaser.Scene {
     if (minion) return { x: minion.x, y: minion.y };
     const base = this.room.state.bases.get(id) as any;
     if (base) return { x: base.x, y: base.y };
+    const tower = this.room.state.towers.get(id) as any;
+    if (tower) return { x: tower.x, y: tower.y };
     return null;
   }
 
