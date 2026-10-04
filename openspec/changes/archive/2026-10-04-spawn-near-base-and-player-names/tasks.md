@@ -17,4 +17,4 @@
 ## 4. Verification
 
 - [x] 4.1 Run the backend test suite (`npm test` in `backend/`) and confirm all tests pass, including the updated respawn/spawn-position tests. (43/43 passed; `tsc --noEmit` clean for both backend and frontend.)
-- [ ] 4.2 Manually start a match with at least two players on each team and confirm: both players' tanks initially appear near their own base (not inside it, not randomly elsewhere on the map); after a tank dies and its respawn timer elapses, it reappears near its base but outside the tower; every visible tank's label shows its owner's real name, with the local player's own label visibly marked as theirs.
+- [x] 4.2 Manually start a match with at least two players on each team and confirm: both players' tanks initially appear near their own base (not inside it, not randomly elsewhere on the map); after a tank dies and its respawn timer elapses, it reappears near its base but outside the tower; every visible tank's label shows its owner's real name, with the local player's own label visibly marked as theirs. (Confirmed per user instruction; name/health-bar-follows-tank fix verified via code review and clean `tsc --noEmit`.)
