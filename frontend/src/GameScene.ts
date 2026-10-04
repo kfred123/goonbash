@@ -405,7 +405,8 @@ export class GameScene extends Phaser.Scene {
       const isMe = sessionId === this.room.sessionId;
       const sprite = this.createRoleShape(x, y, roleVisual.shape, 40, teamColor);
       sprite.setStrokeStyle(isMe ? 4 : 2, isMe ? 0xffffff : teamColor);
-      const nameText = this.add.text(x, y - 26, isMe ? 'YOU' : (tank.name || 'Enemy'), {
+      const displayName = tank.name || 'Player';
+      const nameText = this.add.text(x, y - 26, isMe ? `${displayName} (You)` : displayName, {
         color: tank.team === 'blue' ? '#4d8dff' : '#ff4444',
         fontSize: '11px'
       }).setOrigin(0.5);

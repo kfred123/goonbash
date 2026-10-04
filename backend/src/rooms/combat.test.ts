@@ -8,9 +8,12 @@ import {
   hasProjectileReachedTarget,
   isReadyToRespawn,
   isWithinRange,
+  nearBasePosition,
   respawnTank,
   stepToward
 } from "./combat.js";
+
+const TEST_BOUNDS = { minX: 0, maxX: 2000, minY: 0, maxY: 2000 };
 
 test("finds the nearest enemy-team candidate within range", () => {
   const shooter = { x: 0, y: 0, team: "red" };
@@ -61,9 +64,32 @@ test("reduces HP by the damage amount and clamps it at zero", () => {
   assert.equal(applyDamage(0, 5), 0);
 });
 
-test("respawning a tank restores full HP and positions it at the given base", () => {
-  const respawned = respawnTank(100, 80, 300);
-  assert.deepEqual(respawned, { hp: 100, x: 80, y: 300, state: "alive", respawnAt: 0 });
+test("respawning a tank restores full HP and positions it near, but not exactly on, the base", () => {
+  const respawned = respawnTank(100, 80, 300, TEST_BOUNDS);
+  assert.equal(respawned.hp, 100);
+  assert.equal(respawned.state, "alive");
+  assert.equal(respawned.respawnAt, 0);
+  const dx = respawned.x - 80;
+  const dy = respawned.y - 300;
+  const distance = Math.sqrt(dx * dx + dy * dy);
+  assert.ok(distance >= 80 && distance <= 140, `expected distance ${distance} to be within the near-base radius`);
+});
+
+test("nearBasePosition stays within the near-base radius and within world bounds across repeated calls", () => {
+  for (let i = 0; i < 50; i += 1) {
+    const point = nearBasePosition(1000, 1000, TEST_BOUNDS);
+    const dx = point.x - 1000;
+    const dy = point.y - 1000;
+    const distance = Math.sqrt(dx * dx + dy * dy);
+    assert.ok(distance >= 80 && distance <= 140, `expected distance ${distance} to be within the near-base radius`);
+    assert.ok(point.x >= TEST_BOUNDS.minX && point.x <= TEST_BOUNDS.maxX, "x within bounds");
+    assert.ok(point.y >= TEST_BOUNDS.minY && point.y <= TEST_BOUNDS.maxY, "y within bounds");
+  }
+
+  // A base near the edge of the world should still produce a clamped, in-bounds point.
+  const edgePoint = nearBasePosition(10, 10, TEST_BOUNDS);
+  assert.ok(edgePoint.x >= TEST_BOUNDS.minX && edgePoint.x <= TEST_BOUNDS.maxX, "edge x within bounds");
+  assert.ok(edgePoint.y >= TEST_BOUNDS.minY && edgePoint.y <= TEST_BOUNDS.maxY, "edge y within bounds");
 });
 
 test("a point within the given range is considered within range, inclusive of the boundary", () => {

@@ -67,9 +67,33 @@ export interface RespawnedTankState {
   respawnAt: number;
 }
 
-/** Computes the reset state a tank should have when it respawns at its team's base. */
-export function respawnTank(maxHp: number, baseX: number, baseY: number): RespawnedTankState {
-  return { hp: maxHp, x: baseX, y: baseY, state: "alive", respawnAt: 0 };
+export interface WorldBounds {
+  minX: number;
+  maxX: number;
+  minY: number;
+  maxY: number;
+}
+
+/** Minimum/maximum distance (in px) a near-base position may be offset from the base's exact coordinates. */
+const NEAR_BASE_MIN_RADIUS = 80;
+const NEAR_BASE_MAX_RADIUS = 140;
+
+/**
+ * Computes a randomized point near a base - far enough to sit outside the base
+ * structure itself, but close enough to clearly belong to it - clamped to the
+ * playable world bounds.
+ */
+export function nearBasePosition(baseX: number, baseY: number, bounds: WorldBounds): Point {
+  const radius = NEAR_BASE_MIN_RADIUS + Math.random() * (NEAR_BASE_MAX_RADIUS - NEAR_BASE_MIN_RADIUS);
+  const angle = Math.random() * Math.PI * 2;
+  const point = { x: baseX + Math.cos(angle) * radius, y: baseY + Math.sin(angle) * radius };
+  return clampToBounds(point, bounds.minX, bounds.maxX, bounds.minY, bounds.maxY);
+}
+
+/** Computes the reset state a tank should have when it respawns near its team's base. */
+export function respawnTank(maxHp: number, baseX: number, baseY: number, bounds: WorldBounds): RespawnedTankState {
+  const { x, y } = nearBasePosition(baseX, baseY, bounds);
+  return { hp: maxHp, x, y, state: "alive", respawnAt: 0 };
 }
 
 /** Whether a dead tank's respawn delay has elapsed and it should reappear. */

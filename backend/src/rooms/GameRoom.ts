@@ -3,7 +3,7 @@ import { Base, GameState, Minion, Projectile, Tank } from "shared";
 import { isRole, resolveRoleAbilityConfig, resolveRoleStats, ROLE_ABILITY_CONFIG } from "shared";
 import { lobbyRegistry } from "../index.js";
 import { canChangeRole, canChangeTeam, canManageLobby, normalizeLobbyName, normalizePlayerName, resolveHostAfterLeave, selectBalancedTeam } from "./lobbyControls.js";
-import { clampToBounds, findNearestEnemyInRange, hasDied, hasProjectileReachedTarget, isReadyToRespawn, isWithinRange, stepToward, applyDamage as computeDamagedHp, respawnTank } from "./combat.js";
+import { clampToBounds, findNearestEnemyInRange, hasDied, hasProjectileReachedTarget, isReadyToRespawn, isWithinRange, stepToward, applyDamage as computeDamagedHp, nearBasePosition, respawnTank } from "./combat.js";
 import { activateRoleAbility, applyShieldReduction, canActivateAbility, effectiveFireCooldown, healOverTick, isAbilityActive } from "./ability.js";
 
 const RESPAWN_DELAY_MS = 3000;
@@ -18,6 +18,7 @@ const MIN_X = WORLD_MARGIN;
 const MAX_X = WORLD_WIDTH - WORLD_MARGIN;
 const MIN_Y = WORLD_MARGIN;
 const MAX_Y = WORLD_HEIGHT - WORLD_MARGIN;
+const WORLD_BOUNDS = { minX: MIN_X, maxX: MAX_X, minY: MIN_Y, maxY: MAX_Y };
 
 export class GameRoom extends Room<GameState> {
   maxClients = 10;
@@ -342,7 +343,7 @@ export class GameRoom extends Room<GameState> {
     this.state.tanks.forEach((tank) => {
       if (!isReadyToRespawn(tank, now)) return;
       const base = this.state.bases.get(`${tank.team}-base`);
-      const respawned = respawnTank(tank.maxHp, base?.x ?? tank.x, base?.y ?? tank.y);
+      const respawned = respawnTank(tank.maxHp, base?.x ?? tank.x, base?.y ?? tank.y, WORLD_BOUNDS);
       tank.hp = respawned.hp;
       tank.x = respawned.x;
       tank.y = respawned.y;
@@ -414,8 +415,12 @@ export class GameRoom extends Room<GameState> {
     tank.id = client.sessionId;
     tank.name = normalizePlayerName(options?.playerName);
     tank.team = this.nextTeam();
-    tank.x = Math.random() * 1500;
-    tank.y = Math.random() * 1500;
+    const ownBase = this.state.bases.get(`${tank.team}-base`);
+    const spawnPoint = ownBase
+      ? nearBasePosition(ownBase.x, ownBase.y, WORLD_BOUNDS)
+      : { x: Math.random() * 1500, y: Math.random() * 1500 };
+    tank.x = spawnPoint.x;
+    tank.y = spawnPoint.y;
     this.applyRoleStats(tank);
     this.state.tanks.set(client.sessionId, tank);
   }
