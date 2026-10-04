@@ -1,4 +1,4 @@
-﻿import Phaser from 'phaser';
+import Phaser from 'phaser';
 import { Client, Room } from 'colyseus.js';
 import { GameState, LobbyInfo, ROLE_ABILITY_CONFIG, ROLE_VISUALS, Role, RoleVisual } from 'shared';
 
@@ -54,7 +54,11 @@ export class GameScene extends Phaser.Scene {
     super({ key: 'GameScene' });
   }
 
-  preload() {}
+  preload() {
+    this.load.image('grass', '/assets/textures/grass_texture.jpg');
+    this.load.image('cobblestone', '/assets/textures/cobblestone_texture.jpg');
+    this.load.tilemapTiledJSON('arena-map', '/assets/maps/arena.json');
+  }
 
   create() {
     this.cameras.main.setBounds(0, 0, GameScene.WORLD_WIDTH, GameScene.WORLD_HEIGHT);
@@ -264,15 +268,20 @@ export class GameScene extends Phaser.Scene {
   private createArena(lobbyName: string) {
     this.destroyMenuElements();
     this.destroyAbilityHud();
-    const worldWidth = GameScene.WORLD_WIDTH;
-    const worldHeight = GameScene.WORLD_HEIGHT;
-    this.add.rectangle(worldWidth / 2, worldHeight / 2, worldWidth, worldHeight, 0x1a1a2e).setOrigin(0.5);
-    const graphics = this.add.graphics();
-    graphics.lineStyle(1, 0x2a2a4a, 1);
-    for (let x = 0; x <= worldWidth; x += 80) graphics.lineBetween(x, 0, x, worldHeight);
-    for (let y = 0; y <= worldHeight; y += 80) graphics.lineBetween(0, y, worldWidth, y);
+    this.createTilemap();
     this.add.text(400, 20, lobbyName, { color: '#ffffff', fontSize: '24px', fontStyle: 'bold' }).setOrigin(0.5).setScrollFactor(0).setDepth(1500);
     this.createAbilityHud();
+  }
+
+  /** Creates the tilemap-based arena background from the preloaded Tiled JSON and texture assets. */
+  private createTilemap() {
+    const map = this.make.tilemap({ key: 'arena-map' });
+    const grassTileset = map.addTilesetImage('grass', 'grass');
+    const cobbleTileset = map.addTilesetImage('cobblestone', 'cobblestone');
+    if (grassTileset && cobbleTileset) {
+      const layer = map.createLayer('ground', [grassTileset, cobbleTileset]);
+      layer?.setDepth(-1);
+    }
   }
 
   private showWaitingLobby(state: GameState) {
