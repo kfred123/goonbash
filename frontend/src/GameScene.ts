@@ -155,19 +155,15 @@ export class GameScene extends Phaser.Scene {
     if (this.leavingRoom) return;
     this.leavingRoom = true;
     const room = this.room;
-    const finish = () => {
-      this.leavingRoom = false;
-      this.arenaStarted = false;
-      this.resultsShown = false;
-      this.clearArenaPresentation();
-      this.room = undefined as unknown as Room<GameState>;
-      this.showMainMenu();
-    };
     if (room) {
-      room.leave().catch((error) => console.error('[GameScene] Failed to leave game room', error)).finally(finish);
-    } else {
-      finish();
+      void room.leave().catch((error) => console.error('[GameScene] Failed to leave game room', error));
     }
+    this.arenaStarted = false;
+    this.resultsShown = false;
+    this.clearArenaPresentation();
+    this.room = undefined as unknown as Room<GameState>;
+    this.leavingRoom = false;
+    this.showMainMenu();
   }
 
   private showLobbyMenu(message = '') {
