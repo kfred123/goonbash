@@ -4,6 +4,7 @@ import {
   canChangeRole,
   canChangeTeam,
   canManageLobby,
+  canUseGameplayActions,
   normalizeLobbyName,
   normalizePlayerName,
   resolveHostAfterLeave,
@@ -21,12 +22,14 @@ test("allows only valid team changes during the waiting phase", () => {
   assert.equal(canChangeTeam("waiting", "blue"), true);
   assert.equal(canChangeTeam("waiting", "green"), false);
   assert.equal(canChangeTeam("started", "red"), false);
+  assert.equal(canChangeTeam("ended", "red"), false);
 });
 
 test("allows only the waiting-lobby host to manage the lobby", () => {
   assert.equal(canManageLobby("waiting", "host", "host"), true);
   assert.equal(canManageLobby("waiting", "player", "host"), false);
   assert.equal(canManageLobby("started", "host", "host"), false);
+  assert.equal(canManageLobby("ended", "host", "host"), false);
 });
 
 test("allows only valid role changes during the waiting phase", () => {
@@ -36,6 +39,13 @@ test("allows only valid role changes during the waiting phase", () => {
   assert.equal(canChangeRole("waiting", "grunt"), false);
   assert.equal(canChangeRole("waiting", undefined), false);
   assert.equal(canChangeRole("started", "healer"), false);
+  assert.equal(canChangeRole("ended", "healer"), false);
+});
+
+test("allows gameplay actions only while the match is started", () => {
+  assert.equal(canUseGameplayActions("waiting"), false);
+  assert.equal(canUseGameplayActions("started"), true);
+  assert.equal(canUseGameplayActions("ended"), false);
 });
 
 test("normalizes valid lobby names and rejects invalid ones", () => {

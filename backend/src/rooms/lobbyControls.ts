@@ -18,6 +18,10 @@ export function canChangeTeam(phase: MatchPhase, team: unknown): team is LobbyTe
   return phase === "waiting" && (team === "red" || team === "blue");
 }
 
+export function canUseGameplayActions(phase: MatchPhase): boolean {
+  return phase === "started";
+}
+
 export function canChangeRole(phase: MatchPhase, role: unknown): role is Role {
   return phase === "waiting" && isRole(role);
 }

@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import { Client, Room } from 'colyseus.js';
-import { GameState, getLaneWaypoints, LobbyInfo, ROLE_ABILITY_CONFIG, ROLE_VISUALS, Role, RoleVisual } from 'shared';
+import { GameState, getLaneWaypoints, LobbyInfo, MatchPlayerStats, ROLE_ABILITY_CONFIG, ROLE_VISUALS, Role, RoleVisual } from 'shared';
+import { MatchResultsSort, nextMatchResultsSort, sortMatchResults, SortableMatchStat } from './matchResults.js';
 
 const ROLE_ORDER: Role[] = ['healer', 'tank', 'damagedealer'];
 
@@ -18,10 +19,17 @@ export class GameScene extends Phaser.Scene {
   private attackMarkers: Array<{ graphics: Phaser.GameObjects.Graphics; targetId: string }> = [];
   private statusText!: Phaser.GameObjects.Text;
   private menuElements: Phaser.GameObjects.GameObject[] = [];
+  private arenaBackgroundObjects: Phaser.GameObjects.GameObject[] = [];
+  private arenaTitle?: Phaser.GameObjects.Text;
   private nameInputEl: HTMLInputElement | null = null;
   private playerName = '';
   private leavingRoom = false;
   private arenaStarted = false;
+  private resultsShown = false;
+  private resultSorts: Record<'red' | 'blue', MatchResultsSort> = {
+    red: { stat: 'kills', direction: 'desc' },
+    blue: { stat: 'kills', direction: 'desc' }
+  };
   private abilityHud?: {
     bar: Phaser.GameObjects.Rectangle;
     barBorder: Phaser.GameObjects.Rectangle;
@@ -150,12 +158,13 @@ export class GameScene extends Phaser.Scene {
     const finish = () => {
       this.leavingRoom = false;
       this.arenaStarted = false;
-      this.destroyAbilityHud();
+      this.resultsShown = false;
+      this.clearArenaPresentation();
       this.room = undefined as unknown as Room<GameState>;
       this.showMainMenu();
     };
     if (room) {
-      room.leave().catch(() => {}).finally(finish);
+      room.leave().catch((error) => console.error('[GameScene] Failed to leave game room', error)).finally(finish);
     } else {
       finish();
     }
@@ -224,6 +233,11 @@ export class GameScene extends Phaser.Scene {
   }
 
   private async connectToLobby(lobby: LobbyInfo) {
+    this.resultsShown = false;
+    this.resultSorts = {
+      red: { stat: 'kills', direction: 'desc' },
+      blue: { stat: 'kills', direction: 'desc' }
+    };
     this.client = new Client(this.backendWsUrl);
     this.room = await this.client.joinOrCreate<GameState>('game_room', { lobbyId: lobby.id, playerName: this.playerName });
     this.statusText.setText(`Connected | ${this.room.sessionId}`);
@@ -245,13 +259,18 @@ export class GameScene extends Phaser.Scene {
     this.room.state.projectiles.onAdd((projectile, id) => this.upsertProjectile(projectile, id));
     this.room.state.projectiles.onRemove((_projectile, id) => this.removeProjectile(id));
     this.room.onStateChange((state: any) => {
+      if (this.resultsShown) return;
       if (state.phase === 'waiting') {
         this.showWaitingLobby(state);
         return;
       }
+      if (state.phase === 'ended') {
+        this.showMatchResults(state);
+        return;
+      }
       if (state.phase === 'started' && !this.arenaStarted) {
-        this.arenaStarted = true;
         this.createArena(state.lobbyName);
+        this.arenaStarted = true;
         state.tanks?.forEach((tank: any, sessionId: string) => this.upsertTank(tank, sessionId));
         state.bases?.forEach((base: any, id: string) => this.upsertBase(base, id));
         state.towers?.forEach((tower: any, id: string) => this.upsertTower(tower, id));
@@ -276,10 +295,10 @@ export class GameScene extends Phaser.Scene {
   }
 
   private createArena(lobbyName: string) {
+    this.clearArenaPresentation();
     this.destroyMenuElements();
-    this.destroyAbilityHud();
     this.createTilemap();
-    this.add.text(400, 20, lobbyName, { color: '#ffffff', fontSize: '24px', fontStyle: 'bold' }).setOrigin(0.5).setScrollFactor(0).setDepth(1500);
+    this.arenaTitle = this.add.text(400, 20, lobbyName, { color: '#ffffff', fontSize: '24px', fontStyle: 'bold' }).setOrigin(0.5).setScrollFactor(0).setDepth(1500);
     this.createAbilityHud();
   }
 
@@ -289,7 +308,10 @@ export class GameScene extends Phaser.Scene {
     const grassTileset = map.addTilesetImage('grass', 'grass');
     if (grassTileset) {
       const layer = map.createLayer('ground', grassTileset);
-      layer?.setDepth(-1);
+      if (layer) {
+        layer.setDepth(-1);
+        this.arenaBackgroundObjects.push(layer);
+      }
     }
     this.drawLaneStreets();
   }
@@ -344,7 +366,119 @@ export class GameScene extends Phaser.Scene {
     context.stroke();
 
     roadTexture.refresh();
-    this.add.image(GameScene.WORLD_WIDTH / 2, GameScene.WORLD_HEIGHT / 2, textureKey).setDepth(-0.5);
+    this.arenaBackgroundObjects.push(
+      this.add.image(GameScene.WORLD_WIDTH / 2, GameScene.WORLD_HEIGHT / 2, textureKey).setDepth(-0.5)
+    );
+  }
+
+  private clearArenaPresentation() {
+    this.destroyAbilityHud();
+    this.arenaTitle?.destroy();
+    this.arenaTitle = undefined;
+    this.arenaBackgroundObjects.forEach((object) => object.destroy());
+    this.arenaBackgroundObjects = [];
+    this.tankSprites.forEach((sprite) => sprite.destroy());
+    this.tankSprites.clear();
+    this.tankTargets.clear();
+    this.tankNameTexts.forEach((text) => text.destroy());
+    this.tankNameTexts.clear();
+    this.minionSprites.forEach((sprite) => sprite.destroy());
+    this.minionSprites.clear();
+    this.baseSprites.forEach((sprite) => sprite.destroy());
+    this.baseSprites.clear();
+    this.towerSprites.forEach((sprite) => sprite.destroy());
+    this.towerSprites.clear();
+    this.projectileSprites.forEach((sprite) => sprite.destroy());
+    this.projectileSprites.clear();
+    this.healthBars.forEach(({ bg, fill }) => {
+      bg.destroy();
+      fill.destroy();
+    });
+    this.healthBars.clear();
+    this.attackMarkers.forEach(({ graphics }) => {
+      this.tweens.killTweensOf(graphics);
+      graphics.destroy();
+    });
+    this.attackMarkers = [];
+  }
+
+  private showMatchResults(state: GameState) {
+    if (!this.room) return;
+    this.resultsShown = true;
+    this.arenaStarted = true;
+    this.resetCamera();
+    this.destroyAbilityHud();
+    this.destroyMenuElements();
+
+    const background = this.add.rectangle(0, 0, 800, 600, 0x0a0d13, 0.97)
+      .setOrigin(0)
+      .setScrollFactor(0)
+      .setDepth(3000);
+    this.menuElements.push(background);
+
+    const localStats = state.playerStats.get(this.room.sessionId);
+    const localTank = state.tanks.get(this.room.sessionId);
+    const localTeam = localStats?.team ?? localTank?.team;
+    const isVictory = localTeam === state.winnerTeam;
+    this.addMenuText(400, 58, isVictory ? 'VICTORY' : 'DEFEAT', 38, isVictory ? '#7dff9b' : '#ff8585', true);
+    this.addMenuText(400, 105, `${state.lobbyName} · Winner: ${String(state.winnerTeam).toUpperCase()}`, 16, '#c8d4e2');
+    this.addMenuText(400, 133, 'Select a column to sort; select it again to reverse the order', 13, '#9ba9bb');
+
+    const teamPlayers: Record<'red' | 'blue', MatchPlayerStats[]> = { red: [], blue: [] };
+    state.playerStats.forEach((player) => {
+      if (player.team === 'red' || player.team === 'blue') teamPlayers[player.team].push(player);
+    });
+
+    this.renderTeamResults('red', teamPlayers.red, 200, localStats);
+    this.renderTeamResults('blue', teamPlayers.blue, 600, localStats);
+    this.addButton(400, 550, 210, 42, 'RETURN TO MAIN MENU', () => this.backToMainMenu());
+  }
+
+  private renderTeamResults(
+    team: 'red' | 'blue',
+    players: MatchPlayerStats[],
+    centerX: number,
+    localStats?: MatchPlayerStats
+  ) {
+    const color = team === 'red' ? '#ff8585' : '#87aaff';
+    const sort = this.resultSorts[team];
+    const sortedPlayers = sortMatchResults(players, sort);
+    this.addMenuText(centerX, 168, `${team.toUpperCase()} TEAM`, 17, color, true);
+    const columns: Array<{ stat: SortableMatchStat; label: string; offsetX: number }> = [
+      { stat: 'kills', label: 'KILLS', offsetX: 25 },
+      { stat: 'level', label: 'LEVEL', offsetX: 95 },
+      { stat: 'damageDealt', label: 'DAMAGE', offsetX: 165 }
+    ];
+    this.addMenuText(centerX - 125, 198, 'PLAYER', 12, '#c8d4e2', true);
+    columns.forEach(({ stat, label, offsetX }) => {
+      const active = sort.stat === stat;
+      const direction = sort.direction === 'desc' ? ' DESC' : ' ASC';
+      const heading = this.add.text(centerX + offsetX, 198, `${label}${active ? direction : ''}`, {
+        color: active ? '#ffffff' : '#9ba9bb',
+        fontSize: '11px',
+        fontStyle: 'bold'
+      }).setOrigin(0.5).setDepth(3002).setInteractive({ useHandCursor: true });
+      heading.on('pointerdown', () => {
+        this.resultSorts[team] = nextMatchResultsSort(this.resultSorts[team], stat);
+        this.showMatchResults(this.room.state);
+      });
+      this.menuElements.push(heading);
+    });
+
+    if (sortedPlayers.length === 0) {
+      this.addMenuText(centerX, 230, 'No players', 13, '#9ba9bb');
+      return;
+    }
+
+    sortedPlayers.forEach((player, index) => {
+      const y = 230 + index * 42;
+      const isLocalPlayer = player === localStats;
+      const rowColor = isLocalPlayer ? '#ffffff' : '#d6deea';
+      this.addMenuText(centerX - 125, y, `${player.name}${isLocalPlayer ? ' (You)' : ''}`, 12, rowColor);
+      this.addMenuText(centerX + 25, y, String(player.kills), 12, '#ffffff');
+      this.addMenuText(centerX + 95, y, String(player.level), 12, '#ffffff');
+      this.addMenuText(centerX + 165, y, String(player.damageDealt), 12, '#ffffff');
+    });
   }
 
   private showWaitingLobby(state: GameState) {
@@ -396,14 +530,14 @@ export class GameScene extends Phaser.Scene {
   private addMenuText(x: number, y: number, text: string, fontSize: number, color: string, bold = false) {
     const element = this.add.text(x, y, text, {
       color, fontSize: `${fontSize}px`, fontStyle: bold ? 'bold' : 'normal'
-    }).setOrigin(0.5);
+    }).setOrigin(0.5).setDepth(3001);
     this.menuElements.push(element);
     return element;
   }
 
   private addButton(x: number, y: number, width: number, height: number, label: string, action: () => void) {
-    const button = this.add.rectangle(x, y, width, height, 0x245c52).setInteractive({ useHandCursor: true });
-    const text = this.add.text(x, y, label, { color: '#ffffff', fontSize: '15px', fontStyle: 'bold' }).setOrigin(0.5);
+    const button = this.add.rectangle(x, y, width, height, 0x245c52).setDepth(3001).setInteractive({ useHandCursor: true });
+    const text = this.add.text(x, y, label, { color: '#ffffff', fontSize: '15px', fontStyle: 'bold' }).setOrigin(0.5).setDepth(3002);
     button.on('pointerover', () => button.setFillStyle(0x347d6c));
     button.on('pointerout', () => button.setFillStyle(0x245c52));
     button.on('pointerdown', action);
