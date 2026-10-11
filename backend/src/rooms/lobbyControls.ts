@@ -22,6 +22,10 @@ export function canUseGameplayActions(phase: MatchPhase): boolean {
   return phase === "started";
 }
 
+export function canJoinRoom(phase: MatchPhase): boolean {
+  return phase !== "ended";
+}
+
 export function canChangeRole(phase: MatchPhase, role: unknown): role is Role {
   return phase === "waiting" && isRole(role);
 }

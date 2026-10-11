@@ -27,3 +27,15 @@ export function sortMatchResults<T extends MatchResultsPlayer>(players: T[], sor
     return difference === 0 ? a.name.localeCompare(b.name) : difference * direction;
   });
 }
+
+export function getMatchResultsPage<T>(items: T[], page: number, pageSize: number) {
+  const safePageSize = Math.max(1, Math.floor(pageSize));
+  const requestedPage = Number.isFinite(page) ? Math.floor(page) : 0;
+  const pageCount = Math.max(1, Math.ceil(items.length / safePageSize));
+  const currentPage = Math.max(0, Math.min(requestedPage, pageCount - 1));
+  return {
+    items: items.slice(currentPage * safePageSize, (currentPage + 1) * safePageSize),
+    page: currentPage,
+    pageCount
+  };
+}

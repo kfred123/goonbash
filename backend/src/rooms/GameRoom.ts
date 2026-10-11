@@ -2,11 +2,11 @@ import { Room, Client } from "colyseus";
 import { Base, GameState, getLaneWaypoints, MatchPlayerStats, Minion, Projectile, Tank, Tower } from "shared";
 import { isRole, resolveRoleAbilityConfig, resolveRoleStats, ROLE_ABILITY_CONFIG } from "shared";
 import { lobbyRegistry } from "../index.js";
-import { canChangeRole, canChangeTeam, canManageLobby, canUseGameplayActions, normalizeLobbyName, normalizePlayerName, resolveHostAfterLeave, selectBalancedTeam } from "./lobbyControls.js";
+import { canChangeRole, canChangeTeam, canJoinRoom, canManageLobby, canUseGameplayActions, normalizeLobbyName, normalizePlayerName, resolveHostAfterLeave, selectBalancedTeam } from "./lobbyControls.js";
 import { clampToBounds, findNearestEnemyInRange, getLivingTowers, hasDied, hasProjectileReachedTarget, isReadyToRespawn, isWithinRange, stepToward, applyDamage as computeDamagedHp, nearBasePosition, respawnTank, tickShooter } from "./combat.js";
 import { activateRoleAbility, applyShieldReduction, canActivateAbility, effectiveFireCooldown, healOverTick, isAbilityActive } from "./ability.js";
 import { getLaneTowerPlacements } from "./towerPlacement.js";
-import { endMatchAfterBaseDestroyed, recordPlayerDamage, recordPlayerKill } from "./matchResults.js";
+import { endMatchAfterBaseDestroyed, recordPlayerDamage, recordPlayerKill, removeLeavingPlayerTank } from "./matchResults.js";
 
 const RESPAWN_DELAY_MS = 3000;
 const PROJECTILE_HIT_RADIUS = 12;
@@ -416,6 +416,7 @@ export class GameRoom extends Room<GameState> {
   }
 
   onJoin (client: Client, options: any) {
+    if (!canJoinRoom(this.state.phase)) throw new Error("Match has ended");
     console.log(client.sessionId, "joined!");
     lobbyRegistry.join(options.lobbyId);
     if (!this.state.hostSessionId) this.state.hostSessionId = client.sessionId;
@@ -440,7 +441,7 @@ export class GameRoom extends Room<GameState> {
 
   onLeave (client: Client, consented: boolean) {
     console.log(client.sessionId, "left!");
-    this.state.tanks.delete(client.sessionId);
+    removeLeavingPlayerTank(this.state, client.sessionId);
     this.state.hostSessionId = resolveHostAfterLeave(
       client.sessionId,
       this.state.hostSessionId,

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { GameState, MatchPlayerStats, Projectile, Tank } from "shared";
-import { endMatchAfterBaseDestroyed, getWinnerAfterBaseDestroyed, recordPlayerDamage, recordPlayerKill } from "./matchResults.js";
+import { endMatchAfterBaseDestroyed, getWinnerAfterBaseDestroyed, recordPlayerDamage, recordPlayerKill, removeLeavingPlayerTank } from "./matchResults.js";
 
 test("credits only actual damage to an opposing player's combat statistics", () => {
   const stats = { team: "blue", kills: 0, damageDealt: 4 };
@@ -45,7 +45,7 @@ test("ends a started match for either destroyed main base and ignores later end 
   }
 });
 
-test("keeps a disconnected player's match record after removing their tank", () => {
+test("keeps a disconnected player's match record when removing their tank on leave", () => {
   const state = new GameState();
   const tank = new Tank();
   const stats = new MatchPlayerStats();
@@ -54,7 +54,7 @@ test("keeps a disconnected player's match record after removing their tank", () 
   state.tanks.set("session-1", tank);
   state.playerStats.set("session-1", stats);
 
-  state.tanks.delete("session-1");
+  removeLeavingPlayerTank(state, "session-1");
 
   assert.equal(state.tanks.has("session-1"), false);
   assert.equal(state.playerStats.get("session-1"), stats);

@@ -1,9 +1,13 @@
-import type { LobbyTeam, MatchPhase } from "shared";
+import type { GameState, LobbyTeam, MatchPhase } from "shared";
 
 interface PlayerCombatStats {
   team: string;
   kills: number;
   damageDealt: number;
+}
+
+export function removeLeavingPlayerTank(state: Pick<GameState, "tanks">, sessionId: string): void {
+  state.tanks.delete(sessionId);
 }
 
 export function recordPlayerDamage(

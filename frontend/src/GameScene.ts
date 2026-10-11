@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 import { Client, Room } from 'colyseus.js';
 import { GameState, getLaneWaypoints, LobbyInfo, MatchPlayerStats, ROLE_ABILITY_CONFIG, ROLE_VISUALS, Role, RoleVisual } from 'shared';
-import { MatchResultsSort, nextMatchResultsSort, sortMatchResults, SortableMatchStat } from './matchResults.js';
+import { getMatchResultsPage, MatchResultsSort, nextMatchResultsSort, sortMatchResults, SortableMatchStat } from './matchResults.js';
 
 const ROLE_ORDER: Role[] = ['healer', 'tank', 'damagedealer'];
 
@@ -30,6 +30,8 @@ export class GameScene extends Phaser.Scene {
     red: { stat: 'kills', direction: 'desc' },
     blue: { stat: 'kills', direction: 'desc' }
   };
+  private resultPages: Record<'red' | 'blue', number> = { red: 0, blue: 0 };
+  private static readonly RESULTS_PAGE_SIZE = 6;
   private abilityHud?: {
     bar: Phaser.GameObjects.Rectangle;
     barBorder: Phaser.GameObjects.Rectangle;
@@ -160,6 +162,7 @@ export class GameScene extends Phaser.Scene {
     }
     this.arenaStarted = false;
     this.resultsShown = false;
+    this.resultPages = { red: 0, blue: 0 };
     this.clearArenaPresentation();
     this.room = undefined as unknown as Room<GameState>;
     this.leavingRoom = false;
@@ -230,6 +233,7 @@ export class GameScene extends Phaser.Scene {
 
   private async connectToLobby(lobby: LobbyInfo) {
     this.resultsShown = false;
+    this.resultPages = { red: 0, blue: 0 };
     this.resultSorts = {
       red: { stat: 'kills', direction: 'desc' },
       blue: { stat: 'kills', direction: 'desc' }
@@ -466,7 +470,9 @@ export class GameScene extends Phaser.Scene {
       return;
     }
 
-    sortedPlayers.forEach((player, index) => {
+    const resultPage = getMatchResultsPage(sortedPlayers, this.resultPages[team], GameScene.RESULTS_PAGE_SIZE);
+    this.resultPages[team] = resultPage.page;
+    resultPage.items.forEach((player, index) => {
       const y = 230 + index * 42;
       const isLocalPlayer = player === localStats;
       const rowColor = isLocalPlayer ? '#ffffff' : '#d6deea';
@@ -475,6 +481,18 @@ export class GameScene extends Phaser.Scene {
       this.addMenuText(centerX + 95, y, String(player.level), 12, '#ffffff');
       this.addMenuText(centerX + 165, y, String(player.damageDealt), 12, '#ffffff');
     });
+
+    if (resultPage.pageCount > 1) {
+      this.addButton(centerX - 90, 486, 64, 30, 'PREV', () => {
+        this.resultPages[team] = Math.max(0, this.resultPages[team] - 1);
+        this.showMatchResults(this.room.state);
+      });
+      this.addMenuText(centerX, 486, `${resultPage.page + 1} / ${resultPage.pageCount}`, 12, '#c8d4e2');
+      this.addButton(centerX + 90, 486, 64, 30, 'NEXT', () => {
+        this.resultPages[team] = Math.min(resultPage.pageCount - 1, this.resultPages[team] + 1);
+        this.showMatchResults(this.room.state);
+      });
+    }
   }
 
   private showWaitingLobby(state: GameState) {

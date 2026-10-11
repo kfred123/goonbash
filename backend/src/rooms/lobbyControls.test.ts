@@ -3,6 +3,7 @@ import { test } from "node:test";
 import {
   canChangeRole,
   canChangeTeam,
+  canJoinRoom,
   canManageLobby,
   canUseGameplayActions,
   normalizeLobbyName,
@@ -46,6 +47,12 @@ test("allows gameplay actions only while the match is started", () => {
   assert.equal(canUseGameplayActions("waiting"), false);
   assert.equal(canUseGameplayActions("started"), true);
   assert.equal(canUseGameplayActions("ended"), false);
+});
+
+test("rejects joins after the match has ended", () => {
+  assert.equal(canJoinRoom("waiting"), true);
+  assert.equal(canJoinRoom("started"), true);
+  assert.equal(canJoinRoom("ended"), false);
 });
 
 test("normalizes valid lobby names and rejects invalid ones", () => {

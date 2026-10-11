@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { nextMatchResultsSort, sortMatchResults } from "./matchResults.js";
+import { getMatchResultsPage, nextMatchResultsSort, sortMatchResults } from "./matchResults.js";
 
 const players = [
   { name: "Alice", kills: 2, level: 1, damageDealt: 120 },
@@ -53,4 +53,16 @@ test("choosing a new column sorts descending and choosing it again reverses dire
     stat: "kills",
     direction: "asc"
   });
+});
+
+test("paginates every result and clamps page navigation to available pages", () => {
+  const allPlayers = Array.from({ length: 13 }, (_, index) => ({ name: `Player ${index}` }));
+  const first = getMatchResultsPage(allPlayers, 0, 6);
+  const second = getMatchResultsPage(allPlayers, 1, 6);
+  const last = getMatchResultsPage(allPlayers, 2, 6);
+
+  assert.deepEqual([...first.items, ...second.items, ...last.items], allPlayers);
+  assert.deepEqual([first.items.length, second.items.length, last.items.length], [6, 6, 1]);
+  assert.equal(getMatchResultsPage(allPlayers, 99, 6).page, 2);
+  assert.equal(getMatchResultsPage([], 0, 6).pageCount, 1);
 });
