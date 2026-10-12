@@ -25,4 +25,8 @@ export class Tank extends Entity {
   @type("number") abilityCooldownMax: number = 0;
   /** Timestamp (ms) until which the role's special ability effect is active. */
   @type("number") abilityActiveUntil: number = 0;
+  @type("number") level: number = 1;
+  @type("number") xp: number = 0;
+  @type("number") skillPoints: number = 0;
+  @type("number") abilityLevel: number = 0;
 }

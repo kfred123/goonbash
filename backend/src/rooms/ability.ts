@@ -13,8 +13,8 @@ export function canActivateAbility(now: number, abilityCooldownEndsAt: number): 
 }
 
 /** Computes the cooldown/active-until timestamps produced by activating a role's ability right now. */
-export function activateRoleAbility(role: Role, now: number): AbilityTiming {
-  const config = ROLE_ABILITY_CONFIG[role];
+export function activateRoleAbility(role: Role, now: number, abilityConfig: RoleAbilityConfig = ROLE_ABILITY_CONFIG[role]): AbilityTiming {
+  const config = abilityConfig;
   return {
     abilityCooldownEndsAt: now + config.cooldownMs,
     abilityCooldownMax: config.cooldownMs,

@@ -6,5 +6,10 @@
     "frontend",
     "backend",
     "shared"
-  ]
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces",
+    "test": "npm test --workspaces --if-present"
+  }
 }
+

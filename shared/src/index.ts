@@ -9,6 +9,23 @@ export { LANE_EDGE_Y, LANE_TURN_X, buildLanePath, getLaneWaypoints, pointAlongPa
 export type { LanePoint } from "./lanes";
 export type { Role, RoleStats, RoleAbilityConfig, RoleVisual } from "./roles";
 export { isRole, ROLE_STATS, ROLE_ABILITY_CONFIG, ROLE_VISUALS, resolveRoleStats, resolveRoleAbilityConfig } from "./roles";
+export {
+  KILL_XP_MINION,
+  KILL_XP_PLAYER,
+  KILL_XP_RADIUS,
+  HP_PER_LEVEL,
+  DAMAGE_PER_LEVEL,
+  getRequiredXpForNextLevel,
+  addExperience,
+  computeProgressionStats
+} from "./progression";
+export type { LevelProgress } from "./progression";
+export {
+  MAX_ABILITY_LEVEL,
+  canUpgradeAbility,
+  computeAbilityConfigForLevel
+} from "./abilities";
+export type { AbilityDefinition } from "./abilities";
 export type {
 	LobbyStatus,
 	LobbyTeam,
