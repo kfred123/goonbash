@@ -65,15 +65,15 @@ The backend SHALL place a tank at a randomized position near its own team's base
 - **THEN** the server restores the tank to full HP at a randomized position near its team's base that is offset from the base's exact coordinates, so the tank does not reappear inside the main tower
 
 ### Requirement: Player Movement Speed
-The backend SHALL use role-specific base movement speeds equal to half the prior role baselines, preserving relative speed differences among roles. Temporary ability modifiers SHALL apply to these reduced base speeds.
+The backend SHALL use role-specific base movement speeds of 95 world units per second for Healer, 70 for Tank, and 100 for Damagedealer. Temporary ability modifiers SHALL apply to these base speeds.
 
 #### Scenario: Tank moves toward a commanded destination
 - **WHEN** a player's tank has an active move command or is chasing a locked target
-- **THEN** the server advances the tank's position each tick using that role's halved base movement speed, with any active movement modifiers applied
+- **THEN** the server advances the tank's position each tick using that role's base movement speed scaled by elapsed time, with any active movement modifiers applied
 
 #### Scenario: Role move speeds remain distinct
 - **WHEN** tanks of different roles (healer, tank, damagedealer) are each moving toward a destination without temporary modifiers
-- **THEN** each role moves at half its prior baseline speed, preserving relative role speed differences
+- **THEN** Healer moves at 95, Tank at 70, and Damagedealer at 100 world units per second
 
 ### Requirement: End the match when a main base is destroyed
 The backend SHALL end the match when either team's main base reaches zero hit points, record the opposing team as the winner, and preserve the final match state. Once ended, the backend SHALL stop advancing combat and SHALL reject gameplay actions for that match.

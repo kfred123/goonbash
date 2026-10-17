@@ -5,11 +5,12 @@ Rendert den Arena-Hintergrund als Tilemap aus kachelbaren Texturen, sodass die S
 ## Requirements
 
 ### Requirement: Tilemap-Datenformat
-Das System SHALL ein JSON-basiertes Tilemap-Format unterstützen, das eine zweidimensionale Grid-Struktur mit Tile-Typ-Zuweisungen definiert.
+Das System SHALL das Tiled-kompatible JSON-Tilemap-Format unterstützen, das ein zweidimensionales Grid definiert und Tile-IDs pro Tile-Layer als flaches, zeilenweise angeordnetes Array in `layers[].data` speichert.
 
 #### Scenario: Tilemap-Definition enthält Grid-Dimensionen und Tile-Typen
 - **WHEN** eine Tilemap-JSON-Datei geladen wird
-- **THEN** enthält sie die Grid-Breite, Grid-Höhe, Tile-Größe in Pixeln, eine Tile-Typ-zu-Textur-Zuordnung und ein 2D-Array mit Tile-Typ-IDs
+- **THEN** enthält sie die Grid-Breite, Grid-Höhe, Tile-Größe in Pixeln, eine Tile-Typ-zu-Textur-Zuordnung und pro Tile-Layer ein flaches Array mit Tile-IDs in zeilenweiser Reihenfolge
+- **AND** enthält `layers[].data` für den 38 × 29 Tiles großen Arena-Layer genau 1102 skalare Tile-IDs statt verschachtelter Arrays
 
 ### Requirement: Tilemap deckt die Arena ab
 Die Tilemap SHALL die gesamte Spielarena (2400×1800 Pixel) lückenlos mit Tiles abdecken.

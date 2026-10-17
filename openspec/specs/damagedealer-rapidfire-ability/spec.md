@@ -13,12 +13,12 @@ The system SHALL allow a player whose role is Damagedealer to activate their lea
 - **THEN** the system increases the Damagedealer's fire rate and starts the ability's cooldown
 
 ### Requirement: Rapid Fire Increases Fire Rate
-While rapid fire is active, the Damagedealer's weapon SHALL fire more frequently than its base fire rate, by a fixed multiplier, for a fixed duration.
+While rapid fire is active, the Damagedealer's weapon SHALL fire more frequently than its base fire rate, using the multiplier derived from the ability's current learned level, for a fixed duration.
 
 #### Scenario: Damagedealer fires while rapid fire is active
 - **WHEN** rapid fire is active
 - **AND** the Damagedealer's weapon is ready to fire again
-- **THEN** the time between shots reflects the reduced cooldown from the fixed multiplier
+- **THEN** the time between shots reflects the reduced cooldown from the multiplier at the ability's current learned level
 
 #### Scenario: Damagedealer fires after rapid fire expires
 - **WHEN** rapid fire has expired

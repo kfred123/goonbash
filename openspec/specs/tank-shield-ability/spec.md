@@ -13,12 +13,12 @@ The system SHALL allow a player whose role is Tank to activate their learned shi
 - **THEN** the system grants the Tank a damage-reduction shield and starts the ability's cooldown
 
 ### Requirement: Shield Reduces Incoming Damage
-While the shield is active, the Tank SHALL take reduced damage from incoming attacks, by a fixed reduction percentage, for a fixed duration.
+While the shield is active, the Tank SHALL take reduced damage from incoming attacks, by a reduction percentage derived from the ability's current learned level, for a fixed duration.
 
 #### Scenario: Tank takes damage while shield is active
 - **WHEN** the Tank's shield is active
 - **AND** the Tank takes damage from an attack
-- **THEN** the applied damage is reduced by the shield's fixed reduction percentage before being subtracted from health
+- **THEN** the applied damage is reduced by the shield's reduction percentage at its current learned level before being subtracted from health
 
 #### Scenario: Tank takes damage after shield expires
 - **WHEN** the Tank's shield has expired

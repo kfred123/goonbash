@@ -13,12 +13,12 @@ The system SHALL allow a player whose role is Healer to activate their learned a
 - **THEN** the system begins healing the Healer and starts the ability's cooldown
 
 ### Requirement: Heal Aura Affects Nearby Allies
-While active, the Healer Aura SHALL heal the Healer and every allied tank within a fixed radius of the Healer's current position at a fixed rate per second, for a fixed duration.
+While active, the Healer Aura SHALL heal the Healer and every allied tank within a fixed radius of the Healer's current position at a rate per second derived from the ability's current learned level, for a fixed duration.
 
 #### Scenario: Ally within radius is healed
 - **WHEN** the Healer Aura is active
 - **AND** an allied tank is within the aura's radius of the Healer
-- **THEN** that ally's health increases by the aura's heal rate each second, up to its current maximum health including progression bonuses
+- **THEN** that ally's health increases by the aura's heal rate at its current learned level each second, up to the ally's current maximum health including progression bonuses
 
 #### Scenario: Ally leaves the radius
 - **WHEN** the Healer Aura is active
