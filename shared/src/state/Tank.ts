@@ -1,5 +1,7 @@
-import { type } from "@colyseus/schema";
+import { MapSchema, type } from "@colyseus/schema";
+import { ABILITY_IDS, AbilityId } from "../abilities";
 import { Entity } from "./Entity";
+import { AbilityState } from "./AbilityState";
 
 export class Tank extends Entity {
   @type("string") name: string = "Player";
@@ -19,14 +21,15 @@ export class Tank extends Entity {
   @type("number") fireCooldownMax: number = 800;
   @type("number") fireDamage: number = 8;
   @type("number") moveSpeed: number = 90;
-  /** Timestamp (ms) at/after which the role's special ability can be activated again. */
-  @type("number") abilityCooldownEndsAt: number = 0;
-  /** Length (ms) of the ability's cooldown, for HUD progress display. */
-  @type("number") abilityCooldownMax: number = 0;
-  /** Timestamp (ms) until which the role's special ability effect is active. */
-  @type("number") abilityActiveUntil: number = 0;
+  @type({ map: AbilityState }) abilities = new MapSchema<AbilityState>();
   @type("number") level: number = 1;
   @type("number") xp: number = 0;
   @type("number") skillPoints: number = 0;
-  @type("number") abilityLevel: number = 0;
+
+  constructor() {
+    super();
+    for (const abilityId of ABILITY_IDS) {
+      this.abilities.set(abilityId satisfies AbilityId, new AbilityState());
+    }
+  }
 }

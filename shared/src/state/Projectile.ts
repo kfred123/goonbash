@@ -6,4 +6,5 @@ export class Projectile extends Entity {
   @type("string") targetId: string = "";
   @type("number") damage: number = 0;
   @type("number") speed: number = 400;
+  @type("boolean") isHomingRocket: boolean = false;
 }

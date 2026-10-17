@@ -14,8 +14,11 @@ import {
   HP_PER_LEVEL,
   DAMAGE_PER_LEVEL,
   ROLE_STATS,
-  MAX_ABILITY_LEVEL
+  MAX_ABILITY_LEVEL,
+  ABILITY_IDS
 } from "shared";
+import type { AbilityId } from "shared";
+import { AbilityProgress } from "./progressionService.js";
 
 function createMockTank(partial: Partial<ProgressionTank> = {}): ProgressionTank {
   return {
@@ -27,11 +30,15 @@ function createMockTank(partial: Partial<ProgressionTank> = {}): ProgressionTank
     level: 1,
     xp: 0,
     skillPoints: 0,
-    abilityLevel: 0,
+    abilities: new Map(ABILITY_IDS.map((id) => [id, {
+      level: 0,
+      cooldownEndsAt: 0,
+      cooldownMax: 0,
+      activeUntil: 0
+    }] as [AbilityId, AbilityProgress])),
     hp: ROLE_STATS.tank.maxHp,
     maxHp: ROLE_STATS.tank.maxHp,
     fireDamage: ROLE_STATS.tank.fireDamage,
-    abilityCooldownMax: 18000,
     ...partial
   };
 }
@@ -89,32 +96,39 @@ test("applyTankProgressionStats is non-compounding and derives from base role st
   assert.equal(tank.fireDamage, ROLE_STATS.healer.fireDamage + 2 * DAMAGE_PER_LEVEL);
 });
 
-test("purchaseAbilityUpgrade learns or upgrades ability when points available and below max level", () => {
-  const tank = createMockTank({ skillPoints: 2, abilityLevel: 0 });
+test("purchaseAbilityUpgrade learns or upgrades an available ability independently", () => {
+  const tank = createMockTank({ skillPoints: 2 });
 
-  // First purchase: learns ability (level 1)
-  const learned = purchaseAbilityUpgrade(tank);
+  const learned = purchaseAbilityUpgrade(tank, "tank-shield");
   assert.equal(learned, true);
-  assert.equal(tank.abilityLevel, 1);
+  assert.equal(tank.abilities.get("tank-shield")?.level, 1);
   assert.equal(tank.skillPoints, 1);
 
-  // Second purchase: upgrades to level 2
-  const upgraded = purchaseAbilityUpgrade(tank);
+  const upgraded = purchaseAbilityUpgrade(tank, "tank-shield");
   assert.equal(upgraded, true);
-  assert.equal(tank.abilityLevel, 2);
+  assert.equal(tank.abilities.get("tank-shield")?.level, 2);
   assert.equal(tank.skillPoints, 0);
 
-  // Third purchase without points is rejected
-  const rejected = purchaseAbilityUpgrade(tank);
+  const rejected = purchaseAbilityUpgrade(tank, "tank-shield");
   assert.equal(rejected, false);
-  assert.equal(tank.abilityLevel, 2);
+  assert.equal(tank.abilities.get("tank-shield")?.level, 2);
   assert.equal(tank.skillPoints, 0);
+  assert.equal(tank.abilities.get("tank-entrench")?.level, 0);
 });
 
 test("purchaseAbilityUpgrade rejects upgrade if already at max level 10", () => {
-  const tank = createMockTank({ skillPoints: 5, abilityLevel: MAX_ABILITY_LEVEL });
-  const rejected = purchaseAbilityUpgrade(tank);
+  const tank = createMockTank({ skillPoints: 5 });
+  tank.abilities.get("tank-shield")!.level = MAX_ABILITY_LEVEL;
+  const rejected = purchaseAbilityUpgrade(tank, "tank-shield");
   assert.equal(rejected, false);
-  assert.equal(tank.abilityLevel, MAX_ABILITY_LEVEL);
+  assert.equal(tank.abilities.get("tank-shield")?.level, MAX_ABILITY_LEVEL);
   assert.equal(tank.skillPoints, 5); // skill points preserved
+});
+
+test("purchaseAbilityUpgrade rejects invalid or unavailable ability IDs without spending points", () => {
+  const tank = createMockTank({ skillPoints: 2 });
+  assert.equal(purchaseAbilityUpgrade(tank, "healer-speed"), false);
+  assert.equal(purchaseAbilityUpgrade(tank, "not-an-ability"), false);
+  assert.equal(tank.skillPoints, 2);
+  assert.equal(tank.abilities.get("tank-shield")?.level, 0);
 });

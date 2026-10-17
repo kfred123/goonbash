@@ -1,43 +1,96 @@
-import type { Role } from "shared";
-import { ROLE_ABILITY_CONFIG } from "shared";
+import type { AbilityConfig, AbilityId } from "shared";
+import { computeAbilityConfigForLevel, isRole, ROLE_ABILITY_IDS } from "shared";
 
 export interface AbilityTiming {
-  abilityCooldownEndsAt: number;
-  abilityCooldownMax: number;
-  abilityActiveUntil: number;
+  cooldownEndsAt: number;
+  cooldownMax: number;
+  activeUntil: number;
 }
 
-/** Whether a learned role ability can be activated right now, given when its cooldown ends. */
-export function canActivateAbility(now: number, abilityCooldownEndsAt: number, abilityLevel: number): boolean {
-  return abilityLevel > 0 && now >= abilityCooldownEndsAt;
+export interface TimedAbilityState {
+  level: number;
+  cooldownEndsAt: number;
+  activeUntil: number;
 }
 
-/** Computes the cooldown/active-until timestamps produced by activating a role's ability right now. */
-export function activateRoleAbility(role: Role, now: number, abilityConfig: RoleAbilityConfig = ROLE_ABILITY_CONFIG[role]): AbilityTiming {
-  const config = abilityConfig;
+export function abilityBelongsToRole(role: unknown, abilityId: unknown): abilityId is AbilityId {
+  return isRole(role) && typeof abilityId === "string" &&
+    (ROLE_ABILITY_IDS[role] as readonly string[]).includes(abilityId);
+}
+
+export function canActivateAbility(now: number, ability: TimedAbilityState): boolean {
+  return ability.level > 0 && now >= ability.cooldownEndsAt;
+}
+
+export function canActivateRoleAbility(
+  now: number,
+  role: unknown,
+  abilityId: unknown,
+  ability: TimedAbilityState | undefined
+): abilityId is AbilityId {
+  return abilityBelongsToRole(role, abilityId) && ability !== undefined && canActivateAbility(now, ability);
+}
+
+export function activateAbility(now: number, config: AbilityConfig): AbilityTiming {
   return {
-    abilityCooldownEndsAt: now + config.cooldownMs,
-    abilityCooldownMax: config.cooldownMs,
-    abilityActiveUntil: now + config.durationMs
+    cooldownEndsAt: now + config.cooldownMs,
+    cooldownMax: config.cooldownMs,
+    activeUntil: now + config.durationMs
   };
 }
 
-/** Whether an ability's timed effect (shield/aura/rapid-fire) is currently active. */
-export function isAbilityActive(now: number, abilityActiveUntil: number): boolean {
-  return now < abilityActiveUntil;
+export function isAbilityActive(now: number, ability: TimedAbilityState | undefined): boolean {
+  return ability !== undefined && now < ability.activeUntil;
 }
 
-/** Applies the Tank role's shield damage reduction to an incoming damage amount, when the shield is active. */
-export function applyShieldReduction(damage: number, active: boolean, reductionRatio: number): number {
-  return active ? damage * (1 - reductionRatio) : damage;
+export function applyDamageReduction(damage: number, reductionRatio: number): number {
+  return damage * (1 - reductionRatio);
 }
 
-/** Computes the effective fire cooldown for a Damagedealer, applying the rapid-fire multiplier while active. */
+export function strongestReduction(shield: number, entrench: number): number {
+  return Math.max(shield, entrench);
+}
+
 export function effectiveFireCooldown(baseCooldownMax: number, active: boolean, fireRateMultiplier: number): number {
   return active ? baseCooldownMax / fireRateMultiplier : baseCooldownMax;
 }
 
-/** Computes the new HP after one tick of the Healer aura's heal-per-second rate, clamped to max HP. */
+export function effectiveMoveSpeed(baseMoveSpeed: number, speedActive: boolean, multiplier: number): number {
+  return speedActive ? baseMoveSpeed * multiplier : baseMoveSpeed;
+}
+
+export function isMovementLocked(role: string, entrenchActive: boolean): boolean {
+  return role === "tank" && entrenchActive;
+}
+
 export function healOverTick(hp: number, maxHp: number, healPerSecond: number, elapsedSeconds: number): number {
   return Math.min(maxHp, hp + healPerSecond * elapsedSeconds);
+}
+
+export function abilityConfig(abilityId: AbilityId, level: number): AbilityConfig {
+  return computeAbilityConfigForLevel(abilityId, level);
+}
+
+export function homingRocketDamage(fireDamage: number, abilityLevel: number): number {
+  return fireDamage * computeAbilityConfigForLevel("damagedealer-homing-rocket", abilityLevel).magnitude;
+}
+
+export interface RocketTarget {
+  team: string;
+  x: number;
+  y: number;
+  hp: number;
+  state?: string;
+}
+
+export function isValidRocketTarget(
+  shooter: { team: string; x: number; y: number },
+  target: RocketTarget | undefined,
+  range: number
+): boolean {
+  return target !== undefined &&
+    target.team !== shooter.team &&
+    target.hp > 0 &&
+    target.state !== "dead" &&
+    Math.hypot(target.x - shooter.x, target.y - shooter.y) <= range;
 }

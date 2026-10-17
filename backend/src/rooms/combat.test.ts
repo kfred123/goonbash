@@ -13,6 +13,8 @@ import {
   nearBasePosition,
   respawnTank,
   stepToward,
+  stepHomingProjectile,
+  stepProjectileTowardTarget,
   tickShooter
 } from "./combat.js";
 
@@ -122,6 +124,28 @@ test("stepToward keeps steering toward a moving destination's latest position", 
   const secondStep = stepToward({ x: firstStep.x, y: firstStep.y }, { x: 130, y: 0 }, 30);
   assert.equal(secondStep.x, 60);
   assert.equal(secondStep.arrived, false);
+});
+
+test("homing projectiles steer toward the target's current position and stop at impact", () => {
+  assert.deepEqual(stepProjectileTowardTarget({ x: 0, y: 0 }, { x: 100, y: 0 }, 450, 0.1), { x: 45, y: 0 });
+  assert.deepEqual(stepProjectileTowardTarget({ x: 45, y: 0 }, { x: 45, y: 100 }, 450, 0.1), { x: 45, y: 45 });
+  assert.deepEqual(stepProjectileTowardTarget({ x: 0, y: 0 }, { x: 10, y: 0 }, 450, 0.1), { x: 10, y: 0 });
+});
+
+test("homing projectile tracks a moving target, reports impact once, and removes lost targets without retargeting", () => {
+  const first = stepHomingProjectile({ x: 0, y: 0 }, { x: 100, y: 0 }, 450, 0.1, 12);
+  assert.deepEqual(first, { status: "flying", position: { x: 45, y: 0 } });
+
+  const movedTarget = stepHomingProjectile(first.position, { x: 45, y: 100 }, 450, 0.1, 12);
+  assert.deepEqual(movedTarget, { status: "flying", position: { x: 45, y: 45 } });
+
+  const impact = stepHomingProjectile(movedTarget.position, { x: 45, y: 50 }, 450, 0.1, 12);
+  assert.equal(impact.status, "impact");
+  if (impact.status === "impact") assert.deepEqual(impact.position, { x: 45, y: 50 });
+
+  assert.deepEqual(stepHomingProjectile(impact.status === "impact" ? impact.position : movedTarget.position, undefined, 450, 0.1, 12), {
+    status: "target-lost"
+  });
 });
 
 test("clampToBounds leaves a point inside the bounds unchanged", () => {

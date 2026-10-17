@@ -9,7 +9,7 @@
     "prebuild": "npm run build --workspace=shared",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "test": "tsx --test src/matchResults.test.ts src/nameFormatter.test.ts"
+    "test": "tsx --test src/matchResults.test.ts src/nameFormatter.test.ts src/abilityControls.test.ts"
   },
   "devDependencies": {
     "tsx": "^4.23.15",
