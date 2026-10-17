@@ -15,7 +15,7 @@ import {
 } from 'shared';
 import type { AbilityId } from 'shared';
 import { formatPlayerNameTag } from './nameFormatter.js';
-import { getAbilityHudStatus, getRoleAbilityAtIndex, resolveArenaClick, shouldCancelRocketTargetSelection } from './abilityControls.js';
+import { getAbilityHudStatus, getRoleAbilityAtIndex, resolveArenaClick, shouldCancelRocketTargetSelection, shouldHandleAbilityKeydown } from './abilityControls.js';
 import { getMatchResultsPage, MatchResultsSort, nextMatchResultsSort, sortMatchResults, SortableMatchStat } from './matchResults.js';
 
 const ROLE_ORDER: Role[] = ['healer', 'tank', 'damagedealer'];
@@ -114,8 +114,12 @@ export class GameScene extends Phaser.Scene {
       backgroundColor: '#00000088', padding: { x: 6, y: 4 }
     }).setScrollFactor(0);
     this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => this.handlePointerClick(pointer));
-    this.input.keyboard?.on('keydown-SPACE', () => this.activateRoleAbility(0));
-    this.input.keyboard?.on('keydown-E', () => this.activateRoleAbility(1));
+    this.input.keyboard?.on('keydown-SPACE', (event: KeyboardEvent) => {
+      if (shouldHandleAbilityKeydown(event)) this.activateRoleAbility(0);
+    });
+    this.input.keyboard?.on('keydown-E', (event: KeyboardEvent) => {
+      if (shouldHandleAbilityKeydown(event)) this.activateRoleAbility(1);
+    });
     this.input.keyboard?.on('keydown-ESC', (event: KeyboardEvent) => {
       if (shouldCancelRocketTargetSelection(-1, event.key)) this.cancelRocketTargetSelection();
     });

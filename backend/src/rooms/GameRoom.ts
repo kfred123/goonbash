@@ -42,7 +42,6 @@ export class GameRoom extends Room<GameState> {
     this.onMessage("command", (client, command: { x?: unknown; y?: unknown; targetId?: unknown }) => {
       const tank = this.state.tanks.get(client.sessionId);
       if (!tank || !canUseGameplayActions(this.state.phase) || tank.state === "dead") return;
-      if (this.isEntrenched(tank, Date.now())) return;
       const targetId = typeof command?.targetId === "string" ? command.targetId : "";
       if (targetId) {
         const target = this.findLivingEntity(targetId);
@@ -53,6 +52,7 @@ export class GameRoom extends Room<GameState> {
         }
         // invalid/friendly targetId: fall through and try to treat it as a move-to-point instead
       }
+      if (this.isEntrenched(tank, Date.now())) return;
       const x = typeof command?.x === "number" ? command.x : NaN;
       const y = typeof command?.y === "number" ? command.y : NaN
       if (!Number.isFinite(x) || !Number.isFinite(y)) return;
@@ -97,7 +97,6 @@ export class GameRoom extends Room<GameState> {
       ability.activeUntil = timing.activeUntil;
       if (abilityId === "tank-entrench") {
         tank.hasMoveTarget = false;
-        tank.lockedTargetId = "";
       }
     });
     this.onMessage("upgrade_ability", (client, payload: { abilityId?: unknown }) => {

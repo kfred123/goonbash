@@ -80,3 +80,7 @@ export function resolveArenaClick(
 export function shouldCancelRocketTargetSelection(pointerButton: number, key?: string): boolean {
   return pointerButton === 2 || key === "Escape";
 }
+
+export function shouldHandleAbilityKeydown(event: Pick<KeyboardEvent, "repeat">): boolean {
+  return !event.repeat;
+}

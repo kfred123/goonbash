@@ -5,7 +5,8 @@ import {
   getRoleAbilityAtIndex,
   isRocketTargetClickValid,
   resolveArenaClick,
-  shouldCancelRocketTargetSelection
+  shouldCancelRocketTargetSelection,
+  shouldHandleAbilityKeydown
 } from "./abilityControls.js";
 
 test("each role maps Space and E to its independent abilities", () => {
@@ -36,6 +37,11 @@ test("rocket target selection cancels on Escape or right click only", () => {
   assert.equal(shouldCancelRocketTargetSelection(2), true);
   assert.equal(shouldCancelRocketTargetSelection(0, "Escape"), true);
   assert.equal(shouldCancelRocketTargetSelection(0, "Enter"), false);
+});
+
+test("ability shortcuts ignore repeated keydown events", () => {
+  assert.equal(shouldHandleAbilityKeydown({ repeat: false }), true);
+  assert.equal(shouldHandleAbilityKeydown({ repeat: true }), false);
 });
 
 test("each ability HUD state is derived independently", () => {
