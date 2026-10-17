@@ -1,11 +1,12 @@
 import { Room, Client } from "colyseus";
-import { Base, GameState, getLaneWaypoints, MatchPlayerStats, Minion, Projectile, Tank, Tower } from "shared";
-import { isRole, resolveRoleAbilityConfig, resolveRoleStats, ROLE_ABILITY_CONFIG } from "shared";
+import { Base, computeAbilityConfigForLevel, GameState, getLaneWaypoints, MatchPlayerStats, Minion, Projectile, Tank, Tower } from "shared";
+import { isRole, resolveRoleStats } from "shared";
 import { lobbyRegistry } from "../index.js";
 import { canChangeRole, canChangeTeam, canJoinRoom, canManageLobby, canUseGameplayActions, normalizeLobbyName, normalizePlayerName, resolveHostAfterLeave, selectBalancedTeam } from "./lobbyControls.js";
 import { clampToBounds, findNearestEnemyInRange, getLivingTowers, hasDied, hasProjectileReachedTarget, isReadyToRespawn, isWithinRange, stepToward, applyDamage as computeDamagedHp, nearBasePosition, respawnTank, tickShooter } from "./combat.js";
 import { activateRoleAbility, applyShieldReduction, canActivateAbility, effectiveFireCooldown, healOverTick, isAbilityActive } from "./ability.js";
 import { getLaneTowerPlacements } from "./towerPlacement.js";
+import { applyTankProgressionStats, distributeKillXp, purchaseAbilityUpgrade } from "./progressionService.js";
 import { endMatchAfterBaseDestroyed, recordPlayerDamage, recordPlayerKill, removeLeavingPlayerTank } from "./matchResults.js";
 
 const RESPAWN_DELAY_MS = 3000;
@@ -78,12 +79,18 @@ export class GameRoom extends Room<GameState> {
       const tank = this.state.tanks.get(client.sessionId);
       if (!tank || !canUseGameplayActions(this.state.phase) || tank.state === "dead") return;
       const now = Date.now();
-      if (!canActivateAbility(now, tank.abilityCooldownEndsAt)) return;
+      if (!canActivateAbility(now, tank.abilityCooldownEndsAt, tank.abilityLevel)) return;
       const role = isRole(tank.role) ? tank.role : "tank";
-      const timing = activateRoleAbility(role, now);
+      const abilityConfig = computeAbilityConfigForLevel(role, tank.abilityLevel);
+      const timing = activateRoleAbility(role, now, abilityConfig);
       tank.abilityCooldownEndsAt = timing.abilityCooldownEndsAt;
       tank.abilityCooldownMax = timing.abilityCooldownMax;
       tank.abilityActiveUntil = timing.abilityActiveUntil;
+    });
+    this.onMessage("upgrade_ability", (client) => {
+      const tank = this.state.tanks.get(client.sessionId);
+      if (!tank || this.state.phase !== "started" || tank.state === "dead") return;
+      purchaseAbilityUpgrade(tank);
     });
     this.onMessage("rename_lobby", (client, name: unknown) => {
       if (!canManageLobby(this.state.phase, client.sessionId, this.state.hostSessionId)) return;
@@ -227,7 +234,8 @@ export class GameRoom extends Room<GameState> {
   private computeFireCooldown(tank: Tank): number {
     if (tank.role !== "damagedealer") return tank.fireCooldownMax;
     const active = isAbilityActive(Date.now(), tank.abilityActiveUntil);
-    return effectiveFireCooldown(tank.fireCooldownMax, active, ROLE_ABILITY_CONFIG.damagedealer.magnitude);
+    const abilityConfig = computeAbilityConfigForLevel("damagedealer", tank.abilityLevel);
+    return effectiveFireCooldown(tank.fireCooldownMax, active, abilityConfig.magnitude);
   }
 
   /** Acquires the nearest enemy target -- including enemy bases -- (ignoring all friendly units) and fires when ready. */
@@ -298,20 +306,26 @@ export class GameRoom extends Room<GameState> {
   }
 
   private applyDamage(entity: Tank | Minion | Base | Tower, damage: number, attackerId = "") {
-    const effectiveDamage = entity instanceof Tank && entity.role === "tank"
-      ? applyShieldReduction(damage, isAbilityActive(Date.now(), entity.abilityActiveUntil), ROLE_ABILITY_CONFIG.tank.magnitude)
-      : damage;
+    let effectiveDamage = damage;
+    if (entity instanceof Tank && entity.role === "tank") {
+      const shieldMagnitude = computeAbilityConfigForLevel("tank", entity.abilityLevel).magnitude;
+      effectiveDamage = applyShieldReduction(damage, isAbilityActive(Date.now(), entity.abilityActiveUntil), shieldMagnitude);
+    }
     const hpBefore = entity.hp;
     entity.hp = computeDamagedHp(entity.hp, effectiveDamage);
     const attackerStats = this.state.playerStats.get(attackerId);
     const actualDamage = recordPlayerDamage(attackerStats, entity.team, hpBefore, entity.hp);
     if (!hasDied(entity.hp)) return;
     if (entity instanceof Tank) {
+      const victimPos = { x: entity.x, y: entity.y };
       if (actualDamage > 0) recordPlayerKill(attackerStats, entity.team);
       this.killTank(entity);
+      distributeKillXp(victimPos, true, this.state.tanks.values());
     } else if (entity instanceof Minion) {
+      const victimPos = { x: entity.x, y: entity.y };
       this.state.minions.delete(entity.id);
       this.minionPaths.delete(entity.id);
+      distributeKillXp(victimPos, false, this.state.tanks.values());
     } else if (entity instanceof Tower) {
       this.state.towers.delete(entity.id);
     } else if (entity instanceof Base) {
@@ -336,7 +350,8 @@ export class GameRoom extends Room<GameState> {
     tank.fireRange = stats.fireRange;
     tank.fireCooldownMax = stats.fireCooldownMax;
     tank.fireDamage = stats.fireDamage;
-    tank.abilityCooldownMax = resolveRoleAbilityConfig(tank.role).cooldownMs;
+    applyTankProgressionStats(tank);
+    tank.hp = tank.maxHp;
   }
 
   /** Heals every Healer with an active aura, and every allied tank within its radius, once per tick. */
@@ -344,7 +359,7 @@ export class GameRoom extends Room<GameState> {
     this.state.tanks.forEach((healer) => {
       if (healer.role !== "healer" || healer.state === "dead") return;
       if (!isAbilityActive(now, healer.abilityActiveUntil)) return;
-      const config = ROLE_ABILITY_CONFIG.healer;
+      const config = computeAbilityConfigForLevel("healer", healer.abilityLevel);
       this.state.tanks.forEach((ally) => {
         if (ally.state === "dead" || ally.team !== healer.team) return;
         if (!isWithinRange(healer, ally, config.radius ?? 0)) return;

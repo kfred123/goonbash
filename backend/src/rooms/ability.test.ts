@@ -10,9 +10,10 @@ import {
 } from "./ability.js";
 
 test("an ability is activatable once the cooldown timestamp has passed", () => {
-  assert.equal(canActivateAbility(1000, 1000), true);
-  assert.equal(canActivateAbility(999, 1000), false);
-  assert.equal(canActivateAbility(0, 0), true);
+  assert.equal(canActivateAbility(1000, 1000, 1), true);
+  assert.equal(canActivateAbility(999, 1000, 1), false);
+  assert.equal(canActivateAbility(0, 0, 1), true);
+  assert.equal(canActivateAbility(1000, 0, 0), false);
 });
 
 test("activating a role's ability sets cooldown and active-until timestamps from its config", () => {
