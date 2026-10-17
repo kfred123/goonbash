@@ -4,13 +4,22 @@ import {
   addExperience,
   computeProgressionStats,
   canUpgradeAbility,
-  computeAbilityConfigForLevel,
+  isAbilityId,
+  isRole,
+  ROLE_ABILITY_IDS,
   resolveRoleStats,
   KILL_XP_MINION,
   KILL_XP_PLAYER,
-  KILL_XP_RADIUS,
-  MAX_ABILITY_LEVEL
+  KILL_XP_RADIUS
 } from "shared";
+import type { AbilityId } from "shared";
+
+export interface AbilityProgress {
+  level: number;
+  cooldownEndsAt: number;
+  cooldownMax: number;
+  activeUntil: number;
+}
 
 export interface ProgressionTank extends Point {
   id: string;
@@ -19,11 +28,10 @@ export interface ProgressionTank extends Point {
   level: number;
   xp: number;
   skillPoints: number;
-  abilityLevel: number;
+  abilities: Map<string, AbilityProgress>;
   hp: number;
   maxHp: number;
   fireDamage: number;
-  abilityCooldownMax: number;
 }
 
 /**
@@ -56,8 +64,6 @@ export function applyTankProgressionStats(tank: ProgressionTank): void {
   if (tank.hp > tank.maxHp) {
     tank.hp = tank.maxHp;
   }
-  const abilityConfig = computeAbilityConfigForLevel(tank.role as any, tank.abilityLevel);
-  tank.abilityCooldownMax = abilityConfig.cooldownMs;
 }
 
 /**
@@ -88,12 +94,15 @@ export function distributeKillXp<T extends ProgressionTank>(
  * Attempts to learn or upgrade an ability for a tank.
  * Returns true if the purchase was valid and applied; false if rejected.
  */
-export function purchaseAbilityUpgrade(tank: ProgressionTank): boolean {
-  if (!canUpgradeAbility(tank.skillPoints, tank.abilityLevel, MAX_ABILITY_LEVEL)) {
+export function purchaseAbilityUpgrade(tank: ProgressionTank, requestedAbilityId: unknown): boolean {
+  if (!isRole(tank.role) || !isAbilityId(requestedAbilityId)) return false;
+  const abilityId: AbilityId = requestedAbilityId;
+  if (!ROLE_ABILITY_IDS[tank.role].includes(abilityId)) return false;
+  const ability = tank.abilities.get(abilityId);
+  if (!ability || !canUpgradeAbility(tank.skillPoints, ability.level)) {
     return false;
   }
   tank.skillPoints -= 1;
-  tank.abilityLevel += 1;
-  applyTankProgressionStats(tank);
+  ability.level += 1;
   return true;
 }

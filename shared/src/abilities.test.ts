@@ -1,11 +1,13 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+  ABILITY_DEFINITIONS,
+  ABILITY_IDS,
+  ROLE_ABILITY_IDS,
   canUpgradeAbility,
   computeAbilityConfigForLevel,
   MAX_ABILITY_LEVEL
 } from "./abilities.js";
-import { ROLE_ABILITY_CONFIG } from "./roles.js";
 
 test("canUpgradeAbility permits upgrade only when having at least 1 point and below max level", () => {
   assert.equal(canUpgradeAbility(1, 0), true); // can learn
@@ -17,38 +19,42 @@ test("canUpgradeAbility permits upgrade only when having at least 1 point and be
   assert.equal(canUpgradeAbility(2, 11), false); // exceeds max
 });
 
-test("computeAbilityConfigForLevel returns base config for level 0 or 1", () => {
-  const baseTank = ROLE_ABILITY_CONFIG.tank;
-  const unlearned = computeAbilityConfigForLevel("tank", 0);
-  assert.equal(unlearned.cooldownMs, baseTank.cooldownMs);
-  assert.equal(unlearned.magnitude, baseTank.magnitude);
-
-  const lvl1 = computeAbilityConfigForLevel("tank", 1);
-  assert.equal(lvl1.cooldownMs, baseTank.cooldownMs);
-  assert.equal(lvl1.magnitude, baseTank.magnitude);
+test("the ability catalog defines two unique abilities for each role", () => {
+  assert.equal(new Set(ABILITY_IDS).size, 6);
+  assert.deepEqual(ROLE_ABILITY_IDS.healer, ["healer-aura", "healer-speed"]);
+  assert.deepEqual(ROLE_ABILITY_IDS.tank, ["tank-shield", "tank-entrench"]);
+  assert.deepEqual(ROLE_ABILITY_IDS.damagedealer, ["damagedealer-rapidfire", "damagedealer-homing-rocket"]);
+  for (const abilityId of ABILITY_IDS) {
+    assert.equal(ABILITY_DEFINITIONS[abilityId].id, abilityId);
+  }
 });
 
-test("computeAbilityConfigForLevel scales magnitude and shortens cooldown across ranks", () => {
-  const baseDps = ROLE_ABILITY_CONFIG.damagedealer;
-  const lvl5 = computeAbilityConfigForLevel("damagedealer", 5);
-  assert.ok(lvl5.cooldownMs < baseDps.cooldownMs, "cooldown decreases");
-  assert.ok(lvl5.magnitude > baseDps.magnitude, "magnitude increases");
+test("ability level scales cooldown and ability-specific magnitudes", () => {
+  const speedLvl1 = computeAbilityConfigForLevel("healer-speed", 1);
+  const speedLvl10 = computeAbilityConfigForLevel("healer-speed", MAX_ABILITY_LEVEL);
+  assert.equal(speedLvl1.magnitude, 1.15);
+  assert.equal(speedLvl10.magnitude, 1.6);
+  assert.equal(speedLvl10.cooldownMs, Math.round(18000 * 0.73));
 
-  const lvl10 = computeAbilityConfigForLevel("damagedealer", 10);
-  assert.ok(lvl10.cooldownMs < lvl5.cooldownMs);
-  assert.ok(lvl10.magnitude > lvl5.magnitude);
-
-  // Beyond level 10 clamps to level 10
-  const lvl11 = computeAbilityConfigForLevel("damagedealer", 11);
-  assert.deepEqual(lvl11, lvl10);
+  const rocketLvl1 = computeAbilityConfigForLevel("damagedealer-homing-rocket", 1);
+  const rocketLvl10 = computeAbilityConfigForLevel("damagedealer-homing-rocket", MAX_ABILITY_LEVEL);
+  assert.equal(rocketLvl1.magnitude, 3);
+  assert.equal(rocketLvl10.magnitude, 5.25);
+  assert.equal(rocketLvl10.range, rocketLvl1.range);
+  assert.equal(rocketLvl10.projectileSpeed, 450);
 });
 
-test("computeAbilityConfigForLevel handles healer and tank scaling up to max level", () => {
-  const healerLvl10 = computeAbilityConfigForLevel("healer", MAX_ABILITY_LEVEL);
-  assert.ok(healerLvl10.magnitude > ROLE_ABILITY_CONFIG.healer.magnitude);
-  assert.equal(healerLvl10.radius, ROLE_ABILITY_CONFIG.healer.radius);
+test("tank damage reduction and cooldown scaling remain bounded at level 10", () => {
+  const shield = computeAbilityConfigForLevel("tank-shield", MAX_ABILITY_LEVEL);
+  const entrench = computeAbilityConfigForLevel("tank-entrench", MAX_ABILITY_LEVEL);
+  assert.equal(shield.magnitude, 0.68);
+  assert.equal(entrench.magnitude, 0.94);
+  assert.ok(entrench.cooldownMs >= 12000, "cooldown does not fall below half its base");
+});
 
-  const tankLvl10 = computeAbilityConfigForLevel("tank", MAX_ABILITY_LEVEL);
-  assert.ok(tankLvl10.magnitude > ROLE_ABILITY_CONFIG.tank.magnitude);
-  assert.ok(tankLvl10.magnitude <= 0.8, "shield reduction ratio capped safely");
+test("computeAbilityConfigForLevel clamps levels above maximum", () => {
+  assert.deepEqual(
+    computeAbilityConfigForLevel("damagedealer-rapidfire", 11),
+    computeAbilityConfigForLevel("damagedealer-rapidfire", 10)
+  );
 });

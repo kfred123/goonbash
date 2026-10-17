@@ -6,6 +6,7 @@ export { Projectile } from "./state/Projectile";
 export { Tower } from "./state/Tower";
 export { GameState } from "./state/GameState";
 export { MatchPlayerStats } from "./state/MatchPlayerStats";
+export { AbilityState } from "./state/AbilityState";
 export { LANE_EDGE_Y, LANE_TURN_X, buildLanePath, getLaneWaypoints, pointAlongPath } from "./lanes";
 export type { LanePoint } from "./lanes";
 export type { Role, RoleStats, RoleAbilityConfig, RoleVisual } from "./roles";
@@ -22,11 +23,16 @@ export {
 } from "./progression";
 export type { LevelProgress } from "./progression";
 export {
+  ABILITY_IDS,
+  ABILITY_DEFINITIONS,
+  ROLE_ABILITY_IDS,
+  isAbilityId,
+  getAbilityDefinition,
   MAX_ABILITY_LEVEL,
   canUpgradeAbility,
   computeAbilityConfigForLevel
 } from "./abilities";
-export type { AbilityDefinition } from "./abilities";
+export type { AbilityDefinition, AbilityConfig, AbilityId } from "./abilities";
 export type {
 	LobbyStatus,
 	LobbyTeam,

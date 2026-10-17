@@ -3,16 +3,19 @@ import { Client, Room } from 'colyseus.js';
 import {
   GameState,
   getLaneWaypoints,
+  getAbilityDefinition,
   getRequiredXpForNextLevel,
   LobbyInfo,
   MatchPlayerStats,
+  ROLE_ABILITY_IDS,
   MAX_ABILITY_LEVEL,
-  ROLE_ABILITY_CONFIG,
   ROLE_VISUALS,
   Role,
   RoleVisual
 } from 'shared';
+import type { AbilityId } from 'shared';
 import { formatPlayerNameTag } from './nameFormatter.js';
+import { getAbilityHudStatus, getRoleAbilityAtIndex, resolveArenaClick, shouldCancelRocketTargetSelection } from './abilityControls.js';
 import { getMatchResultsPage, MatchResultsSort, nextMatchResultsSort, sortMatchResults, SortableMatchStat } from './matchResults.js';
 
 const ROLE_ORDER: Role[] = ['healer', 'tank', 'damagedealer'];
@@ -47,34 +50,36 @@ export class GameScene extends Phaser.Scene {
   private abilityHud?: {
     bar: Phaser.GameObjects.Rectangle;
     barBorder: Phaser.GameObjects.Rectangle;
-    slotBg: Phaser.GameObjects.Rectangle;
-    icon: Phaser.GameObjects.Graphics;
-    cooldownOverlay: Phaser.GameObjects.Rectangle;
-    titleText: Phaser.GameObjects.Text;
-    statusText: Phaser.GameObjects.Text;
     levelText: Phaser.GameObjects.Text;
     xpBarBg: Phaser.GameObjects.Rectangle;
     xpBarFill: Phaser.GameObjects.Rectangle;
     xpText: Phaser.GameObjects.Text;
     skillPointsText: Phaser.GameObjects.Text;
-    upgradeButtonBg: Phaser.GameObjects.Rectangle;
-    upgradeButtonText: Phaser.GameObjects.Text;
-    abilityLevelText: Phaser.GameObjects.Text;
-    slotSize: number;
-    slotTop: number;
-    role: string;
-    abilityLearned: boolean | null;
+    slots: Array<{
+      abilityId: AbilityId;
+      slotBg: Phaser.GameObjects.Rectangle;
+      icon: Phaser.GameObjects.Graphics;
+      cooldownOverlay: Phaser.GameObjects.Rectangle;
+      titleText: Phaser.GameObjects.Text;
+      statusText: Phaser.GameObjects.Text;
+      abilityLevelText: Phaser.GameObjects.Text;
+      upgradeButtonBg: Phaser.GameObjects.Rectangle;
+      upgradeButtonText: Phaser.GameObjects.Text;
+      slotSize: number;
+      slotTop: number;
+      slotCenterX: number;
+      abilityLearned: boolean | null;
+    }>;
   };
   private myAbilityState: {
     role: string;
-    cooldownEndsAt: number;
-    cooldownMax: number;
-    activeUntil: number;
     level: number;
     xp: number;
     skillPoints: number;
-    abilityLevel: number;
+    abilities: Map<AbilityId, { level: number; cooldownEndsAt: number; cooldownMax: number; activeUntil: number }>;
   } | null = null;
+  private rocketTargetSelection = false;
+  private rocketTargetHint?: Phaser.GameObjects.Text;
   private healEffectIcons: Map<string, Phaser.GameObjects.Graphics> = new Map();
   private static readonly NAME_STORAGE_KEY = 'goonbash_player_name';
   private static readonly MAX_NAME_LENGTH = 20;
@@ -109,7 +114,11 @@ export class GameScene extends Phaser.Scene {
       backgroundColor: '#00000088', padding: { x: 6, y: 4 }
     }).setScrollFactor(0);
     this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => this.handlePointerClick(pointer));
-    this.input.keyboard?.on('keydown-SPACE', () => this.activateAbility());
+    this.input.keyboard?.on('keydown-SPACE', () => this.activateRoleAbility(0));
+    this.input.keyboard?.on('keydown-E', () => this.activateRoleAbility(1));
+    this.input.keyboard?.on('keydown-ESC', (event: KeyboardEvent) => {
+      if (shouldCancelRocketTargetSelection(-1, event.key)) this.cancelRocketTargetSelection();
+    });
     this.showMainMenu();
   }
 
@@ -669,15 +678,21 @@ export class GameScene extends Phaser.Scene {
     this.updateHealthBar(sessionId, x, y - 32, tank.hp, tank.maxHp, !isDead);
 
     if (sessionId === this.room.sessionId) {
+      const abilities = new Map<AbilityId, { level: number; cooldownEndsAt: number; cooldownMax: number; activeUntil: number }>();
+      tank.abilities?.forEach((ability: any, abilityId: AbilityId) => {
+        abilities.set(abilityId, {
+          level: ability.level ?? 0,
+          cooldownEndsAt: ability.cooldownEndsAt ?? 0,
+          cooldownMax: ability.cooldownMax ?? 0,
+          activeUntil: ability.activeUntil ?? 0
+        });
+      });
       this.myAbilityState = {
         role: tank.role,
-        cooldownEndsAt: tank.abilityCooldownEndsAt ?? 0,
-        cooldownMax: tank.abilityCooldownMax ?? 0,
-        activeUntil: tank.abilityActiveUntil ?? 0,
         level: tank.level ?? 1,
         xp: tank.xp ?? 0,
         skillPoints: tank.skillPoints ?? 0,
-        abilityLevel: tank.abilityLevel ?? 0
+        abilities
       };
     }
   }
@@ -882,6 +897,10 @@ export class GameScene extends Phaser.Scene {
   }
 
   private handlePointerClick(pointer: Phaser.Input.Pointer) {
+    if (this.rocketTargetSelection && shouldCancelRocketTargetSelection(pointer.button)) {
+      this.cancelRocketTargetSelection();
+      return;
+    }
     if (pointer.button !== 0 || !this.arenaStarted || !this.room || this.room.state.phase !== 'started') return;
     if (pointer.y >= 600 - GameScene.HUD_BAR_HEIGHT) return; // clicks on the HUD bar are not movement/attack commands
     const myTank = this.room.state.tanks.get(this.room.sessionId) as any;
@@ -889,14 +908,23 @@ export class GameScene extends Phaser.Scene {
     const worldX = pointer.worldX;
     const worldY = pointer.worldY;
     const hit = this.hitTestClick(worldX, worldY);
-    if (hit) {
-      if (hit.team === myTank.team) return; // friendly unit: no command, no marker
-      this.room.send('command', { targetId: hit.id });
-      this.showAttackMarker(hit.id, hit.x, hit.y, 0xff3333);
-      return;
+    const action = resolveArenaClick(
+      this.rocketTargetSelection,
+      { team: myTank.team, x: myTank.x, y: myTank.y },
+      hit,
+      { x: worldX, y: worldY },
+      getAbilityDefinition('damagedealer-homing-rocket').config.range ?? 0
+    );
+    if (action.type === 'rocket') {
+      this.room.send('activate_ability', { abilityId: 'damagedealer-homing-rocket', targetId: action.targetId });
+      this.cancelRocketTargetSelection();
+    } else if (action.type === 'attack') {
+      this.room.send('command', { targetId: action.targetId });
+      this.showAttackMarker(action.targetId, action.x, action.y, 0xff3333);
+    } else if (action.type === 'move') {
+      this.room.send('command', { x: action.x, y: action.y });
+      this.showClickMarker(action.x, action.y, 0x33ff55);
     }
-    this.room.send('command', { x: worldX, y: worldY });
-    this.showClickMarker(worldX, worldY, 0x33ff55);
   }
 
   update() {
@@ -925,12 +953,12 @@ export class GameScene extends Phaser.Scene {
   private applyRoleAbilityVisuals() {
     if (!this.arenaStarted || !this.room) return;
     const now = Date.now();
-    const healRadius = ROLE_ABILITY_CONFIG.healer.radius ?? 0;
+    const healRadius = getAbilityDefinition('healer-aura').config.radius ?? 0;
     const healedSessionIds = new Set<string>();
 
     this.room.state.tanks.forEach((healerTank: any, healerId: string) => {
       if (healerTank.role !== 'healer' || healerTank.state === 'dead') return;
-      if (now >= (healerTank.abilityActiveUntil ?? 0)) return;
+      if (now >= (healerTank.abilities?.get('healer-aura')?.activeUntil ?? 0)) return;
       this.room.state.tanks.forEach((allyTank: any, allyId: string) => {
         if (allyTank.team !== healerTank.team || allyTank.state === 'dead') return;
         const dx = (allyTank.x ?? 0) - (healerTank.x ?? 0);
@@ -942,8 +970,11 @@ export class GameScene extends Phaser.Scene {
     this.room.state.tanks.forEach((tank: any, sessionId: string) => {
       const sprite = this.tankSprites.get(sessionId);
       if (!sprite) return;
-      const shieldActive = tank.role === 'tank' && now < (tank.abilityActiveUntil ?? 0);
-      if (shieldActive) {
+      const defensiveAbilityActive = tank.role === 'tank' && (
+        now < (tank.abilities?.get('tank-shield')?.activeUntil ?? 0) ||
+        now < (tank.abilities?.get('tank-entrench')?.activeUntil ?? 0)
+      );
+      if (defensiveAbilityActive) {
         sprite.setStrokeStyle(7, 0x000000);
       } else {
         const isMe = sessionId === this.room.sessionId;
@@ -972,39 +1003,37 @@ export class GameScene extends Phaser.Scene {
     });
   }
 
-  /** Sends the request to spend one skill point to learn or upgrade the player's role ability. */
-  private upgradeAbility() {
+  /** Sends the request to spend one skill point on a specific role ability. */
+  private upgradeAbility(abilityId: AbilityId) {
     if (!this.arenaStarted || !this.room || this.room.state.phase !== 'started') return;
     const myTank = this.room.state.tanks.get(this.room.sessionId) as any;
     if (!myTank || myTank.state === 'dead') return;
     if ((myTank.skillPoints ?? 0) < 1) return;
-    if ((myTank.abilityLevel ?? 0) >= MAX_ABILITY_LEVEL) return;
-    this.room.send('upgrade_ability');
+    const ability = myTank.abilities?.get(abilityId);
+    if (!ability || ability.level >= MAX_ABILITY_LEVEL) return;
+    this.room.send('upgrade_ability', { abilityId });
   }
 
-  /** Creates a full-width bottom HUD bar, clearly separated from the arena, with progression stats and role ability controls. */
+  /** Creates the progression panel and two independent role-ability controls. */
   private createAbilityHud() {
     const gameWidth = 800;
     const gameHeight = 600;
     const barHeight = GameScene.HUD_BAR_HEIGHT;
     const barTop = gameHeight - barHeight;
     const barCenterY = barTop + barHeight / 2;
-    const slotSize = 56;
-    const slotTop = barCenterY - slotSize / 2;
-
     const bar = this.add.rectangle(gameWidth / 2, barCenterY, gameWidth, barHeight, 0x0b0d10, 0.95).setDepth(2000).setScrollFactor(0);
     const barBorder = this.add.rectangle(gameWidth / 2, barTop, gameWidth, 3, 0x3a4a63, 1).setOrigin(0.5, 0).setDepth(2001).setScrollFactor(0);
 
     // Left section: Level, XP Progress Bar, and Unspent Skill Points
-    const levelText = this.add.text(30, barTop + 14, 'LVL 1', {
+    const levelText = this.add.text(20, barTop + 12, 'LVL 1', {
       color: '#ffdd55',
       fontSize: '18px',
       fontStyle: 'bold'
     }).setOrigin(0, 0).setDepth(2001).setScrollFactor(0);
 
-    const xpBarX = 30;
+    const xpBarX = 20;
     const xpBarY = barTop + 42;
-    const xpBarWidth = 180;
+    const xpBarWidth = 150;
     const xpBarHeight = 14;
 
     const xpBarBg = this.add.rectangle(xpBarX, xpBarY, xpBarWidth, xpBarHeight, 0x1a2230, 0.9)
@@ -1018,93 +1047,89 @@ export class GameScene extends Phaser.Scene {
       .setDepth(2002)
       .setScrollFactor(0);
 
-    const xpText = this.add.text(xpBarX + xpBarWidth + 10, xpBarY - 1, '0 / 100 XP', {
+    const xpText = this.add.text(xpBarX + xpBarWidth + 6, xpBarY - 1, '0 / 100 XP', {
       color: '#cfe8ff',
       fontSize: '12px',
       fontStyle: 'bold'
     }).setOrigin(0, 0).setDepth(2001).setScrollFactor(0);
 
-    const skillPointsText = this.add.text(30, barTop + 64, 'Skill Points: 0', {
+    const skillPointsText = this.add.text(20, barTop + 64, 'Skill Points: 0', {
       color: '#88ffaa',
       fontSize: '13px',
       fontStyle: 'bold'
     }).setOrigin(0, 0).setDepth(2001).setScrollFactor(0);
 
-    // Center section: Ability Slot (Activation)
-    const slotBg = this.add.rectangle(gameWidth / 2, barCenterY, slotSize, slotSize, 0x1c2430, 0.9)
-      .setStrokeStyle(3, 0xffffff)
-      .setDepth(2001)
-      .setScrollFactor(0)
-      .setInteractive({ useHandCursor: true });
-    const icon = this.add.graphics().setDepth(2002).setScrollFactor(0);
-    const cooldownOverlay = this.add.rectangle(gameWidth / 2, slotTop, slotSize, 0, 0x000000, 0.65).setOrigin(0.5, 0).setDepth(2002).setScrollFactor(0);
-    const titleText = this.add.text(gameWidth / 2, barTop + 6, '', { color: '#ffffff', fontSize: '11px', fontStyle: 'bold' }).setOrigin(0.5, 0).setDepth(2001).setScrollFactor(0);
-    const statusText = this.add.text(gameWidth / 2, gameHeight - 6, '', { color: '#cfe8ff', fontSize: '11px' }).setOrigin(0.5, 1).setDepth(2001).setScrollFactor(0);
-    slotBg.on('pointerdown', () => this.activateAbility());
-
-    // Right / next to ability slot: Ability Level & Separate Upgrade / Learn button
-    const abilityLevelText = this.add.text(gameWidth / 2 + 55, barCenterY - 14, 'Locked', {
-      color: '#aaaaaa',
-      fontSize: '12px',
-      fontStyle: 'bold'
-    }).setOrigin(0, 0.5).setDepth(2001).setScrollFactor(0);
-
-    const upgradeButtonBg = this.add.rectangle(gameWidth / 2 + 105, barCenterY + 12, 100, 26, 0x225533, 0.9)
-      .setStrokeStyle(1, 0x44bb66)
-      .setDepth(2001)
-      .setScrollFactor(0)
-      .setInteractive({ useHandCursor: true });
-
-    const upgradeButtonText = this.add.text(gameWidth / 2 + 105, barCenterY + 12, '+ Upgrade', {
-      color: '#ffffff',
-      fontSize: '12px',
-      fontStyle: 'bold'
-    }).setOrigin(0.5, 0.5).setDepth(2002).setScrollFactor(0);
-
-    upgradeButtonBg.on('pointerdown', () => this.upgradeAbility());
+    const createSlot = (index: number, abilityId: AbilityId) => {
+      const slotCenterX = index === 0 ? 390 : 620;
+      const slotSize = 42;
+      const slotTop = barCenterY - slotSize / 2;
+      const slotBg = this.add.rectangle(slotCenterX - 72, barCenterY, slotSize, slotSize, 0x1c2430, 0.9)
+        .setStrokeStyle(2, 0xffffff).setDepth(2001).setScrollFactor(0).setInteractive({ useHandCursor: true });
+      const icon = this.add.graphics().setDepth(2002).setScrollFactor(0);
+      const cooldownOverlay = this.add.rectangle(slotCenterX - 72, slotTop, slotSize, 0, 0x000000, 0.65)
+        .setOrigin(0.5, 0).setDepth(2003).setScrollFactor(0);
+      const titleText = this.add.text(slotCenterX, barTop + 4, '', {
+        color: '#ffffff', fontSize: '11px', fontStyle: 'bold'
+      }).setOrigin(0.5, 0).setDepth(2001).setScrollFactor(0);
+      const abilityLevelText = this.add.text(slotCenterX, barTop + 22, 'Locked', {
+        color: '#aaaaaa', fontSize: '11px', fontStyle: 'bold'
+      }).setOrigin(0.5, 0).setDepth(2001).setScrollFactor(0);
+      const statusText = this.add.text(slotCenterX, barTop + 40, '', {
+        color: '#cfe8ff', fontSize: '10px'
+      }).setOrigin(0.5, 0).setDepth(2001).setScrollFactor(0);
+      const upgradeButtonBg = this.add.rectangle(slotCenterX + 35, barTop + 71, 104, 22, 0x225533, 0.9)
+        .setStrokeStyle(1, 0x44bb66).setDepth(2001).setScrollFactor(0).setInteractive({ useHandCursor: true });
+      const upgradeButtonText = this.add.text(slotCenterX + 35, barTop + 71, 'Learn (1 SP)', {
+        color: '#ffffff', fontSize: '11px', fontStyle: 'bold'
+      }).setOrigin(0.5).setDepth(2002).setScrollFactor(0);
+      const slot = {
+        abilityId, slotBg, icon, cooldownOverlay, titleText, statusText, abilityLevelText,
+        upgradeButtonBg, upgradeButtonText, slotSize, slotTop, slotCenterX, abilityLearned: null as boolean | null
+      };
+      slotBg.on('pointerdown', () => this.activateAbility(slot.abilityId));
+      upgradeButtonBg.on('pointerdown', () => this.upgradeAbility(slot.abilityId));
+      return slot;
+    };
 
     this.abilityHud = {
       bar,
       barBorder,
-      slotBg,
-      icon,
-      cooldownOverlay,
-      titleText,
-      statusText,
       levelText,
       xpBarBg,
       xpBarFill,
       xpText,
       skillPointsText,
-      upgradeButtonBg,
-      upgradeButtonText,
-      abilityLevelText,
-      slotSize,
-      slotTop,
-      role: '',
-      abilityLearned: null
+      slots: [createSlot(0, 'healer-aura'), createSlot(1, 'healer-speed')]
     };
+    this.rocketTargetHint = this.add.text(gameWidth / 2, 26, 'Select a rocket target (Esc/right-click to cancel)', {
+      color: '#ffffff', fontSize: '14px', fontStyle: 'bold', backgroundColor: '#7a251dcc', padding: { x: 8, y: 5 }
+    }).setOrigin(0.5).setDepth(2001).setScrollFactor(0).setVisible(false);
   }
 
   private destroyAbilityHud() {
     this.healEffectIcons.forEach((icon) => icon.destroy());
     this.healEffectIcons.clear();
+    this.rocketTargetSelection = false;
+    this.rocketTargetHint?.destroy();
+    this.rocketTargetHint = undefined;
     if (!this.abilityHud) return;
     this.abilityHud.bar.destroy();
     this.abilityHud.barBorder.destroy();
-    this.abilityHud.slotBg.destroy();
-    this.abilityHud.icon.destroy();
-    this.abilityHud.cooldownOverlay.destroy();
-    this.abilityHud.titleText.destroy();
-    this.abilityHud.statusText.destroy();
     this.abilityHud.levelText.destroy();
     this.abilityHud.xpBarBg.destroy();
     this.abilityHud.xpBarFill.destroy();
     this.abilityHud.xpText.destroy();
     this.abilityHud.skillPointsText.destroy();
-    this.abilityHud.upgradeButtonBg.destroy();
-    this.abilityHud.upgradeButtonText.destroy();
-    this.abilityHud.abilityLevelText.destroy();
+    this.abilityHud.slots.forEach((slot) => {
+      slot.slotBg.destroy();
+      slot.icon.destroy();
+      slot.cooldownOverlay.destroy();
+      slot.titleText.destroy();
+      slot.statusText.destroy();
+      slot.abilityLevelText.destroy();
+      slot.upgradeButtonBg.destroy();
+      slot.upgradeButtonText.destroy();
+    });
     this.abilityHud = undefined;
     this.myAbilityState = null;
   }
@@ -1155,103 +1180,134 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  /** Dispatches to the role-specific icon glyph so each ability button is recognizable at a glance. */
-  private drawRoleIcon(g: Phaser.GameObjects.Graphics, role: string, cx: number, cy: number, size: number) {
+  /** Draws a glyph for the selected ability. */
+  private drawAbilityIcon(g: Phaser.GameObjects.Graphics, abilityId: AbilityId, cx: number, cy: number, size: number) {
     g.clear();
-    if (role === 'healer') this.drawWrenchIcon(g, cx, cy, size);
-    else if (role === 'tank') this.drawShieldIcon(g, cx, cy, size);
-    else if (role === 'damagedealer') this.drawRapidFireIcon(g, cx, cy, size);
+    if (abilityId === 'healer-aura') this.drawWrenchIcon(g, cx, cy, size);
+    else if (abilityId === 'healer-speed') {
+      g.fillStyle(0xffffff, 1);
+      g.beginPath();
+      g.moveTo(cx + 2, cy - size * 0.45);
+      g.lineTo(cx - size * 0.35, cy + 1);
+      g.lineTo(cx - 1, cy + 1);
+      g.lineTo(cx - 5, cy + size * 0.45);
+      g.lineTo(cx + size * 0.35, cy - 4);
+      g.lineTo(cx + 3, cy - 4);
+      g.closePath();
+      g.fillPath();
+    } else if (abilityId === 'tank-shield' || abilityId === 'tank-entrench') {
+      this.drawShieldIcon(g, cx, cy, size);
+      if (abilityId === 'tank-entrench') {
+        g.lineStyle(3, 0xffffff, 1);
+        g.lineBetween(cx - size * 0.25, cy + size * 0.25, cx + size * 0.25, cy + size * 0.25);
+      }
+    } else if (abilityId === 'damagedealer-rapidfire') this.drawRapidFireIcon(g, cx, cy, size);
+    else {
+      g.fillStyle(0xffffff, 1);
+      g.beginPath();
+      g.moveTo(cx + size * 0.45, cy);
+      g.lineTo(cx - size * 0.35, cy - size * 0.25);
+      g.lineTo(cx - size * 0.2, cy);
+      g.lineTo(cx - size * 0.35, cy + size * 0.25);
+      g.closePath();
+      g.fillPath();
+      g.lineStyle(3, 0xffffff, 1);
+      g.lineBetween(cx - size * 0.15, cy, cx - size * 0.48, cy);
+    }
   }
 
-  /** Sends the ability-activation request for the local player's role, unless it is clearly still on cooldown. */
-  private activateAbility() {
+  private activateRoleAbility(index: number) {
+    const state = this.myAbilityState;
+    if (!state) return;
+    const abilityId = getRoleAbilityAtIndex(state.role, index);
+    if (abilityId) this.activateAbility(abilityId);
+  }
+
+  /** Starts a target-selection mode for rockets; directly requests other learned abilities. */
+  private activateAbility(abilityId: AbilityId) {
     if (!this.arenaStarted || !this.room || this.room.state.phase !== 'started') return;
     const myTank = this.room.state.tanks.get(this.room.sessionId) as any;
     if (!myTank || myTank.state === 'dead') return;
-    if ((myTank.abilityLevel ?? 0) <= 0) return;
-    if (Date.now() < (myTank.abilityCooldownEndsAt ?? 0)) return;
-    this.room.send('activate_ability');
+    const ability = myTank.abilities?.get(abilityId);
+    if (!ability || ability.level <= 0 || Date.now() < ability.cooldownEndsAt) return;
+    if (abilityId === 'damagedealer-homing-rocket') {
+      this.rocketTargetSelection = !this.rocketTargetSelection;
+      this.rocketTargetHint?.setVisible(this.rocketTargetSelection);
+      return;
+    }
+    this.room.send('activate_ability', { abilityId });
   }
 
-  /** Redraws the ability HUD's icon, cooldown overlay, status text, and progression indicators every frame from the last-synced ability state. */
+  private cancelRocketTargetSelection() {
+    this.rocketTargetSelection = false;
+    this.rocketTargetHint?.setVisible(false);
+  }
+
+  /** Redraws each role ability's independent level, cooldown, and activation state. */
   private refreshAbilityHud() {
     if (!this.abilityHud || !this.myAbilityState) return;
-    const { role, cooldownEndsAt, cooldownMax, activeUntil, level, xp, skillPoints, abilityLevel } = this.myAbilityState;
-    const visual = this.resolveRoleVisual(role);
-    const gameWidth = 800;
-    const slotCenterY = this.abilityHud.slotTop + this.abilityHud.slotSize / 2;
-    if (this.abilityHud.role !== role) {
-      this.abilityHud.slotBg.setStrokeStyle(3, visual.color);
-      this.drawRoleIcon(this.abilityHud.icon, role, gameWidth / 2, slotCenterY, this.abilityHud.slotSize);
-      this.abilityHud.titleText.setText(`${visual.abilityLabel.toUpperCase()} (SPACE)`);
-      this.abilityHud.role = role;
-    }
+    const { role, level, xp, skillPoints, abilities } = this.myAbilityState;
+    const roleAbilityIds = ROLE_ABILITY_IDS[role as Role];
+    if (!roleAbilityIds) return;
+    this.abilityHud.slots.forEach((slot, index) => {
+      const abilityId = roleAbilityIds[index];
+      if (abilityId) slot.abilityId = abilityId;
+    });
     const now = Date.now();
-    const remainingMs = Math.max(0, cooldownEndsAt - now);
-    const fraction = cooldownMax > 0 ? Math.min(1, remainingMs / cooldownMax) : 0;
-    this.abilityHud.cooldownOverlay.setSize(this.abilityHud.slotSize, this.abilityHud.slotSize * fraction);
-    const active = now < activeUntil;
-    const abilityLearned = abilityLevel > 0;
-    this.abilityHud.statusText.setText(
-      !abilityLearned ? 'LOCKED' : active ? 'ACTIVE' : fraction > 0 ? `${Math.ceil(remainingMs / 1000)}s` : 'READY'
-    );
-    if (this.abilityHud.abilityLearned !== abilityLearned) {
-      if (abilityLearned) {
-        this.abilityHud.slotBg.setInteractive({ useHandCursor: true });
-        this.abilityHud.slotBg.setAlpha(1);
-        this.abilityHud.icon.setAlpha(1);
-      } else {
-        this.abilityHud.slotBg.disableInteractive();
-        this.abilityHud.slotBg.setAlpha(0.55);
-        this.abilityHud.icon.setAlpha(0.45);
-      }
-      this.abilityHud.abilityLearned = abilityLearned;
-    }
-
-    // Update level display
     this.abilityHud.levelText.setText(`LVL ${level}`);
-
-    // Update XP progress bar and text (current / required)
     const requiredXp = getRequiredXpForNextLevel(level);
     const xpFraction = requiredXp > 0 ? Math.min(1, Math.max(0, xp / requiredXp)) : 0;
-    const xpBarMaxWidth = 180;
+    const xpBarMaxWidth = 150;
     this.abilityHud.xpBarFill.setSize(xpBarMaxWidth * xpFraction, 14);
     this.abilityHud.xpText.setText(`${xp} / ${requiredXp} XP`);
-
-    // Update unspent skill points display
     this.abilityHud.skillPointsText.setText(`Skill Points: ${skillPoints}`);
 
-    // Update ability level label
-    if (abilityLevel <= 0) {
-      this.abilityHud.abilityLevelText.setText('Locked');
-      this.abilityHud.abilityLevelText.setColor('#aaaaaa');
-    } else if (abilityLevel >= MAX_ABILITY_LEVEL) {
-      this.abilityHud.abilityLevelText.setText(`Lv. ${abilityLevel} (MAX)`);
-      this.abilityHud.abilityLevelText.setColor('#ffdd55');
-    } else {
-      this.abilityHud.abilityLevelText.setText(`Lv. ${abilityLevel} / ${MAX_ABILITY_LEVEL}`);
-      this.abilityHud.abilityLevelText.setColor('#ffffff');
-    }
+    this.abilityHud.slots.forEach((slot, index) => {
+      const abilityId = slot.abilityId;
+      const definition = getAbilityDefinition(abilityId);
+      const ability = abilities.get(abilityId) ?? { level: 0, cooldownEndsAt: 0, cooldownMax: 0, activeUntil: 0 };
+      const keyLabel = index === 0 ? 'SPACE' : 'E';
+      slot.titleText.setText(`${definition.name.toUpperCase()} (${keyLabel})`);
+      slot.slotBg.setStrokeStyle(2, this.resolveRoleVisual(role).color);
+      this.drawAbilityIcon(slot.icon, abilityId, slot.slotBg.x, slot.slotBg.y, slot.slotSize);
 
-    // Update upgrade/learn button state
-    const canUpgrade = skillPoints > 0 && abilityLevel < MAX_ABILITY_LEVEL;
-    const buttonLabel = abilityLevel <= 0 ? 'Learn (1 SP)' : '+ Upgrade';
-    this.abilityHud.upgradeButtonText.setText(abilityLevel >= MAX_ABILITY_LEVEL ? 'Maxed' : buttonLabel);
-
-    if (canUpgrade) {
-      this.abilityHud.upgradeButtonBg.setFillStyle(0x227744, 1);
-      this.abilityHud.upgradeButtonBg.setStrokeStyle(1, 0x44ee77);
-      if (this.abilityHud.upgradeButtonBg.input) {
-        this.abilityHud.upgradeButtonBg.input.cursor = 'pointer';
+      const abilityStatus = getAbilityHudStatus(ability, now);
+      const remainingMs = abilityStatus.remainingMs;
+      slot.cooldownOverlay.setSize(slot.slotSize, slot.slotSize * abilityStatus.cooldownFraction);
+      const learned = ability.level > 0;
+      slot.statusText.setText(
+        abilityStatus.state === 'locked' ? 'LOCKED' :
+          abilityStatus.state === 'active' ? 'ACTIVE' :
+            abilityStatus.state === 'cooldown' ? `${Math.ceil(remainingMs / 1000)}s` : 'READY'
+      );
+      if (slot.abilityLearned !== learned) {
+        if (learned) {
+          slot.slotBg.setInteractive({ useHandCursor: true }).setAlpha(1);
+          slot.icon.setAlpha(1);
+        } else {
+          slot.slotBg.disableInteractive().setAlpha(0.55);
+          slot.icon.setAlpha(0.45);
+        }
+        slot.abilityLearned = learned;
       }
-      this.abilityHud.upgradeButtonText.setColor('#ffffff');
-    } else {
-      this.abilityHud.upgradeButtonBg.setFillStyle(0x22262a, 0.8);
-      this.abilityHud.upgradeButtonBg.setStrokeStyle(1, 0x444d58);
-      if (this.abilityHud.upgradeButtonBg.input) {
-        this.abilityHud.upgradeButtonBg.input.cursor = 'default';
+      if (ability.level <= 0) {
+        slot.abilityLevelText.setText('Locked').setColor('#aaaaaa');
+      } else if (ability.level >= MAX_ABILITY_LEVEL) {
+        slot.abilityLevelText.setText(`Lv. ${ability.level} (MAX)`).setColor('#ffdd55');
+      } else {
+        slot.abilityLevelText.setText(`Lv. ${ability.level} / ${MAX_ABILITY_LEVEL}`).setColor('#ffffff');
       }
-      this.abilityHud.upgradeButtonText.setColor('#778899');
-    }
+      const canUpgrade = skillPoints > 0 && ability.level < MAX_ABILITY_LEVEL;
+      slot.upgradeButtonText.setText(ability.level >= MAX_ABILITY_LEVEL ? 'Maxed' : ability.level <= 0 ? 'Learn (1 SP)' : '+ Upgrade');
+      if (canUpgrade) {
+        slot.upgradeButtonBg.setFillStyle(0x227744, 1).setStrokeStyle(1, 0x44ee77);
+        if (slot.upgradeButtonBg.input) slot.upgradeButtonBg.input.cursor = 'pointer';
+        slot.upgradeButtonText.setColor('#ffffff');
+      } else {
+        slot.upgradeButtonBg.setFillStyle(0x22262a, 0.8).setStrokeStyle(1, 0x444d58);
+        if (slot.upgradeButtonBg.input) slot.upgradeButtonBg.input.cursor = 'default';
+        slot.upgradeButtonText.setColor('#778899');
+      }
+    });
   }
 }

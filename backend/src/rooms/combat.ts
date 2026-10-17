@@ -10,6 +10,44 @@ export interface Point {
   y: number;
 }
 
+/** Advances a projectile toward its target using the target's current position. */
+export function stepProjectileTowardTarget(
+  projectile: Point,
+  target: Point,
+  speed: number,
+  elapsedSeconds: number
+): Point {
+  const dx = target.x - projectile.x;
+  const dy = target.y - projectile.y;
+  const distance = Math.hypot(dx, dy);
+  if (distance === 0) return { ...projectile };
+  const step = Math.min(distance, speed * elapsedSeconds);
+  return {
+    x: projectile.x + (dx / distance) * step,
+    y: projectile.y + (dy / distance) * step
+  };
+}
+
+export type HomingProjectileStep =
+  | { status: "target-lost" }
+  | { status: "flying" | "impact"; position: Point };
+
+/** Advances a homing projectile toward its designated target, or reports target loss. */
+export function stepHomingProjectile(
+  projectile: Point,
+  target: Point | undefined,
+  speed: number,
+  elapsedSeconds: number,
+  hitRadius: number
+): HomingProjectileStep {
+  if (!target) return { status: "target-lost" };
+  const position = stepProjectileTowardTarget(projectile, target, speed, elapsedSeconds);
+  return {
+    status: hasProjectileReachedTarget(position.x, position.y, target.x, target.y, hitRadius) ? "impact" : "flying",
+    position
+  };
+}
+
 export interface ShootingUnit extends CombatCandidate {
   targetId: string;
   fireRange: number;

@@ -1,10 +1,10 @@
 import { Room, Client } from "colyseus";
-import { Base, computeAbilityConfigForLevel, GameState, getLaneWaypoints, MatchPlayerStats, Minion, Projectile, Tank, Tower } from "shared";
+import { Base, computeAbilityConfigForLevel, GameState, getLaneWaypoints, isAbilityId, MatchPlayerStats, Minion, Projectile, Tank, Tower } from "shared";
 import { isRole, resolveRoleStats } from "shared";
 import { lobbyRegistry } from "../index.js";
 import { canChangeRole, canChangeTeam, canJoinRoom, canManageLobby, canUseGameplayActions, normalizeLobbyName, normalizePlayerName, resolveHostAfterLeave, selectBalancedTeam } from "./lobbyControls.js";
-import { clampToBounds, findNearestEnemyInRange, getLivingTowers, hasDied, hasProjectileReachedTarget, isReadyToRespawn, isWithinRange, stepToward, applyDamage as computeDamagedHp, nearBasePosition, respawnTank, tickShooter } from "./combat.js";
-import { activateRoleAbility, applyShieldReduction, canActivateAbility, effectiveFireCooldown, healOverTick, isAbilityActive } from "./ability.js";
+import { clampToBounds, findNearestEnemyInRange, getLivingTowers, hasDied, hasProjectileReachedTarget, isReadyToRespawn, isWithinRange, stepHomingProjectile, stepProjectileTowardTarget, stepToward, applyDamage as computeDamagedHp, nearBasePosition, respawnTank, tickShooter } from "./combat.js";
+import { activateAbility, applyDamageReduction, canActivateRoleAbility, effectiveFireCooldown, effectiveMoveSpeed, healOverTick, homingRocketDamage, isAbilityActive, isMovementLocked, isValidRocketTarget, strongestReduction } from "./ability.js";
 import { getLaneTowerPlacements } from "./towerPlacement.js";
 import { applyTankProgressionStats, distributeKillXp, purchaseAbilityUpgrade } from "./progressionService.js";
 import { endMatchAfterBaseDestroyed, recordPlayerDamage, recordPlayerKill, removeLeavingPlayerTank } from "./matchResults.js";
@@ -42,6 +42,7 @@ export class GameRoom extends Room<GameState> {
     this.onMessage("command", (client, command: { x?: unknown; y?: unknown; targetId?: unknown }) => {
       const tank = this.state.tanks.get(client.sessionId);
       if (!tank || !canUseGameplayActions(this.state.phase) || tank.state === "dead") return;
+      if (this.isEntrenched(tank, Date.now())) return;
       const targetId = typeof command?.targetId === "string" ? command.targetId : "";
       if (targetId) {
         const target = this.findLivingEntity(targetId);
@@ -75,22 +76,34 @@ export class GameRoom extends Room<GameState> {
       const tank = this.state.tanks.get(client.sessionId);
       if (tank) tank.role = role;
     });
-    this.onMessage("activate_ability", (client) => {
+    this.onMessage("activate_ability", (client, payload: { abilityId?: unknown; targetId?: unknown }) => {
       const tank = this.state.tanks.get(client.sessionId);
       if (!tank || !canUseGameplayActions(this.state.phase) || tank.state === "dead") return;
+      if (!isAbilityId(payload?.abilityId) || !isRole(tank.role)) return;
+      const abilityId = payload.abilityId;
+      const ability = tank.abilities.get(abilityId);
       const now = Date.now();
-      if (!canActivateAbility(now, tank.abilityCooldownEndsAt, tank.abilityLevel)) return;
-      const role = isRole(tank.role) ? tank.role : "tank";
-      const abilityConfig = computeAbilityConfigForLevel(role, tank.abilityLevel);
-      const timing = activateRoleAbility(role, now, abilityConfig);
-      tank.abilityCooldownEndsAt = timing.abilityCooldownEndsAt;
-      tank.abilityCooldownMax = timing.abilityCooldownMax;
-      tank.abilityActiveUntil = timing.abilityActiveUntil;
+      if (!ability || !canActivateRoleAbility(now, tank.role, abilityId, ability)) return;
+      const abilityConfig = computeAbilityConfigForLevel(abilityId, ability.level);
+      if (abilityId === "damagedealer-homing-rocket") {
+        if (typeof payload.targetId !== "string") return;
+        const target = this.findLivingEntity(payload.targetId);
+        if (!target || !isValidRocketTarget(tank, target, abilityConfig.range ?? 0)) return;
+        this.spawnHomingRocket(tank, target, homingRocketDamage(tank.fireDamage, ability.level), abilityConfig.projectileSpeed ?? 450);
+      }
+      const timing = activateAbility(now, abilityConfig);
+      ability.cooldownEndsAt = timing.cooldownEndsAt;
+      ability.cooldownMax = timing.cooldownMax;
+      ability.activeUntil = timing.activeUntil;
+      if (abilityId === "tank-entrench") {
+        tank.hasMoveTarget = false;
+        tank.lockedTargetId = "";
+      }
     });
-    this.onMessage("upgrade_ability", (client) => {
+    this.onMessage("upgrade_ability", (client, payload: { abilityId?: unknown }) => {
       const tank = this.state.tanks.get(client.sessionId);
       if (!tank || this.state.phase !== "started" || tank.state === "dead") return;
-      purchaseAbilityUpgrade(tank);
+      purchaseAbilityUpgrade(tank, payload?.abilityId);
     });
     this.onMessage("rename_lobby", (client, name: unknown) => {
       if (!canManageLobby(this.state.phase, client.sessionId, this.state.hostSessionId)) return;
@@ -158,7 +171,14 @@ export class GameRoom extends Room<GameState> {
   private updateTankMovement(elapsedSeconds: number) {
     this.state.tanks.forEach((tank) => {
       if (tank.state === "dead") return;
-      const speed = tank.moveSpeed * elapsedSeconds;
+      const now = Date.now();
+      if (this.isEntrenched(tank, now)) return;
+      const speedAbility = tank.abilities.get("healer-speed");
+      const speedActive = tank.role === "healer" && isAbilityActive(now, speedAbility);
+      const speedMultiplier = speedAbility
+        ? computeAbilityConfigForLevel("healer-speed", speedAbility.level).magnitude
+        : 1;
+      const speed = effectiveMoveSpeed(tank.moveSpeed, speedActive, speedMultiplier) * elapsedSeconds;
       if (tank.lockedTargetId) {
         const target = this.findLivingEntity(tank.lockedTargetId);
         if (!target || isWithinRange(tank, target, tank.fireRange)) return;
@@ -233,8 +253,9 @@ export class GameRoom extends Room<GameState> {
   /** Computes a tank's next fire cooldown, applying the Damagedealer's rapid-fire multiplier while active. */
   private computeFireCooldown(tank: Tank): number {
     if (tank.role !== "damagedealer") return tank.fireCooldownMax;
-    const active = isAbilityActive(Date.now(), tank.abilityActiveUntil);
-    const abilityConfig = computeAbilityConfigForLevel("damagedealer", tank.abilityLevel);
+    const rapidFire = tank.abilities.get("damagedealer-rapidfire");
+    const active = isAbilityActive(Date.now(), rapidFire);
+    const abilityConfig = computeAbilityConfigForLevel("damagedealer-rapidfire", rapidFire?.level ?? 0);
     return effectiveFireCooldown(tank.fireCooldownMax, active, abilityConfig.magnitude);
   }
 
@@ -256,6 +277,21 @@ export class GameRoom extends Room<GameState> {
     this.projectileLifetimes.set(projectile.id, 0);
   }
 
+  private spawnHomingRocket(shooter: Tank, target: { id: string }, damage: number, speed: number) {
+    const projectile = new Projectile();
+    projectile.id = `rocket-${Date.now()}-${Math.random()}`;
+    projectile.team = shooter.team;
+    projectile.ownerId = shooter.id;
+    projectile.targetId = target.id;
+    projectile.x = shooter.x;
+    projectile.y = shooter.y;
+    projectile.damage = damage;
+    projectile.speed = speed;
+    projectile.isHomingRocket = true;
+    this.state.projectiles.set(projectile.id, projectile);
+    this.projectileLifetimes.set(projectile.id, 0);
+  }
+
   /** Moves every in-flight projectile toward its target, applies damage on impact, and cleans up. */
   private updateProjectiles(deltaTime: number) {
     const elapsedSeconds = deltaTime / 1000;
@@ -264,16 +300,32 @@ export class GameRoom extends Room<GameState> {
     for (const projectile of [...this.state.projectiles.values()]) {
       if (!canUseGameplayActions(this.state.phase)) break;
       const target = this.findLivingEntity(projectile.targetId);
+      if (projectile.isHomingRocket) {
+        if (!target) {
+          toRemove.push(projectile.id);
+          continue;
+        }
+        const step = stepHomingProjectile(projectile, target, projectile.speed, elapsedSeconds, PROJECTILE_HIT_RADIUS);
+        if (step.status === "target-lost") {
+          toRemove.push(projectile.id);
+          continue;
+        }
+        projectile.x = step.position.x;
+        projectile.y = step.position.y;
+        if (step.status === "impact") {
+          this.applyDamage(target, projectile.damage, projectile.ownerId);
+          toRemove.push(projectile.id);
+        }
+        continue;
+      }
       if (!target) {
         toRemove.push(projectile.id);
         continue;
       }
 
-      const dx = target.x - projectile.x;
-      const dy = target.y - projectile.y;
-      const distance = Math.hypot(dx, dy) || 1;
-      projectile.x += (dx / distance) * projectile.speed * elapsedSeconds;
-      projectile.y += (dy / distance) * projectile.speed * elapsedSeconds;
+      const nextPosition = stepProjectileTowardTarget(projectile, target, projectile.speed, elapsedSeconds);
+      projectile.x = nextPosition.x;
+      projectile.y = nextPosition.y;
 
       if (hasProjectileReachedTarget(projectile.x, projectile.y, target.x, target.y, PROJECTILE_HIT_RADIUS)) {
         this.applyDamage(target, projectile.damage, projectile.ownerId);
@@ -281,9 +333,11 @@ export class GameRoom extends Room<GameState> {
         continue;
       }
 
-      const lifetime = (this.projectileLifetimes.get(projectile.id) ?? 0) + deltaTime;
-      this.projectileLifetimes.set(projectile.id, lifetime);
-      if (lifetime >= PROJECTILE_MAX_LIFETIME_MS) toRemove.push(projectile.id);
+      if (!projectile.isHomingRocket) {
+        const lifetime = (this.projectileLifetimes.get(projectile.id) ?? 0) + deltaTime;
+        this.projectileLifetimes.set(projectile.id, lifetime);
+        if (lifetime >= PROJECTILE_MAX_LIFETIME_MS) toRemove.push(projectile.id);
+      }
     }
 
     for (const id of toRemove) {
@@ -308,8 +362,16 @@ export class GameRoom extends Room<GameState> {
   private applyDamage(entity: Tank | Minion | Base | Tower, damage: number, attackerId = "") {
     let effectiveDamage = damage;
     if (entity instanceof Tank && entity.role === "tank") {
-      const shieldMagnitude = computeAbilityConfigForLevel("tank", entity.abilityLevel).magnitude;
-      effectiveDamage = applyShieldReduction(damage, isAbilityActive(Date.now(), entity.abilityActiveUntil), shieldMagnitude);
+      const now = Date.now();
+      const shield = entity.abilities.get("tank-shield");
+      const entrench = entity.abilities.get("tank-entrench");
+      const shieldReduction = isAbilityActive(now, shield)
+        ? computeAbilityConfigForLevel("tank-shield", shield?.level ?? 0).magnitude
+        : 0;
+      const entrenchReduction = isAbilityActive(now, entrench)
+        ? computeAbilityConfigForLevel("tank-entrench", entrench?.level ?? 0).magnitude
+        : 0;
+      effectiveDamage = applyDamageReduction(damage, strongestReduction(shieldReduction, entrenchReduction));
     }
     const hpBefore = entity.hp;
     entity.hp = computeDamagedHp(entity.hp, effectiveDamage);
@@ -338,6 +400,7 @@ export class GameRoom extends Room<GameState> {
     tank.targetId = "";
     tank.lockedTargetId = "";
     tank.hasMoveTarget = false;
+    tank.abilities.forEach((ability) => { ability.activeUntil = 0; });
     tank.respawnAt = Date.now() + RESPAWN_DELAY_MS;
   }
 
@@ -358,14 +421,19 @@ export class GameRoom extends Room<GameState> {
   private resolveHealerAuras(elapsedSeconds: number, now: number) {
     this.state.tanks.forEach((healer) => {
       if (healer.role !== "healer" || healer.state === "dead") return;
-      if (!isAbilityActive(now, healer.abilityActiveUntil)) return;
-      const config = computeAbilityConfigForLevel("healer", healer.abilityLevel);
+      const aura = healer.abilities.get("healer-aura");
+      if (!isAbilityActive(now, aura)) return;
+      const config = computeAbilityConfigForLevel("healer-aura", aura?.level ?? 0);
       this.state.tanks.forEach((ally) => {
         if (ally.state === "dead" || ally.team !== healer.team) return;
         if (!isWithinRange(healer, ally, config.radius ?? 0)) return;
         ally.hp = healOverTick(ally.hp, ally.maxHp, config.magnitude, elapsedSeconds);
       });
     });
+  }
+
+  private isEntrenched(tank: Tank, now: number): boolean {
+    return isMovementLocked(tank.role, isAbilityActive(now, tank.abilities.get("tank-entrench")));
   }
 
   /** Restores a dead tank to full HP at its team's base once its respawn delay has elapsed. */
