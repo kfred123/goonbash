@@ -33,9 +33,12 @@ export class GameScene extends Phaser.Scene {
   private healthBars: Map<string, { bg: Phaser.GameObjects.Rectangle; fill: Phaser.GameObjects.Rectangle; width: number }> = new Map();
   private attackMarkers: Array<{ graphics: Phaser.GameObjects.Graphics; targetId: string }> = [];
   private statusText!: Phaser.GameObjects.Text;
-  private menuElements: Phaser.GameObjects.GameObject[] = [];
+  private menuElements: Array<Phaser.GameObjects.GameObject & Phaser.GameObjects.Components.Transform> = [];
+  private menuBackground?: Phaser.GameObjects.Rectangle;
   private arenaBackgroundObjects: Phaser.GameObjects.GameObject[] = [];
   private arenaTitle?: Phaser.GameObjects.Text;
+  private viewportWidth = 800;
+  private viewportHeight = 600;
   private nameInputEl: HTMLInputElement | null = null;
   private playerName = '';
   private leavingRoom = false;
@@ -108,6 +111,9 @@ export class GameScene extends Phaser.Scene {
   }
 
   create() {
+    this.viewportWidth = this.scale.width;
+    this.viewportHeight = this.scale.height;
+    this.scale.on(Phaser.Scale.Events.RESIZE, this.handleResize, this);
     this.cameras.main.setBounds(0, 0, GameScene.WORLD_WIDTH, GameScene.WORLD_HEIGHT);
     this.statusText = this.add.text(10, 10, 'Lobby menu', {
       color: '#aaaaff', fontSize: '14px',
@@ -178,8 +184,9 @@ export class GameScene extends Phaser.Scene {
     input.placeholder = 'Your name';
     Object.assign(input.style, {
       position: 'absolute',
-      left: '300px',
-      top: '244px',
+      left: '50%',
+      top: 'calc(50% - 40px)',
+      transform: 'translateX(-50%)',
       width: '200px',
       height: '32px',
       fontSize: '16px',
@@ -341,7 +348,7 @@ export class GameScene extends Phaser.Scene {
     this.clearArenaPresentation();
     this.destroyMenuElements();
     this.createTilemap();
-    this.arenaTitle = this.add.text(400, 20, lobbyName, { color: '#ffffff', fontSize: '24px', fontStyle: 'bold' }).setOrigin(0.5).setScrollFactor(0).setDepth(1500);
+    this.arenaTitle = this.add.text(this.viewportX(400), 20, lobbyName, { color: '#ffffff', fontSize: '24px', fontStyle: 'bold' }).setOrigin(0.5).setScrollFactor(0).setDepth(1500);
     this.createAbilityHud();
   }
 
@@ -453,10 +460,11 @@ export class GameScene extends Phaser.Scene {
     this.destroyAbilityHud();
     this.destroyMenuElements();
 
-    const background = this.add.rectangle(0, 0, 800, 600, 0x0a0d13, 0.97)
+    const background = this.add.rectangle(0, 0, this.scale.width, this.scale.height, 0x0a0d13, 0.97)
       .setOrigin(0)
       .setScrollFactor(0)
       .setDepth(3000);
+    this.menuBackground = background;
     this.menuElements.push(background);
 
     const localStats = state.playerStats.get(this.room.sessionId);
@@ -496,7 +504,7 @@ export class GameScene extends Phaser.Scene {
     columns.forEach(({ stat, label, offsetX }) => {
       const active = sort.stat === stat;
       const direction = sort.direction === 'desc' ? ' DESC' : ' ASC';
-      const heading = this.add.text(centerX + offsetX, 198, `${label}${active ? direction : ''}`, {
+      const heading = this.add.text(this.viewportX(centerX + offsetX), this.viewportY(198), `${label}${active ? direction : ''}`, {
         color: active ? '#ffffff' : '#9ba9bb',
         fontSize: '11px',
         fontStyle: 'bold'
@@ -585,7 +593,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private addMenuText(x: number, y: number, text: string, fontSize: number, color: string, bold = false) {
-    const element = this.add.text(x, y, text, {
+    const element = this.add.text(this.viewportX(x), this.viewportY(y), text, {
       color, fontSize: `${fontSize}px`, fontStyle: bold ? 'bold' : 'normal'
     }).setOrigin(0.5).setDepth(3001);
     this.menuElements.push(element);
@@ -593,6 +601,8 @@ export class GameScene extends Phaser.Scene {
   }
 
   private addButton(x: number, y: number, width: number, height: number, label: string, action: () => void) {
+    x = this.viewportX(x);
+    y = this.viewportY(y);
     const button = this.add.rectangle(x, y, width, height, 0x245c52).setDepth(3001).setInteractive({ useHandCursor: true });
     const text = this.add.text(x, y, label, { color: '#ffffff', fontSize: '15px', fontStyle: 'bold' }).setOrigin(0.5).setDepth(3002);
     button.on('pointerover', () => button.setFillStyle(0x347d6c));
@@ -604,6 +614,8 @@ export class GameScene extends Phaser.Scene {
 
   /** Renders a selectable role card (shape preview + label) for the lobby role picker; colored with the player's team color, never a per-role color. */
   private addRoleCard(x: number, y: number, role: Role, selected: boolean, teamColor: number, action: () => void) {
+    x = this.viewportX(x);
+    y = this.viewportY(y);
     const visual = ROLE_VISUALS[role];
     const width = 130;
     const height = 60;
@@ -637,7 +649,59 @@ export class GameScene extends Phaser.Scene {
   private destroyMenuElements() {
     this.menuElements.forEach((element) => element.destroy());
     this.menuElements = [];
+    this.menuBackground = undefined;
     this.removeNameInput();
+  }
+
+  private viewportX(designX: number) {
+    return designX + (this.scale.width - 800) / 2;
+  }
+
+  private viewportY(designY: number) {
+    return designY + (this.scale.height - 600) / 2;
+  }
+
+  private handleResize() {
+    const deltaX = (this.scale.width - this.viewportWidth) / 2;
+    const deltaY = (this.scale.height - this.viewportHeight) / 2;
+    this.menuElements.forEach((element) => {
+      if (element === this.menuBackground) {
+        this.menuBackground?.setSize(this.scale.width, this.scale.height);
+      } else {
+        element.setPosition(element.x + deltaX, element.y + deltaY);
+      }
+    });
+    this.arenaTitle?.setX(this.arenaTitle.x + deltaX);
+    this.resizeAbilityHud(deltaX, deltaY);
+    this.viewportWidth = this.scale.width;
+    this.viewportHeight = this.scale.height;
+  }
+
+  private resizeAbilityHud(deltaX: number, deltaY: number) {
+    if (!this.abilityHud) return;
+    const width = this.scale.width;
+    const height = this.scale.height;
+    const barTop = height - GameScene.HUD_BAR_HEIGHT;
+    this.abilityHud.bar.setPosition(width / 2, barTop + GameScene.HUD_BAR_HEIGHT / 2).setSize(width, GameScene.HUD_BAR_HEIGHT);
+    this.abilityHud.barBorder.setPosition(width / 2, barTop).setSize(width, 3);
+    this.abilityHud.levelText.y += deltaY;
+    this.abilityHud.xpBarBg.y += deltaY;
+    this.abilityHud.xpBarFill.y += deltaY;
+    this.abilityHud.xpText.y += deltaY;
+    this.abilityHud.skillPointsText.y += deltaY;
+    this.abilityHud.slots.forEach((slot) => {
+      slot.slotCenterX += deltaX;
+      slot.slotTop += deltaY;
+      slot.slotBg.setPosition(slot.slotBg.x + deltaX, slot.slotBg.y + deltaY);
+      slot.icon.setPosition(slot.icon.x + deltaX, slot.icon.y + deltaY);
+      slot.cooldownOverlay.setPosition(slot.cooldownOverlay.x + deltaX, slot.cooldownOverlay.y + deltaY);
+      slot.titleText.setPosition(slot.titleText.x + deltaX, slot.titleText.y + deltaY);
+      slot.statusText.setPosition(slot.statusText.x + deltaX, slot.statusText.y + deltaY);
+      slot.abilityLevelText.setPosition(slot.abilityLevelText.x + deltaX, slot.abilityLevelText.y + deltaY);
+      slot.upgradeButtonBg.setPosition(slot.upgradeButtonBg.x + deltaX, slot.upgradeButtonBg.y + deltaY);
+      slot.upgradeButtonText.setPosition(slot.upgradeButtonText.x + deltaX, slot.upgradeButtonText.y + deltaY);
+    });
+    this.rocketTargetHint?.setX(width / 2);
   }
 
   private upsertTank(tank: any, sessionId: string) {
@@ -906,7 +970,7 @@ export class GameScene extends Phaser.Scene {
       return;
     }
     if (pointer.button !== 0 || !this.arenaStarted || !this.room || this.room.state.phase !== 'started') return;
-    if (pointer.y >= 600 - GameScene.HUD_BAR_HEIGHT) return; // clicks on the HUD bar are not movement/attack commands
+    if (pointer.y >= this.scale.height - GameScene.HUD_BAR_HEIGHT) return; // clicks on the HUD bar are not movement/attack commands
     const myTank = this.room.state.tanks.get(this.room.sessionId) as any;
     if (!myTank || myTank.state === 'dead') return;
     const worldX = pointer.worldX;
@@ -1020,8 +1084,8 @@ export class GameScene extends Phaser.Scene {
 
   /** Creates the progression panel and two independent role-ability controls. */
   private createAbilityHud() {
-    const gameWidth = 800;
-    const gameHeight = 600;
+    const gameWidth = this.scale.width;
+    const gameHeight = this.scale.height;
     const barHeight = GameScene.HUD_BAR_HEIGHT;
     const barTop = gameHeight - barHeight;
     const barCenterY = barTop + barHeight / 2;
@@ -1064,7 +1128,7 @@ export class GameScene extends Phaser.Scene {
     }).setOrigin(0, 0).setDepth(2001).setScrollFactor(0);
 
     const createSlot = (index: number, abilityId: AbilityId) => {
-      const slotCenterX = index === 0 ? 390 : 620;
+      const slotCenterX = this.viewportX(index === 0 ? 390 : 620);
       const slotSize = 42;
       const slotTop = barCenterY - slotSize / 2;
       const slotBg = this.add.rectangle(slotCenterX - 72, barCenterY, slotSize, slotSize, 0x1c2430, 0.9)
