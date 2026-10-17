@@ -5,10 +5,10 @@ Define the multiplayer lobby menu and waiting-lobby experience.
 ## Requirements
 
 ### Requirement: Display lobby menu
-The client SHALL show a main multiplayer menu before connecting to a game room, including a list of available lobbies and a visible action to create a game.
+The client SHALL show the multiplayer lobby menu after the player confirms their display name on the main menu and before connecting to a game room, including a list of available lobbies and a visible action to create a game.
 
 #### Scenario: Player opens the multiplayer client
-- **WHEN** the client finishes loading
+- **WHEN** the player continues from the main menu with a valid display name
 - **THEN** it displays the lobby menu instead of joining a game room automatically
 - **AND** the menu shows the available lobby list and a `Create Game` action
 
@@ -49,16 +49,17 @@ The client SHALL allow a player to select an available lobby and join it.
 - **AND** it can refresh the lobby list
 
 ### Requirement: Wait for players in a lobby
-The client SHALL show a waiting state after creating or joining a lobby until the host starts the game. The waiting state SHALL show every participant's red or blue team and controls for the local player to select either team. It SHALL show the lobby name and, only to the host, controls to rename the game and start it.
+The client SHALL show a waiting state after creating or joining a lobby until the host starts the game. The waiting state SHALL show every participant's player name, red or blue team, and selected role (Healer, Tank, or Damagedealer), with controls for the local player to select their own team and role. It SHALL show the lobby name and, only to the host, controls to rename the game and start it.
 
 #### Scenario: Additional player joins
 - **WHEN** another player joins the waiting lobby
 - **THEN** the player count and team roster update for all clients in that lobby
+- **AND** the new participant's name and selected role are shown next to their team
 
 #### Scenario: Player changes team
 - **WHEN** the local player selects the other team in the waiting state
 - **THEN** the client sends the team-change request
-- **AND** displays the synchronized team roster returned by the server
+- **AND** displays the synchronized team roster, including each participant's name and selected role, returned by the server
 
 #### Scenario: Host manages the waiting lobby
 - **WHEN** the local player is the lobby host
@@ -70,6 +71,15 @@ The client SHALL show a waiting state after creating or joining a lobby until th
 - **THEN** the client removes the waiting-lobby controls
 - **AND** displays the gameplay state
 
+#### Scenario: Player changes role
+- **WHEN** the local player selects a role (Healer, Tank, or Damagedealer) in the waiting state
+- **THEN** the client sends the role-change request
+- **AND** displays the synchronized role roster returned by the server
+
+#### Scenario: Roster shows each participant's role
+- **WHEN** the waiting lobby roster is displayed
+- **THEN** each participant's currently selected role is shown alongside their name and team
+
 ### Requirement: Handle lobby service errors
 The client SHALL display a clear status when the lobby backend cannot be reached or returns an error.
 
@@ -77,3 +87,17 @@ The client SHALL display a clear status when the lobby backend cannot be reached
 - **WHEN** loading, creating, or joining a lobby fails due to a network or server error
 - **THEN** the client displays the failure in the lobby UI
 - **AND** the player can retry or return to the lobby list
+
+### Requirement: Return to the main menu from the lobby menu
+The client SHALL provide a `Back to Main Menu` action from both the available-lobbies screen and the waiting-lobby screen that disconnects the player from any active room and returns to the main menu.
+
+#### Scenario: Player backs out from the available-lobbies screen
+- **WHEN** the player activates `Back to Main Menu` while viewing the available-lobbies screen
+- **THEN** the client navigates to the main menu
+- **AND** no room connection is left open
+
+#### Scenario: Player backs out from the waiting lobby
+- **WHEN** the player activates `Back to Main Menu` while in the waiting-lobby screen
+- **THEN** the client disconnects from the lobby's room
+- **AND** it navigates to the main menu
+- **AND** the lobby's player count is decremented as a result of the disconnect
