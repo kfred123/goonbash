@@ -4,15 +4,18 @@ import { Minion } from "./Minion";
 import { Base } from "./Base";
 import { Projectile } from "./Projectile";
 import { Tower } from "./Tower";
-import type { MatchPhase } from "../lobby";
+import { MatchPlayerStats } from "./MatchPlayerStats";
+import type { LobbyTeam, MatchPhase } from "../lobby";
 
 export class GameState extends Schema {
   @type("string") phase: MatchPhase = "waiting";
   @type("string") lobbyName: string = "New Game";
   @type("string") hostSessionId: string = "";
+  @type("string") winnerTeam: LobbyTeam | "" = "";
   @type({ map: Tank }) tanks = new MapSchema<Tank>();
   @type({ map: Minion }) minions = new MapSchema<Minion>();
   @type({ map: Base }) bases = new MapSchema<Base>();
   @type({ map: Tower }) towers = new MapSchema<Tower>();
   @type({ map: Projectile }) projectiles = new MapSchema<Projectile>();
+  @type({ map: MatchPlayerStats }) playerStats = new MapSchema<MatchPlayerStats>();
 }

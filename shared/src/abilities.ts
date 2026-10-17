@@ -25,8 +25,8 @@ export function canUpgradeAbility(
 /**
  * Computes scaled ability configuration based on ability level (1 to 10).
  * Level 1 uses base configuration.
- * Each additional level slightly reduces cooldown (by 3%, capped at 50% min)
- * and slightly boosts magnitude (by 5%).
+ * Each additional level slightly reduces cooldown (by 3%, capped at 50% minimum)
+ * and scales magnitude according to role-specific rules.
  * Unlearned abilities (level <= 0) return the base config.
  */
 export function computeAbilityConfigForLevel(

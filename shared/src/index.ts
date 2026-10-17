@@ -5,6 +5,7 @@ export { Base } from "./state/Base";
 export { Projectile } from "./state/Projectile";
 export { Tower } from "./state/Tower";
 export { GameState } from "./state/GameState";
+export { MatchPlayerStats } from "./state/MatchPlayerStats";
 export { LANE_EDGE_Y, LANE_TURN_X, buildLanePath, getLaneWaypoints, pointAlongPath } from "./lanes";
 export type { LanePoint } from "./lanes";
 export type { Role, RoleStats, RoleAbilityConfig, RoleVisual } from "./roles";

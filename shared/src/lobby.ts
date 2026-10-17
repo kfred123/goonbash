@@ -1,6 +1,6 @@
 export type LobbyStatus = "waiting" | "full";
 export type LobbyTeam = "red" | "blue";
-export type MatchPhase = "waiting" | "started";
+export type MatchPhase = "waiting" | "started" | "ended";
 
 export interface LobbyInfo {
   id: string;

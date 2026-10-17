@@ -1,12 +1,13 @@
 import { Room, Client } from "colyseus";
-import { Base, GameState, getLaneWaypoints, Minion, Projectile, Tank, Tower } from "shared";
-import { computeAbilityConfigForLevel, isRole, resolveRoleAbilityConfig, resolveRoleStats, ROLE_ABILITY_CONFIG } from "shared";
+import { Base, computeAbilityConfigForLevel, GameState, getLaneWaypoints, MatchPlayerStats, Minion, Projectile, Tank, Tower } from "shared";
+import { isRole, resolveRoleStats } from "shared";
 import { lobbyRegistry } from "../index.js";
-import { canChangeRole, canChangeTeam, canManageLobby, normalizeLobbyName, normalizePlayerName, resolveHostAfterLeave, selectBalancedTeam } from "./lobbyControls.js";
+import { canChangeRole, canChangeTeam, canJoinRoom, canManageLobby, canUseGameplayActions, normalizeLobbyName, normalizePlayerName, resolveHostAfterLeave, selectBalancedTeam } from "./lobbyControls.js";
 import { clampToBounds, findNearestEnemyInRange, getLivingTowers, hasDied, hasProjectileReachedTarget, isReadyToRespawn, isWithinRange, stepToward, applyDamage as computeDamagedHp, nearBasePosition, respawnTank, tickShooter } from "./combat.js";
 import { activateRoleAbility, applyShieldReduction, canActivateAbility, effectiveFireCooldown, healOverTick, isAbilityActive } from "./ability.js";
 import { getLaneTowerPlacements } from "./towerPlacement.js";
 import { applyTankProgressionStats, distributeKillXp, purchaseAbilityUpgrade } from "./progressionService.js";
+import { endMatchAfterBaseDestroyed, recordPlayerDamage, recordPlayerKill, removeLeavingPlayerTank } from "./matchResults.js";
 
 const RESPAWN_DELAY_MS = 3000;
 const PROJECTILE_HIT_RADIUS = 12;
@@ -40,7 +41,7 @@ export class GameRoom extends Room<GameState> {
     this.createBase("red", 2160, 900);
     this.onMessage("command", (client, command: { x?: unknown; y?: unknown; targetId?: unknown }) => {
       const tank = this.state.tanks.get(client.sessionId);
-      if (!tank || this.state.phase !== "started" || tank.state === "dead") return;
+      if (!tank || !canUseGameplayActions(this.state.phase) || tank.state === "dead") return;
       const targetId = typeof command?.targetId === "string" ? command.targetId : "";
       if (targetId) {
         const target = this.findLivingEntity(targetId);
@@ -63,7 +64,11 @@ export class GameRoom extends Room<GameState> {
     this.onMessage("change_team", (client, team: unknown) => {
       if (!canChangeTeam(this.state.phase, team)) return;
       const tank = this.state.tanks.get(client.sessionId);
-      if (tank) tank.team = team;
+      if (tank) {
+        tank.team = team;
+        const stats = this.state.playerStats.get(client.sessionId);
+        if (stats) stats.team = team;
+      }
     });
     this.onMessage("select_role", (client, role: unknown) => {
       if (!canChangeRole(this.state.phase, role)) return;
@@ -72,9 +77,9 @@ export class GameRoom extends Room<GameState> {
     });
     this.onMessage("activate_ability", (client) => {
       const tank = this.state.tanks.get(client.sessionId);
-      if (!tank || this.state.phase !== "started" || tank.state === "dead") return;
+      if (!tank || !canUseGameplayActions(this.state.phase) || tank.state === "dead") return;
       const now = Date.now();
-      if (!canActivateAbility(now, tank.abilityCooldownEndsAt)) return;
+      if (!canActivateAbility(now, tank.abilityCooldownEndsAt, tank.abilityLevel)) return;
       const role = isRole(tank.role) ? tank.role : "tank";
       const abilityConfig = computeAbilityConfigForLevel(role, tank.abilityLevel);
       const timing = activateRoleAbility(role, now, abilityConfig);
@@ -107,13 +112,14 @@ export class GameRoom extends Room<GameState> {
   }
 
   update(deltaTime: number) {
-    if (this.state.phase !== "started") return;
+    if (!canUseGameplayActions(this.state.phase)) return;
     const elapsedSeconds = deltaTime / 1000;
     const now = Date.now();
 
     // Resolve targeting/firing before movement so units that are engaged
     // with an enemy this tick hold their ground instead of marching through it.
     this.resolveCombat(deltaTime);
+    if (!canUseGameplayActions(this.state.phase)) return;
     this.resolveRespawns(now);
     this.updateTankMovement(elapsedSeconds);
     this.resolveHealerAuras(elapsedSeconds, now);
@@ -255,11 +261,12 @@ export class GameRoom extends Room<GameState> {
     const elapsedSeconds = deltaTime / 1000;
     const toRemove: string[] = [];
 
-    this.state.projectiles.forEach((projectile) => {
+    for (const projectile of [...this.state.projectiles.values()]) {
+      if (!canUseGameplayActions(this.state.phase)) break;
       const target = this.findLivingEntity(projectile.targetId);
       if (!target) {
         toRemove.push(projectile.id);
-        return;
+        continue;
       }
 
       const dx = target.x - projectile.x;
@@ -269,15 +276,15 @@ export class GameRoom extends Room<GameState> {
       projectile.y += (dy / distance) * projectile.speed * elapsedSeconds;
 
       if (hasProjectileReachedTarget(projectile.x, projectile.y, target.x, target.y, PROJECTILE_HIT_RADIUS)) {
-        this.applyDamage(target, projectile.damage);
+        this.applyDamage(target, projectile.damage, projectile.ownerId);
         toRemove.push(projectile.id);
-        return;
+        continue;
       }
 
       const lifetime = (this.projectileLifetimes.get(projectile.id) ?? 0) + deltaTime;
       this.projectileLifetimes.set(projectile.id, lifetime);
       if (lifetime >= PROJECTILE_MAX_LIFETIME_MS) toRemove.push(projectile.id);
-    });
+    }
 
     for (const id of toRemove) {
       this.state.projectiles.delete(id);
@@ -298,16 +305,20 @@ export class GameRoom extends Room<GameState> {
     return undefined;
   }
 
-  private applyDamage(entity: Tank | Minion | Base | Tower, damage: number) {
+  private applyDamage(entity: Tank | Minion | Base | Tower, damage: number, attackerId = "") {
     let effectiveDamage = damage;
     if (entity instanceof Tank && entity.role === "tank") {
       const shieldMagnitude = computeAbilityConfigForLevel("tank", entity.abilityLevel).magnitude;
       effectiveDamage = applyShieldReduction(damage, isAbilityActive(Date.now(), entity.abilityActiveUntil), shieldMagnitude);
     }
+    const hpBefore = entity.hp;
     entity.hp = computeDamagedHp(entity.hp, effectiveDamage);
+    const attackerStats = this.state.playerStats.get(attackerId);
+    const actualDamage = recordPlayerDamage(attackerStats, entity.team, hpBefore, entity.hp);
     if (!hasDied(entity.hp)) return;
     if (entity instanceof Tank) {
       const victimPos = { x: entity.x, y: entity.y };
+      if (actualDamage > 0) recordPlayerKill(attackerStats, entity.team);
       this.killTank(entity);
       distributeKillXp(victimPos, true, this.state.tanks.values());
     } else if (entity instanceof Minion) {
@@ -317,6 +328,8 @@ export class GameRoom extends Room<GameState> {
       distributeKillXp(victimPos, false, this.state.tanks.values());
     } else if (entity instanceof Tower) {
       this.state.towers.delete(entity.id);
+    } else if (entity instanceof Base) {
+      if (endMatchAfterBaseDestroyed(this.state, entity.team)) this.projectileLifetimes.clear();
     }
   }
 
@@ -418,13 +431,15 @@ export class GameRoom extends Room<GameState> {
   }
 
   onJoin (client: Client, options: any) {
+    if (!canJoinRoom(this.state.phase)) throw new Error("Match has ended");
     console.log(client.sessionId, "joined!");
     lobbyRegistry.join(options.lobbyId);
     if (!this.state.hostSessionId) this.state.hostSessionId = client.sessionId;
     const tank = new Tank();
     tank.id = client.sessionId;
     tank.name = normalizePlayerName(options?.playerName);
-    tank.team = this.nextTeam();
+    const team = this.nextTeam();
+    tank.team = team;
     const ownBase = this.state.bases.get(`${tank.team}-base`);
     const spawnPoint = ownBase
       ? nearBasePosition(ownBase.x, ownBase.y, WORLD_BOUNDS)
@@ -433,11 +448,15 @@ export class GameRoom extends Room<GameState> {
     tank.y = spawnPoint.y;
     this.applyRoleStats(tank);
     this.state.tanks.set(client.sessionId, tank);
+    const playerStats = new MatchPlayerStats();
+    playerStats.name = tank.name;
+    playerStats.team = team;
+    this.state.playerStats.set(client.sessionId, playerStats);
   }
 
   onLeave (client: Client, consented: boolean) {
     console.log(client.sessionId, "left!");
-    this.state.tanks.delete(client.sessionId);
+    removeLeavingPlayerTank(this.state, client.sessionId);
     this.state.hostSessionId = resolveHostAfterLeave(
       client.sessionId,
       this.state.hostSessionId,

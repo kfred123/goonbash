@@ -7,9 +7,9 @@ export interface AbilityTiming {
   abilityActiveUntil: number;
 }
 
-/** Whether a role's special ability can be activated right now, given when its cooldown ends. */
-export function canActivateAbility(now: number, abilityCooldownEndsAt: number): boolean {
-  return now >= abilityCooldownEndsAt;
+/** Whether a learned role ability can be activated right now, given when its cooldown ends. */
+export function canActivateAbility(now: number, abilityCooldownEndsAt: number, abilityLevel: number): boolean {
+  return abilityLevel > 0 && now >= abilityCooldownEndsAt;
 }
 
 /** Computes the cooldown/active-until timestamps produced by activating a role's ability right now. */

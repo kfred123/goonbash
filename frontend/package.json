@@ -12,7 +12,7 @@
     "test": "tsx --test src/**/*.test.ts"
   },
   "devDependencies": {
-    "tsx": "^4.7.1",
+    "tsx": "^4.23.15",
     "typescript": "~5.4.5",
     "vite": "^5.4.0"
   },
