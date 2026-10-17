@@ -30,4 +30,3 @@ The Homing Rocket SHALL have a long cooldown period before it can be fired again
 #### Scenario: Attempting to fire during cooldown
 - **WHEN** the Damagedealer attempts to fire the ultimate while it is on cooldown
 - **THEN** the rocket is not fired and the player is notified of the remaining cooldown time
-
