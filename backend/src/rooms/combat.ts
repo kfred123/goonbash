@@ -1,3 +1,5 @@
+import { Base, getBaseCannonAimAngle, getBaseCannonMuzzlePosition, Projectile } from "shared";
+
 export interface CombatCandidate {
   id: string;
   x: number;
@@ -58,6 +60,23 @@ export interface ShootingUnit extends CombatCandidate {
 
 export interface ShootableTarget {
   id: string;
+}
+
+export function createShotProjectile(shooter: ShootingUnit, target: CombatCandidate, id: string): Projectile {
+  const projectile = new Projectile();
+  projectile.id = id;
+  projectile.team = shooter.team;
+  projectile.ownerId = shooter.id;
+  projectile.targetId = target.id;
+  const origin = shooter instanceof Base ? getBaseCannonMuzzlePosition(shooter, target) : shooter;
+  projectile.x = origin.x;
+  projectile.y = origin.y;
+  projectile.damage = shooter.fireDamage;
+  if (shooter instanceof Base) {
+    shooter.shotAngle = getBaseCannonAimAngle(shooter, target);
+    shooter.shotCount += 1;
+  }
+  return projectile;
 }
 
 /** Keeps destroyed towers out of targeting without removing them from the caller's collection. */

@@ -3,7 +3,7 @@ import { Base, computeAbilityConfigForLevel, GameState, getLaneWaypoints, isAbil
 import { isRole, resolveRoleStats } from "shared";
 import { lobbyRegistry } from "../index.js";
 import { canChangeRole, canChangeTeam, canJoinRoom, canManageLobby, canUseGameplayActions, normalizeLobbyName, normalizePlayerName, resolveHostAfterLeave, selectBalancedTeam } from "./lobbyControls.js";
-import { clampToBounds, findNearestEnemyInRange, getLivingTowers, hasDied, hasProjectileReachedTarget, isReadyToRespawn, isWithinRange, stepHomingProjectile, stepProjectileTowardTarget, stepToward, applyDamage as computeDamagedHp, nearBasePosition, respawnTank, tickShooter } from "./combat.js";
+import { clampToBounds, createShotProjectile, findNearestEnemyInRange, getLivingTowers, hasDied, hasProjectileReachedTarget, isReadyToRespawn, isWithinRange, stepHomingProjectile, stepProjectileTowardTarget, stepToward, applyDamage as computeDamagedHp, nearBasePosition, respawnTank, tickShooter } from "./combat.js";
 import { activateAbility, applyDamageReduction, canActivateRoleAbility, effectiveFireCooldown, effectiveMoveSpeed, healOverTick, homingRocketDamage, isAbilityActive, isMovementLocked, isValidRocketTarget, strongestReduction } from "./ability.js";
 import { getLaneTowerPlacements } from "./towerPlacement.js";
 import { applyTankProgressionStats, distributeKillXp, purchaseAbilityUpgrade } from "./progressionService.js";
@@ -207,6 +207,7 @@ export class GameRoom extends Room<GameState> {
     for (const tank of aliveTanks) this.updateLockedShooter(tank, enemyCandidates, deltaTime);
     for (const minion of minions) this.updateShooter(minion, enemyCandidates, deltaTime);
     for (const tower of towers) this.updateShooter(tower, enemyCandidates, deltaTime);
+    for (const base of bases) this.updateShooter(base, enemyCandidates, deltaTime);
 
     this.updateProjectiles(deltaTime);
   }
@@ -259,19 +260,12 @@ export class GameRoom extends Room<GameState> {
   }
 
   /** Acquires the nearest enemy target -- including enemy bases -- (ignoring all friendly units) and fires when ready. */
-  private updateShooter(unit: Tank | Minion | Tower, enemyCandidates: Array<Tank | Minion | Base | Tower>, deltaTime: number) {
+  private updateShooter(unit: Tank | Minion | Tower | Base, enemyCandidates: Array<Tank | Minion | Base | Tower>, deltaTime: number) {
     tickShooter(unit, enemyCandidates, deltaTime, (shooter, target) => this.spawnProjectile(shooter, target));
   }
 
-  private spawnProjectile(shooter: Tank | Minion | Tower, target: { id: string }) {
-    const projectile = new Projectile();
-    projectile.id = `shot-${Date.now()}-${Math.random()}`;
-    projectile.team = shooter.team;
-    projectile.ownerId = shooter.id;
-    projectile.targetId = target.id;
-    projectile.x = shooter.x;
-    projectile.y = shooter.y;
-    projectile.damage = shooter.fireDamage;
+  private spawnProjectile(shooter: Tank | Minion | Tower | Base, target: { id: string; x: number; y: number; team: string }) {
+    const projectile = createShotProjectile(shooter, target, `shot-${Date.now()}-${Math.random()}`);
     this.state.projectiles.set(projectile.id, projectile);
     this.projectileLifetimes.set(projectile.id, 0);
   }
