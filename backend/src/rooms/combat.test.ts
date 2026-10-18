@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { BASE_CANNON_MUZZLE_DISTANCE, Base, getBaseCannonMuzzlePosition, Minion, Tower } from "shared";
+import { BASE_CANNON_MUZZLE_DISTANCE, Base, GameState, getBaseCannonMuzzlePosition, Minion, Tower } from "shared";
 import {
   applyDamage,
   clampToBounds,
+  createShotProjectile,
   findNearestEnemyInRange,
   getLivingTowers,
   hasDied,
@@ -223,6 +224,45 @@ test("a main base does not fire at enemies beyond its range and clears its targe
   assert.equal(tickShooter(base, [{ id: "distant-enemy", x: 251, y: 0, team: "red" }], 16, () => shots++), null);
   assert.equal(base.targetId, "");
   assert.equal(shots, 0);
+});
+
+test("a close-range base shot retains replicated firing feedback after impact in its spawning update", () => {
+  const state = new GameState();
+  const base = new Base();
+  base.id = "blue-base";
+  base.team = "blue";
+  state.bases.set(base.id, base);
+  const enemy = new Minion();
+  enemy.id = "enemy";
+  enemy.team = "red";
+  enemy.y = 50;
+  state.minions.set(enemy.id, enemy);
+
+  const client = new GameState();
+  client.decode(state.encodeAll());
+  state.discardAllChanges();
+
+  tickShooter(base, [enemy], 1000 / 60, (shooter, target) => {
+    const projectile = createShotProjectile(shooter, target, "close-shot");
+    state.projectiles.set(projectile.id, projectile);
+    const next = stepProjectileTowardTarget(projectile, target, projectile.speed, 1 / 60);
+    projectile.x = next.x;
+    projectile.y = next.y;
+    assert.equal(hasProjectileReachedTarget(next.x, next.y, target.x, target.y, 12), true);
+    enemy.hp = applyDamage(enemy.hp, projectile.damage);
+    state.projectiles.delete(projectile.id);
+  });
+  base.targetId = "";
+  state.minions.delete(enemy.id);
+  client.decode(state.encode());
+
+  assert.equal(client.projectiles.size, 0);
+  const clientBase = client.bases.get(base.id);
+  assert.ok(clientBase);
+  assert.equal(clientBase.shotCount, 1);
+  assert.equal(clientBase.shotAngle, Math.PI / 2);
+  assert.equal(clientBase.targetId, "");
+  assert.equal(client.minions.size, 0);
 });
 
 test("destroyed towers are excluded from candidates while living towers remain targetable", () => {

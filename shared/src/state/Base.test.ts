@@ -10,4 +10,6 @@ test("main bases have the agreed defensive cannon defaults", () => {
   assert.equal(base.fireCooldownMax, 1200);
   assert.equal(base.fireDamage, 24);
   assert.equal(base.targetId, "");
+  assert.equal(base.shotCount, 0);
+  assert.equal(base.shotAngle, 0);
 });

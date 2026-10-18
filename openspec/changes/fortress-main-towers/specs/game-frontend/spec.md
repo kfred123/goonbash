@@ -16,3 +16,7 @@ The frontend SHALL render each main base as a large team-colored, crenellated ke
 #### Scenario: Main base fires
 - **WHEN** a main base fires a projectile
 - **THEN** the cannon visibly fires in the projectile's direction
+
+#### Scenario: Close-range shot impacts before replication
+- **WHEN** a main-base projectile hits and is removed in the same simulation update in which it was created
+- **THEN** clients still show the muzzle flash using the recorded firing direction, even if the target has already been removed

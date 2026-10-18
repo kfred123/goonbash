@@ -3,7 +3,6 @@ import { Client, Room } from 'colyseus.js';
 import {
   GameState,
   getLaneWaypoints,
-  getBaseCannonMuzzlePosition,
   getAbilityDefinition,
   getRequiredXpForNextLevel,
   LobbyInfo,
@@ -14,10 +13,10 @@ import {
   Role,
   RoleVisual
 } from 'shared';
-import type { AbilityId } from 'shared';
+import type { AbilityId, Base } from 'shared';
 import { formatPlayerNameTag } from './nameFormatter.js';
 import { getAbilityHudStatus, getRoleAbilityAtIndex, resolveArenaClick, shouldCancelRocketTargetSelection, shouldHandleAbilityKeydown } from './abilityControls.js';
-import { getBaseCannonRotation } from './baseCannonVisuals.js';
+import { getBaseCannonRotation, getBaseCannonShotFeedback } from './baseCannonVisuals.js';
 import { getMatchResultsPage, MatchResultsSort, nextMatchResultsSort, sortMatchResults, SortableMatchStat } from './matchResults.js';
 
 const ROLE_ORDER: Role[] = ['healer', 'tank', 'damagedealer'];
@@ -31,6 +30,7 @@ export class GameScene extends Phaser.Scene {
   private minionSprites: Map<string, Phaser.GameObjects.Rectangle> = new Map();
   private baseSprites: Map<string, { fort: Phaser.GameObjects.Container; cannon: Phaser.GameObjects.Container }> = new Map();
   private baseMuzzleFlashes: Map<string, Phaser.GameObjects.Arc> = new Map();
+  private baseShotCounts: Map<string, number> = new Map();
   private towerSprites: Map<string, Phaser.GameObjects.Rectangle> = new Map();
   private projectileSprites: Map<string, Phaser.GameObjects.Arc> = new Map();
   private healthBars: Map<string, { bg: Phaser.GameObjects.Rectangle; fill: Phaser.GameObjects.Rectangle; width: number }> = new Map();
@@ -437,6 +437,7 @@ export class GameScene extends Phaser.Scene {
       flash.destroy();
     });
     this.baseMuzzleFlashes.clear();
+    this.baseShotCounts.clear();
     this.towerSprites.forEach((sprite) => sprite.destroy());
     this.towerSprites.clear();
     this.projectileSprites.forEach((sprite) => sprite.destroy());
@@ -726,7 +727,7 @@ export class GameScene extends Phaser.Scene {
     this.updateHealthBar(id, x, y - 16, minion.hp, minion.maxHp, true);
   }
 
-  private upsertBase(base: any, id: string) {
+  private upsertBase(base: Base, id: string) {
     if (!base) return;
     const x = base.x ?? 0;
     const y = base.y ?? 0;
@@ -736,6 +737,32 @@ export class GameScene extends Phaser.Scene {
     sprite.cannon.rotation = getBaseCannonRotation(base.team, base, target);
     this.baseSprites.set(id, sprite);
     this.updateHealthBar(id, x, y - 44, base.hp, base.maxHp, true);
+    const shot = getBaseCannonShotFeedback(base, this.baseShotCounts.get(id));
+    this.baseShotCounts.set(id, base.shotCount);
+    if (shot) {
+      sprite.cannon.rotation = shot.angle;
+      this.showBaseMuzzleFlash(id, shot.muzzle);
+    }
+  }
+
+  private showBaseMuzzleFlash(id: string, muzzle: { x: number; y: number }) {
+    const previous = this.baseMuzzleFlashes.get(id);
+    if (previous) {
+      this.tweens.killTweensOf(previous);
+      previous.destroy();
+    }
+    const flash = this.add.circle(muzzle.x, muzzle.y, 10, 0xffe38a, 0.9).setDepth(3);
+    this.baseMuzzleFlashes.set(id, flash);
+    this.tweens.add({
+      targets: flash,
+      alpha: 0,
+      scale: 1.8,
+      duration: 110,
+      onComplete: () => {
+        if (this.baseMuzzleFlashes.get(id) === flash) this.baseMuzzleFlashes.delete(id);
+        flash.destroy();
+      }
+    });
   }
 
   private createBaseFortress(
@@ -803,7 +830,6 @@ export class GameScene extends Phaser.Scene {
     if (!projectile) return;
     const x = projectile.x ?? 0;
     const y = projectile.y ?? 0;
-    const isNewProjectile = !this.projectileSprites.has(id);
     const sprite = this.projectileSprites.get(id) ?? this.add.circle(
       x,
       y,
@@ -813,34 +839,11 @@ export class GameScene extends Phaser.Scene {
     sprite.x = x;
     sprite.y = y;
     this.projectileSprites.set(id, sprite);
-    if (isNewProjectile && this.room?.state.bases.has(projectile.ownerId)) {
-      const base = this.room.state.bases.get(projectile.ownerId);
-      const target = this.findEntityPosition(projectile.targetId);
-      const muzzle = base && target ? getBaseCannonMuzzlePosition(base, target) : { x, y };
-      const flash = this.add.circle(muzzle.x, muzzle.y, 10, 0xffe38a, 0.9).setDepth(3);
-      this.baseMuzzleFlashes.set(id, flash);
-      this.tweens.add({
-        targets: flash,
-        alpha: 0,
-        scale: 1.8,
-        duration: 110,
-        onComplete: () => {
-          if (this.baseMuzzleFlashes.get(id) === flash) this.baseMuzzleFlashes.delete(id);
-          flash.destroy();
-        }
-      });
-    }
   }
 
   private removeProjectile(id: string) {
     this.projectileSprites.get(id)?.destroy();
     this.projectileSprites.delete(id);
-    const flash = this.baseMuzzleFlashes.get(id);
-    if (flash) {
-      this.tweens.killTweensOf(flash);
-      flash.destroy();
-      this.baseMuzzleFlashes.delete(id);
-    }
   }
 
   private hpRatio(hp: number, maxHp: number): number {

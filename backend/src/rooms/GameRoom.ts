@@ -1,9 +1,9 @@
 import { Room, Client } from "colyseus";
-import { Base, computeAbilityConfigForLevel, GameState, getBaseCannonMuzzlePosition, getLaneWaypoints, isAbilityId, MatchPlayerStats, Minion, Projectile, Tank, Tower } from "shared";
+import { Base, computeAbilityConfigForLevel, GameState, getLaneWaypoints, isAbilityId, MatchPlayerStats, Minion, Projectile, Tank, Tower } from "shared";
 import { isRole, resolveRoleStats } from "shared";
 import { lobbyRegistry } from "../index.js";
 import { canChangeRole, canChangeTeam, canJoinRoom, canManageLobby, canUseGameplayActions, normalizeLobbyName, normalizePlayerName, resolveHostAfterLeave, selectBalancedTeam } from "./lobbyControls.js";
-import { clampToBounds, findNearestEnemyInRange, getLivingTowers, hasDied, hasProjectileReachedTarget, isReadyToRespawn, isWithinRange, stepHomingProjectile, stepProjectileTowardTarget, stepToward, applyDamage as computeDamagedHp, nearBasePosition, respawnTank, tickShooter } from "./combat.js";
+import { clampToBounds, createShotProjectile, findNearestEnemyInRange, getLivingTowers, hasDied, hasProjectileReachedTarget, isReadyToRespawn, isWithinRange, stepHomingProjectile, stepProjectileTowardTarget, stepToward, applyDamage as computeDamagedHp, nearBasePosition, respawnTank, tickShooter } from "./combat.js";
 import { activateAbility, applyDamageReduction, canActivateRoleAbility, effectiveFireCooldown, effectiveMoveSpeed, healOverTick, homingRocketDamage, isAbilityActive, isMovementLocked, isValidRocketTarget, strongestReduction } from "./ability.js";
 import { getLaneTowerPlacements } from "./towerPlacement.js";
 import { applyTankProgressionStats, distributeKillXp, purchaseAbilityUpgrade } from "./progressionService.js";
@@ -264,18 +264,8 @@ export class GameRoom extends Room<GameState> {
     tickShooter(unit, enemyCandidates, deltaTime, (shooter, target) => this.spawnProjectile(shooter, target));
   }
 
-  private spawnProjectile(shooter: Tank | Minion | Tower | Base, target: { id: string; x: number; y: number }) {
-    const projectile = new Projectile();
-    projectile.id = `shot-${Date.now()}-${Math.random()}`;
-    projectile.team = shooter.team;
-    projectile.ownerId = shooter.id;
-    projectile.targetId = target.id;
-    const origin = shooter instanceof Base
-      ? getBaseCannonMuzzlePosition(shooter, target)
-      : shooter;
-    projectile.x = origin.x;
-    projectile.y = origin.y;
-    projectile.damage = shooter.fireDamage;
+  private spawnProjectile(shooter: Tank | Minion | Tower | Base, target: { id: string; x: number; y: number; team: string }) {
+    const projectile = createShotProjectile(shooter, target, `shot-${Date.now()}-${Math.random()}`);
     this.state.projectiles.set(projectile.id, projectile);
     this.projectileLifetimes.set(projectile.id, 0);
   }
