@@ -5,20 +5,25 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>GoonBash</title>
     <style>
+      html,
       body {
         margin: 0;
         padding: 0;
         background-color: #000;
-        display: flex;
-        justify-content: center;
-        align-items: center;
-        height: 100vh;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
       }
       #game-container {
-        width: 800px;
-        height: 600px;
-          position: relative;
-        }
+        position: fixed;
+        inset: 0;
+        width: 100vw;
+        height: 100vh;
+        height: 100dvh;
+      }
+      #game-container canvas {
+        display: block;
+      }
     </style>
   </head>
   <body>

@@ -8,6 +8,9 @@ const config: Phaser.Types.Core.GameConfig = {
   height: 600,
   parent: 'game-container',
   backgroundColor: '#2d2d2d',
+  scale: {
+    mode: Phaser.Scale.RESIZE
+  },
   scene: [GameScene]
 };
 
