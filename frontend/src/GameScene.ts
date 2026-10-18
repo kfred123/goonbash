@@ -3,6 +3,7 @@ import { Client, Room } from 'colyseus.js';
 import {
   GameState,
   getLaneWaypoints,
+  getBaseCannonMuzzlePosition,
   getAbilityDefinition,
   getRequiredXpForNextLevel,
   LobbyInfo,
@@ -16,6 +17,7 @@ import {
 import type { AbilityId } from 'shared';
 import { formatPlayerNameTag } from './nameFormatter.js';
 import { getAbilityHudStatus, getRoleAbilityAtIndex, resolveArenaClick, shouldCancelRocketTargetSelection, shouldHandleAbilityKeydown } from './abilityControls.js';
+import { getBaseCannonRotation } from './baseCannonVisuals.js';
 import { getMatchResultsPage, MatchResultsSort, nextMatchResultsSort, sortMatchResults, SortableMatchStat } from './matchResults.js';
 
 const ROLE_ORDER: Role[] = ['healer', 'tank', 'damagedealer'];
@@ -27,7 +29,8 @@ export class GameScene extends Phaser.Scene {
   private tankTargets: Map<string, { x: number; y: number }> = new Map();
   private tankNameTexts: Map<string, Phaser.GameObjects.Text> = new Map();
   private minionSprites: Map<string, Phaser.GameObjects.Rectangle> = new Map();
-  private baseSprites: Map<string, Phaser.GameObjects.Rectangle> = new Map();
+  private baseSprites: Map<string, { fort: Phaser.GameObjects.Container; cannon: Phaser.GameObjects.Container }> = new Map();
+  private baseMuzzleFlashes: Map<string, Phaser.GameObjects.Arc> = new Map();
   private towerSprites: Map<string, Phaser.GameObjects.Rectangle> = new Map();
   private projectileSprites: Map<string, Phaser.GameObjects.Arc> = new Map();
   private healthBars: Map<string, { bg: Phaser.GameObjects.Rectangle; fill: Phaser.GameObjects.Rectangle; width: number }> = new Map();
@@ -85,7 +88,7 @@ export class GameScene extends Phaser.Scene {
   private static readonly MAX_NAME_LENGTH = 20;
   private static readonly CLICK_HIT_RADIUS_TANK = 24;
   private static readonly CLICK_HIT_RADIUS_MINION = 14;
-  private static readonly CLICK_HIT_RADIUS_BASE = 30;
+  private static readonly CLICK_HIT_RADIUS_BASE = 40;
   private static readonly CLICK_HIT_RADIUS_TOWER = 20;
   private static readonly CLICK_MARKER_DURATION_MS = 1000;
   private static readonly HUD_BAR_HEIGHT = 92;
@@ -427,8 +430,13 @@ export class GameScene extends Phaser.Scene {
     this.tankNameTexts.clear();
     this.minionSprites.forEach((sprite) => sprite.destroy());
     this.minionSprites.clear();
-    this.baseSprites.forEach((sprite) => sprite.destroy());
+    this.baseSprites.forEach(({ fort }) => fort.destroy());
     this.baseSprites.clear();
+    this.baseMuzzleFlashes.forEach((flash) => {
+      this.tweens.killTweensOf(flash);
+      flash.destroy();
+    });
+    this.baseMuzzleFlashes.clear();
     this.towerSprites.forEach((sprite) => sprite.destroy());
     this.towerSprites.clear();
     this.projectileSprites.forEach((sprite) => sprite.destroy());
@@ -722,17 +730,45 @@ export class GameScene extends Phaser.Scene {
     if (!base) return;
     const x = base.x ?? 0;
     const y = base.y ?? 0;
-    const sprite = this.baseSprites.get(id) ?? this.add.rectangle(
-      x,
-      y,
-      50,
-      50,
-      base.team === 'blue' ? 0x2255aa : 0xaa3322
-    ).setStrokeStyle(3, 0xffffff);
-    sprite.x = x;
-    sprite.y = y;
+    const sprite = this.baseSprites.get(id) ?? this.createBaseFortress(x, y, base.team);
+    sprite.fort.setPosition(x, y);
+    const target = base.targetId ? this.findEntityPosition(base.targetId) : null;
+    sprite.cannon.rotation = getBaseCannonRotation(base.team, base, target);
     this.baseSprites.set(id, sprite);
-    this.updateHealthBar(id, x, y - 40, base.hp, base.maxHp, true);
+    this.updateHealthBar(id, x, y - 44, base.hp, base.maxHp, true);
+  }
+
+  private createBaseFortress(
+    x: number,
+    y: number,
+    team: string
+  ): { fort: Phaser.GameObjects.Container; cannon: Phaser.GameObjects.Container } {
+    const teamColor = team === 'blue' ? 0x4d8dff : 0xff554d;
+    const fort = this.add.container(x, y);
+    const stonePieces = [
+      this.add.rectangle(0, 3, 76, 70, 0x292720).setStrokeStyle(3, 0x171613),
+      this.add.rectangle(0, 0, 68, 62, 0x625b50).setStrokeStyle(2, 0x302c27),
+      this.add.rectangle(0, 0, 42, 38, teamColor, 0.78).setStrokeStyle(2, 0x3b352e)
+    ];
+    for (const offsetX of [-24, 24]) {
+      for (const offsetY of [-21, 21]) {
+        stonePieces.push(
+          this.add.rectangle(offsetX, offsetY, 18, 18, 0x81796b).setStrokeStyle(2, 0x39342d),
+          this.add.rectangle(offsetX, offsetY, 11, 4, teamColor)
+        );
+      }
+    }
+
+    const cannon = this.add.container(0, 0);
+    cannon.add([
+      this.add.circle(0, 0, 18, 0x37342f).setStrokeStyle(3, 0x171613),
+      this.add.circle(0, 0, 13, 0x9b8a69).setStrokeStyle(2, 0xd0bd91),
+      this.add.rectangle(17, 0, 36, 11, 0x343638).setStrokeStyle(2, 0x17191a),
+      this.add.rectangle(9, 0, 4, 14, teamColor),
+      this.add.rectangle(34, 0, 5, 13, 0x1b1c1d)
+    ]);
+    fort.add([...stonePieces, cannon]);
+    return { fort, cannon };
   }
 
   private upsertTower(tower: any, id: string) {
@@ -767,20 +803,44 @@ export class GameScene extends Phaser.Scene {
     if (!projectile) return;
     const x = projectile.x ?? 0;
     const y = projectile.y ?? 0;
+    const isNewProjectile = !this.projectileSprites.has(id);
     const sprite = this.projectileSprites.get(id) ?? this.add.circle(
       x,
       y,
       4,
       projectile.team === 'blue' ? 0x99ccff : 0xffcc99
-    );
+    ).setDepth(2);
     sprite.x = x;
     sprite.y = y;
     this.projectileSprites.set(id, sprite);
+    if (isNewProjectile && this.room?.state.bases.has(projectile.ownerId)) {
+      const base = this.room.state.bases.get(projectile.ownerId);
+      const target = this.findEntityPosition(projectile.targetId);
+      const muzzle = base && target ? getBaseCannonMuzzlePosition(base, target) : { x, y };
+      const flash = this.add.circle(muzzle.x, muzzle.y, 10, 0xffe38a, 0.9).setDepth(3);
+      this.baseMuzzleFlashes.set(id, flash);
+      this.tweens.add({
+        targets: flash,
+        alpha: 0,
+        scale: 1.8,
+        duration: 110,
+        onComplete: () => {
+          if (this.baseMuzzleFlashes.get(id) === flash) this.baseMuzzleFlashes.delete(id);
+          flash.destroy();
+        }
+      });
+    }
   }
 
   private removeProjectile(id: string) {
     this.projectileSprites.get(id)?.destroy();
     this.projectileSprites.delete(id);
+    const flash = this.baseMuzzleFlashes.get(id);
+    if (flash) {
+      this.tweens.killTweensOf(flash);
+      flash.destroy();
+      this.baseMuzzleFlashes.delete(id);
+    }
   }
 
   private hpRatio(hp: number, maxHp: number): number {

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { Minion, Tower } from "shared";
+import { BASE_CANNON_MUZZLE_DISTANCE, Base, getBaseCannonMuzzlePosition, Minion, Tower } from "shared";
 import {
   applyDamage,
   clampToBounds,
@@ -178,6 +178,51 @@ test("a lane tower fires at the nearest enemy and observes its cooldown", () => 
   assert.equal(tower.fireCooldown, tower.fireCooldownMax);
   assert.equal(tickShooter(tower, [nearEnemy], 500, fire), null);
   assert.deepEqual(shots, ["near-minion"]);
+});
+
+test("a main base fires at the nearest enemy within range using its stronger shot and cooldown", () => {
+  const base = new Base();
+  base.id = "blue-base";
+  base.team = "blue";
+  base.x = 0;
+  base.y = 0;
+  const nearestEnemy = { id: "near-enemy", x: 100, y: 0, team: "red" };
+  const fartherEnemy = { id: "far-enemy", x: 200, y: 0, team: "red" };
+  const friendly = { id: "friendly", x: 10, y: 0, team: "blue" };
+  const fired: Array<{ targetId: string; damage: number; origin: { x: number; y: number } }> = [];
+
+  const fire = (shooter: Base, target: { id: string; x: number; y: number }) => {
+    fired.push({
+      targetId: target.id,
+      damage: shooter.fireDamage,
+      origin: getBaseCannonMuzzlePosition(shooter, target)
+    });
+  };
+
+  assert.equal(tickShooter(base, [fartherEnemy, friendly, nearestEnemy], 0, fire)?.id, "near-enemy");
+  assert.equal(base.targetId, "near-enemy");
+  assert.equal(base.fireCooldown, 1200);
+  assert.deepEqual(fired, [{
+    targetId: "near-enemy",
+    damage: 24,
+    origin: { x: BASE_CANNON_MUZZLE_DISTANCE, y: 0 }
+  }]);
+
+  assert.equal(tickShooter(base, [nearestEnemy], 1199, fire), null);
+  assert.equal(base.fireCooldown, 1);
+  assert.equal(tickShooter(base, [nearestEnemy], 1, fire)?.id, "near-enemy");
+  assert.equal(fired.length, 2);
+});
+
+test("a main base does not fire at enemies beyond its range and clears its target", () => {
+  const base = new Base();
+  base.team = "blue";
+  base.targetId = "old-target";
+  let shots = 0;
+
+  assert.equal(tickShooter(base, [{ id: "distant-enemy", x: 251, y: 0, team: "red" }], 16, () => shots++), null);
+  assert.equal(base.targetId, "");
+  assert.equal(shots, 0);
 });
 
 test("destroyed towers are excluded from candidates while living towers remain targetable", () => {

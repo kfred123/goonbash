@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { Base } from "./Base.js";
 import { GameState } from "./GameState.js";
 import { MatchPlayerStats } from "./MatchPlayerStats.js";
 
@@ -34,4 +35,25 @@ test("new match statistics start with zero kills, level one, and no damage", () 
   assert.equal(player.kills, 0);
   assert.equal(player.level, 1);
   assert.equal(player.damageDealt, 0);
+});
+
+test("serializes main-base cannon stats and target for clients", () => {
+  const state = new GameState();
+  const base = new Base();
+  base.id = "blue-base";
+  base.team = "blue";
+  base.fireCooldown = 600;
+  base.targetId = "enemy-minion";
+  state.bases.set(base.id, base);
+
+  const decoded = new GameState();
+  decoded.decode(state.encodeAll());
+
+  const decodedBase = decoded.bases.get("blue-base");
+  assert.ok(decodedBase);
+  assert.equal(decodedBase.fireRange, 250);
+  assert.equal(decodedBase.fireCooldown, 600);
+  assert.equal(decodedBase.fireCooldownMax, 1200);
+  assert.equal(decodedBase.fireDamage, 24);
+  assert.equal(decodedBase.targetId, "enemy-minion");
 });

@@ -2,6 +2,8 @@ export { Entity } from "./state/Entity";
 export { Tank } from "./state/Tank";
 export { Minion } from "./state/Minion";
 export { Base } from "./state/Base";
+export { BASE_CANNON_MUZZLE_DISTANCE, getBaseCannonAimAngle, getBaseCannonMuzzlePosition } from "./baseCannon";
+export type { BaseCannonPoint } from "./baseCannon";
 export { Projectile } from "./state/Projectile";
 export { Tower } from "./state/Tower";
 export { GameState } from "./state/GameState";
