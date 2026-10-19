@@ -9,4 +9,6 @@ export class Tower extends Entity {
   @type("number") fireCooldownMax: number = 1200;
   @type("number") fireDamage: number = 12;
   @type("string") targetId: string = "";
+  @type("number") shotCount: number = 0;
+  @type("number") shotAngle: number = 0;
 }

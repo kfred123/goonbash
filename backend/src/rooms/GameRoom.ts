@@ -382,7 +382,7 @@ export class GameRoom extends Room<GameState> {
       this.minionPaths.delete(entity.id);
       distributeKillXp(victimPos, false, this.state.tanks.values());
     } else if (entity instanceof Tower) {
-      this.state.towers.delete(entity.id);
+      entity.targetId = "";
     } else if (entity instanceof Base) {
       if (endMatchAfterBaseDestroyed(this.state, entity.team)) this.projectileLifetimes.clear();
     }
