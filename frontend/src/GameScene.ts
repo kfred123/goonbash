@@ -977,7 +977,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private createTowerRuin(x: number, y: number): Phaser.GameObjects.Graphics {
-    const ruin = this.add.graphics().setPosition(x, y);
+    const ruin = this.add.graphics().setPosition(x, y).setDepth(-0.25);
     ruin.fillStyle(0x35332f, 0.95);
     ruin.fillRect(-19, -8, 38, 18);
     ruin.fillStyle(0x625b50, 1);
