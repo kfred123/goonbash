@@ -17,6 +17,7 @@ import type { AbilityId, Base } from 'shared';
 import { formatPlayerNameTag } from './nameFormatter.js';
 import { getAbilityHudStatus, getRoleAbilityAtIndex, resolveArenaClick, shouldCancelRocketTargetSelection, shouldHandleAbilityKeydown } from './abilityControls.js';
 import { getBaseCannonRotation, getBaseCannonShotFeedback } from './baseCannonVisuals.js';
+import { getTowerCannonRotation, getTowerCannonShotFeedback } from './towerCannonVisuals.js';
 import { getMatchResultsPage, MatchResultsSort, nextMatchResultsSort, sortMatchResults, SortableMatchStat } from './matchResults.js';
 
 const ROLE_ORDER: Role[] = ['healer', 'tank', 'damagedealer'];
@@ -31,7 +32,13 @@ export class GameScene extends Phaser.Scene {
   private baseSprites: Map<string, { fort: Phaser.GameObjects.Container; cannon: Phaser.GameObjects.Container }> = new Map();
   private baseMuzzleFlashes: Map<string, Phaser.GameObjects.Arc> = new Map();
   private baseShotCounts: Map<string, number> = new Map();
-  private towerSprites: Map<string, Phaser.GameObjects.Rectangle> = new Map();
+  private towerSprites: Map<string, {
+    outpost?: Phaser.GameObjects.Container;
+    cannon?: Phaser.GameObjects.Container;
+    ruin?: Phaser.GameObjects.Graphics;
+  }> = new Map();
+  private towerMuzzleFlashes: Map<string, Phaser.GameObjects.Arc> = new Map();
+  private towerShotCounts: Map<string, number> = new Map();
   private projectileSprites: Map<string, Phaser.GameObjects.Arc> = new Map();
   private healthBars: Map<string, { bg: Phaser.GameObjects.Rectangle; fill: Phaser.GameObjects.Rectangle; width: number }> = new Map();
   private attackMarkers: Array<{ graphics: Phaser.GameObjects.Graphics; targetId: string }> = [];
@@ -452,8 +459,17 @@ export class GameScene extends Phaser.Scene {
     });
     this.baseMuzzleFlashes.clear();
     this.baseShotCounts.clear();
-    this.towerSprites.forEach((sprite) => sprite.destroy());
+    this.towerSprites.forEach(({ outpost, ruin }) => {
+      outpost?.destroy();
+      ruin?.destroy();
+    });
     this.towerSprites.clear();
+    this.towerMuzzleFlashes.forEach((flash) => {
+      this.tweens.killTweensOf(flash);
+      flash.destroy();
+    });
+    this.towerMuzzleFlashes.clear();
+    this.towerShotCounts.clear();
     this.projectileSprites.forEach((sprite) => sprite.destroy());
     this.projectileSprites.clear();
     this.healthBars.forEach(({ bg, fill }) => {
@@ -888,16 +904,116 @@ export class GameScene extends Phaser.Scene {
     if (!tower) return;
     const x = tower.x ?? 0;
     const y = tower.y ?? 0;
-    const sprite = this.towerSprites.get(id) ?? this.add.rectangle(
-      x,
-      y,
-      34,
-      34,
-      tower.team === 'blue' ? 0x4d8dff : 0xff4444
-    ).setStrokeStyle(2, 0xffffff);
-    sprite.setPosition(x, y);
-    this.towerSprites.set(id, sprite);
-    this.updateHealthBar(id, x, y - 24, tower.hp, tower.maxHp, true);
+    const visual = this.towerSprites.get(id) ?? {};
+    if (tower.hp <= 0) {
+      visual.outpost?.destroy();
+      visual.outpost = undefined;
+      visual.cannon = undefined;
+      this.removeHealthBar(id);
+      const flash = this.towerMuzzleFlashes.get(id);
+      if (flash) {
+        this.tweens.killTweensOf(flash);
+        flash.destroy();
+        this.towerMuzzleFlashes.delete(id);
+      }
+      if (!visual.ruin) visual.ruin = this.createTowerRuin(x, y);
+      else visual.ruin.setPosition(x, y);
+      this.towerSprites.set(id, visual);
+      this.towerShotCounts.set(id, tower.shotCount ?? 0);
+      return;
+    }
+    if (visual.ruin) {
+      visual.ruin.destroy();
+      visual.ruin = undefined;
+    }
+    if (!visual.outpost || !visual.cannon) {
+      const created = this.createTowerOutpost(x, y, tower.team);
+      visual.outpost = created.outpost;
+      visual.cannon = created.cannon;
+    }
+    visual.outpost.setPosition(x, y);
+    const target = tower.targetId ? this.findEntityPosition(tower.targetId) : null;
+    visual.cannon.rotation = getTowerCannonRotation(tower.team, tower, target);
+    this.towerSprites.set(id, visual);
+    this.updateHealthBar(id, x, y - 22, tower.hp, tower.maxHp, true);
+    const shot = getTowerCannonShotFeedback(tower, this.towerShotCounts.get(id));
+    this.towerShotCounts.set(id, tower.shotCount ?? 0);
+    if (shot) {
+      visual.cannon.rotation = shot.angle;
+      this.showTowerMuzzleFlash(id, shot.muzzle);
+    }
+  }
+
+  private createTowerOutpost(
+    x: number,
+    y: number,
+    team: string
+  ): { outpost: Phaser.GameObjects.Container; cannon: Phaser.GameObjects.Container } {
+    const teamColor = team === 'blue' ? 0x4d8dff : 0xff554d;
+    const outpost = this.add.container(x, y);
+    const stonePieces = [
+      this.add.rectangle(0, 2, 42, 38, 0x292720).setStrokeStyle(2, 0x171613),
+      this.add.rectangle(0, 0, 36, 32, 0x625b50).setStrokeStyle(1, 0x302c27),
+      this.add.rectangle(0, 0, 24, 22, teamColor, 0.78).setStrokeStyle(1, 0x3b352e)
+    ];
+    for (const offsetX of [-13, 13]) {
+      for (const offsetY of [-11, 11]) {
+        stonePieces.push(
+          this.add.rectangle(offsetX, offsetY, 10, 9, 0x81796b).setStrokeStyle(1, 0x39342d),
+          this.add.rectangle(offsetX, offsetY, 7, 2, teamColor)
+        );
+      }
+    }
+    const cannon = this.add.container(0, 0);
+    cannon.add([
+      this.add.circle(0, 0, 9, 0x37342f).setStrokeStyle(2, 0x171613),
+      this.add.circle(0, 0, 6, 0x9b8a69).setStrokeStyle(1, 0xd0bd91),
+      this.add.rectangle(10, 0, 21, 6, 0x343638).setStrokeStyle(1, 0x17191a),
+      this.add.rectangle(5, 0, 3, 9, teamColor),
+      this.add.rectangle(20, 0, 3, 8, 0x1b1c1d)
+    ]);
+    outpost.add([...stonePieces, cannon]);
+    return { outpost, cannon };
+  }
+
+  private createTowerRuin(x: number, y: number): Phaser.GameObjects.Graphics {
+    const ruin = this.add.graphics().setPosition(x, y).setDepth(-0.25);
+    ruin.fillStyle(0x35332f, 0.95);
+    ruin.fillRect(-19, -8, 38, 18);
+    ruin.fillStyle(0x625b50, 1);
+    ruin.fillRect(-15, -13, 11, 11);
+    ruin.fillRect(3, -12, 13, 9);
+    ruin.fillRect(-7, 2, 14, 8);
+    ruin.fillStyle(0x292720, 1);
+    ruin.fillRect(-18, 7, 12, 5);
+    ruin.fillRect(8, -2, 10, 5);
+    ruin.lineStyle(2, 0x171613, 0.9);
+    ruin.beginPath();
+    ruin.moveTo(-4, -8);
+    ruin.lineTo(0, -2);
+    ruin.lineTo(-3, 3);
+    ruin.strokePath();
+    return ruin;
+  }
+
+  private showTowerMuzzleFlash(id: string, muzzle: { x: number; y: number }) {
+    const previous = this.towerMuzzleFlashes.get(id);
+    if (previous) {
+      this.tweens.killTweensOf(previous);
+      previous.destroy();
+    }
+    const flash = this.add.circle(muzzle.x, muzzle.y, 6, 0xffe38a, 0.9).setDepth(3);
+    this.towerMuzzleFlashes.set(id, flash);
+    this.tweens.add({
+      targets: flash,
+      alpha: 0,
+      scale: 1.8,
+      duration: 110,
+      onComplete: () => {
+        if (this.towerMuzzleFlashes.get(id) === flash) this.towerMuzzleFlashes.delete(id);
+        flash.destroy();
+      }
+    });
   }
 
   private removeMinion(id: string) {
@@ -907,8 +1023,17 @@ export class GameScene extends Phaser.Scene {
   }
 
   private removeTower(id: string) {
-    this.towerSprites.get(id)?.destroy();
+    const visual = this.towerSprites.get(id);
+    visual?.outpost?.destroy();
+    visual?.ruin?.destroy();
     this.towerSprites.delete(id);
+    this.towerShotCounts.delete(id);
+    const flash = this.towerMuzzleFlashes.get(id);
+    if (flash) {
+      this.tweens.killTweensOf(flash);
+      flash.destroy();
+      this.towerMuzzleFlashes.delete(id);
+    }
     this.removeHealthBar(id);
   }
 

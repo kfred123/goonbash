@@ -181,6 +181,22 @@ test("a lane tower fires at the nearest enemy and observes its cooldown", () => 
   assert.deepEqual(shots, ["near-minion"]);
 });
 
+test("lane tower shots preserve tower damage and replicate the firing direction", () => {
+  const tower = new Tower();
+  tower.id = "blue-tower";
+  tower.team = "blue";
+  tower.y = 10;
+  const target = { id: "enemy", x: 0, y: 110, team: "red" };
+
+  const projectile = createShotProjectile(tower, target, "tower-shot");
+
+  assert.equal(projectile.damage, 12);
+  assert.ok(Math.abs(projectile.x) < 1e-9);
+  assert.equal(projectile.y, 31);
+  assert.equal(tower.shotCount, 1);
+  assert.equal(tower.shotAngle, Math.PI / 2);
+});
+
 test("a main base fires at the nearest enemy within range using its stronger shot and cooldown", () => {
   const base = new Base();
   base.id = "blue-base";
@@ -279,4 +295,23 @@ test("destroyed towers are excluded from candidates while living towers remain t
 
   assert.deepEqual(candidates.map((tower) => tower.id), ["living-tower"]);
   assert.equal(findNearestEnemyInRange({ x: 0, y: 0, team: "red" }, candidates, 250)?.id, "living-tower");
+});
+
+test("destroyed towers and cannon firing feedback remain in replicated state", () => {
+  const state = new GameState();
+  const tower = new Tower();
+  tower.id = "destroyed-tower";
+  tower.hp = 0;
+  tower.shotCount = 3;
+  tower.shotAngle = Math.PI / 2;
+  state.towers.set(tower.id, tower);
+
+  const client = new GameState();
+  client.decode(state.encodeAll());
+  const replicatedTower = client.towers.get(tower.id);
+
+  assert.ok(replicatedTower);
+  assert.equal(replicatedTower.hp, 0);
+  assert.equal(replicatedTower.shotCount, 3);
+  assert.equal(replicatedTower.shotAngle, Math.PI / 2);
 });
