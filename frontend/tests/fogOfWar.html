@@ -102,6 +102,30 @@
         this.rebuildVision();
         this.applyVisibility();
         check(!this.towerSprites.get('tower').ruin.visible, 'Enemy ruin conceals again without explored memory');
+        const baseScout = entity(Minion, 'base-scout', 'blue', base.x, base.y);
+        state.minions.set(baseScout.id, baseScout);
+        this.rebuildVision();
+        this.applyVisibility();
+        base.shotCount = 1;
+        this.upsertBase(base, base.id);
+        this.showAttackMarker(base.id, base.x, base.y, 0xff3333);
+        check(this.baseSprites.get(base.id).fort.visible && this.baseMuzzleFlashes.has(base.id), 'Revealed base receives normal presentation and flash');
+        state.bases.delete(base.id);
+        this.removeBase(base.id);
+        check(!this.baseSprites.has(base.id) && !this.healthBars.has(base.id) && !this.baseMuzzleFlashes.has(base.id)
+          && !this.baseShotCounts.has(base.id) && !this.visibleEntities.has(base.id) && this.attackMarkers.length === 0,
+          'Network base removal clears fortress, health, flash, shot cache and target marker');
+        base.shotCount = 25;
+        state.bases.set(base.id, base);
+        this.upsertBase(base, base.id);
+        check(this.baseSprites.get(base.id).fort.visible && !this.baseMuzzleFlashes.has(base.id), 'Network base re-add restores current state without replaying hidden shots');
+        this.showAttackMarker(enemy.id, enemy.x, enemy.y, 0xff3333);
+        state.tanks.delete(enemy.id);
+        this.removeTank(enemy.id);
+        check(!this.tankSprites.has(enemy.id) && !this.tankTargets.has(enemy.id) && !this.tankNameTexts.has(enemy.id)
+          && !this.healthBars.has(enemy.id) && this.attackMarkers.length === 0, 'Network tank removal clears interpolation, labels and markers');
+        state.tanks.set(enemy.id, enemy);
+        this.upsertTank(enemy, enemy.id);
         const projectile = entity(Projectile, 'shot', 'red', 1700, 1100);
         state.projectiles.set(projectile.id, projectile);
         this.upsertProjectile(projectile, projectile.id);
@@ -216,9 +240,14 @@
         blueRoom.send('start_game');
         await until(() => this.arenaStarted && this.fog && redRoom.state.phase === 'started', 'started arena');
         check(blueRoom.state.tanks.get(blueRoom.sessionId).sightRange === 169, 'Live client receives initialized absolute role sight');
-        check(!this.tankSprites.get(redRoom.sessionId).visible, 'Live arena conceals opposing spawn');
-        const redVision = new TeamVision(redRoom.state.tanks.get(redRoom.sessionId).team, getVisionEntities(redRoom.state));
-        check(!redVision.canSee(redRoom.state.tanks.get(blueRoom.sessionId)), 'Second live client has symmetric team concealment');
+        check(!blueRoom.state.tanks.has(redRoom.sessionId) && !this.tankSprites.has(redRoom.sessionId), 'Live initial arena removes opposing spawn from state and presentation');
+        const firstTeam = blueRoom.state.tanks.get(blueRoom.sessionId).team;
+        const secondTeam = redRoom.state.tanks.get(redRoom.sessionId).team;
+        check(blueRoom.state.bases.size === 1 && [...blueRoom.state.bases.values()].every(base => base.team === firstTeam), 'First live state contains only its allied base');
+        check(redRoom.state.bases.size === 1 && [...redRoom.state.bases.values()].every(base => base.team === secondTeam), 'Opposing live state contains only its allied base');
+        check(blueRoom.state.towers.size === 6 && [...blueRoom.state.towers.values()].every(tower => tower.team === firstTeam), 'First live state contains only its allied towers');
+        const redVision = new TeamVision(secondTeam, getVisionEntities(redRoom.state));
+        check(!redRoom.state.tanks.has(blueRoom.sessionId) && !redVision.canSee(blueRoom.state.tanks.get(blueRoom.sessionId)), 'Second live client receives no opposing tank');
         let rejected = false;
         blueRoom.onMessage(INVALID_TARGET_MESSAGE, () => { rejected = true; });
         blueRoom.send('command', { targetId: redRoom.sessionId });

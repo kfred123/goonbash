@@ -13,6 +13,7 @@ The arena currently exposes every enemy, making scouting and terrain irrelevant 
 - Make grass consume twice the sight budget per world unit along a direct sightline. An observer standing in grass additionally receives half its normal sight budget, producing terrain-dependent visibility contours rather than circles.
 - Require team visibility for automatic target acquisition, player target locks, pursuit, and targeted ability activation. Clear locks on vision loss; preserve the behavior of already-fired projectiles.
 - Preserve movement through dark terrain, existing damage and firing ranges, progression, respawn, and match results.
+- Replicate a separate allowed-state view per client: remove concealed enemies and hostile projectiles from outgoing entity collections, restore them on revelation, and redact hidden references and other players' movement intent.
 
 ## Capabilities
 
@@ -29,6 +30,7 @@ The arena currently exposes every enemy, making scouting and terrain irrelevant 
 - `homing-rocket-ability`: Require visibility at target acquisition while preserving tracking after launch.
 - `game-backend`: Authoritatively apply team visibility to commands, combat, and minion engagement.
 - `game-frontend`: Apply visibility consistently to entity rendering, attached effects, health bars, input, and projectile presentation.
+- `multiplayer-networking`: Transmit visibility-filtered initial states and deltas rather than canonical room state, while retaining public lobby and scoreboard metadata.
 
 ## Impact
 
@@ -36,5 +38,5 @@ The arena currently exposes every enemy, making scouting and terrain irrelevant 
 - `backend/src/rooms`: Vision queries integrated into command validation, targeting, locked movement, ability activation, and simulation lifecycle.
 - `frontend/src/GameScene.ts`: Shared road/grass classification, fog presentation, visibility-aware visuals/input, minimap, and cleanup.
 - Related shared, backend, and frontend tests and directly affected gameplay documentation require updates.
-- No new external dependencies are planned. Existing full-state Colyseus replication remains in place; preventing modified clients from inspecting hidden replicated state is explicitly outside this change.
+- No new runtime dependencies are needed; backend socket tests reuse the existing client SDK as a test-only dependency. The server retains canonical simulation state, but outgoing Colyseus schema states contain only client-authorized entity data. Previously observed data cannot be erased from a modified client's memory; new concealed state is not transmitted.
 - Coordinate deployment of frontend, backend, and shared schema changes. Reconcile overlapping main-base/tower work in active changes before implementation.

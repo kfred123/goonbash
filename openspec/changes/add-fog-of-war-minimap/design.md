@@ -12,11 +12,12 @@ The arena tilemap is a grass background. Streets are drawn over it from shared l
 - Use the same pure world-space visibility rules for server decisions, client concealment, fog, and minimap.
 - Keep exact entity visibility independent of approximate visual fog sampling.
 - Integrate with existing combat and scene lifecycle rather than introduce another simulation.
+- Prevent outgoing initial state and patches from carrying concealed entity updates or hidden references.
 
 **Non-Goals:**
 - Persistent explored-area memory, remembered enemy positions, minimap navigation, pings, and new obstacles.
 - New neutral-mob spawning; existing mobs are minions.
-- Server-side per-client state redaction or an anti-map-hack guarantee. Hidden entity data remains replicated; gameplay requests are nevertheless validated authoritatively.
+- Erasing information a client already observed, hiding static public map geometry, or hiding public lobby identity and scoreboard metadata.
 - Changes to firing ranges, damage, cooldowns, projectile tracking, progression, or lane routing.
 
 ## Decisions
@@ -64,7 +65,7 @@ A team's visible area is the union of its living tanks, living minions, intact l
 
 Alternatives rejected: target-terrain-only multipliers do not account for intervening grass; flood-fill or shortest-path cost would allow sight to bend around grass; independent player-only circles conflict with the confirmed shared-team rule.
 
-### 4. Server authority without changing replication scope
+### 4. Server authority and client-specific replication
 
 Build reusable team-visibility queries over current canonical room state. Refresh the observer snapshot before combat selection; invalidate/rebuild it when movement, spawning, death, respawn, removal, or team changes can affect later queries. Command and ability handlers must query current state, not a stale previous-tick cache.
 
@@ -74,7 +75,17 @@ Clear locked/current targets before pursuit or firing when they lose team visibi
 
 Once spawned, ordinary projectiles and rockets continue resolving against their living designated target regardless of later fog. Do not feed visibility into damage, homing, or XP attribution. Fog does not protect a previously acquired target from an in-flight shot.
 
-Alternative rejected: client-only hiding would still let automatic targeting, guessed target IDs, and lock-follow movement reveal hidden enemies. Per-client Colyseus filtering is a separate replication project and is not necessary for the requested normal-client experience.
+Client-only hiding would still expose hidden state to modified clients. The user explicitly requested extending this change to prevent that exposure.
+
+Use the public Colyseus serializer extension point, with one independent `GameState` projection and standard `SchemaSerializer` per connected client. The room's canonical state is never passed to a network encoder. Synchronize each projection before initial-state encoding and each patch cycle using current canonical teams and sight. Reuse allowed schema instances while visible, delete disallowed map entries, and allocate fresh instances when they become visible again. This provides real schema DELETE/ADD transitions even when only an allied observer moved and the hidden tower itself did not change.
+
+The installed schema 2.0.35 child-filter implementation skips disallowed entries but does not reliably emit removal when previously allowed entries become disallowed, nor reevaluate unchanged entries solely because an observer moved. Therefore, a few `filterChildren` decorators are not a sufficient confidentiality boundary. Prefer explicit projections and ordinary schema deltas over patching library internals or changing dependencies.
+
+Project entity fields through explicit allowlists, never clone canonical schema trees or share canonical schema instances with projections. Permit own-team entities; enemy living tanks/minions and enemy structures/ruins require current sight. Hostile projectiles require sight at their own position, while allied projectiles remain available. Clear `targetId`, `lockedTargetId`, and projectile `ownerId` when the referenced entity is not in the allowed view. Replicate move destinations and lock intent only to the controlling client; minion waypoints and other players' private ability cooldown/XP data are unnecessary and use neutral values. Active effects on currently visible units remain available. Public player names, team, role selection, and scoreboard statistics are intentional public metadata, not hidden spatial data.
+
+In the waiting lobby, expose the roster needed for team/role selection but no canonical world positions or structures. During started and ended phases, keep spatial filtering active. Resolve the receiving team only from the canonical tank identified by the connection's session ID; an unknown connection fails closed. Switching team updates the same client projection with actual removals/additions; a new connection starts with a fresh projection. Release disconnected projections and clear them on room disposal. No spectator-wide fallback is permitted.
+
+The client retains fog calculation from allied observers, but must treat removed enemies as absent rather than dead, handle base removal/re-addition, and stop tracking removed targets immediately. Lobby rendering continues using the public roster and results use public player statistics even if a hostile tank is absent.
 
 ### 5. Visibility policy separate from presentation sampling
 
@@ -102,7 +113,9 @@ Destroy fog/minimap objects, listeners, and owned generated textures on arena te
 
 - [Grass plus the observer penalty is severe, especially off-road spawns] -> Document the confirmed quarter-range all-grass behavior and cover road/grass transitions with numerical tests; retain independent absolute tuning for later balancing.
 - [Many observers and fog samples can burden the render loop] -> Cache static road geometry, bound candidates by sight radius, reuse buffers, and profile both minion-heavy and normal scenes before fixing refresh cadence.
-- [Full-state replication exposes hidden data to modified clients] -> State this limitation explicitly; enforce server-side gameplay eligibility and do not claim network confidentiality.
+- [A projection could accidentally copy hidden intent or metadata] -> Use explicit field allowlists and decode actual initial/delta bytes for both teams, including hidden references and movement destinations.
+- [Per-client projection work adds CPU and memory cost] -> Reuse visible schema objects, share a team-vision snapshot within each patch cycle, prune disconnected client views, and measure at 10 clients with minion-heavy state.
+- [A modified client retains previously seen information] -> Do not transmit new hidden data; explicitly distinguish this guarantee from erasing historical observations.
 - [Fog sampling can disagree near an entity boundary] -> Exact entity queries are authoritative; enforce the contour-error bound and do not smooth enemy sprites into unrevealed regions.
 - [Overlapping tower/main-base proposals] -> Reconcile current code and affected spec deltas before implementation; preserve existing fortress visuals and firing tuning.
 - [Late tween or state-upsert callbacks can reshow hidden effects] -> Apply visibility after upserts and guard effect creation and callbacks with the same policy.

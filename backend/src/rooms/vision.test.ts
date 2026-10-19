@@ -136,6 +136,27 @@ test("concealed rocket rejection preserves cooldown; launched rocket still hits 
   assert.equal(room.state.projectiles.size, 0);
 });
 
+test("rejections do not distinguish missing, dead, near-hidden and far-hidden targets", (t) => {
+  const { room, blue, red, replies, client } = setup(t);
+  blue.role = "damagedealer";
+  const ability = blue.abilities.get("damagedealer-homing-rocket")!;
+  ability.level = 1;
+  for (const variant of ["missing", "near", "far", "dead"]) {
+    red.x = variant === "far" ? 2000 : 1090;
+    red.state = variant === "dead" ? "dead" : "alive";
+    const targetId = variant === "missing" ? "unknown" : red.id;
+    replies.length = 0;
+    room["onMessageHandlers"].command(client, { targetId, x: 1500, y: 600 });
+    room["onMessageHandlers"].activate_ability(client, { abilityId: "damagedealer-homing-rocket", targetId });
+    assert.deepEqual(replies, [
+      { type: INVALID_TARGET_MESSAGE, message: { action: "attack", reason: "invalid_target" } },
+      { type: INVALID_TARGET_MESSAGE, message: { action: "rocket", reason: "invalid_target" } }
+    ]);
+    assert.equal(blue.hasMoveTarget, false);
+    assert.equal(ability.cooldownEndsAt, 0);
+  }
+});
+
 test("ordinary shots launched in vision still hit after their target enters grass fog", (t) => {
   const { room, blue, red } = setup(t);
   red.x = 1020;

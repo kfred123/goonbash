@@ -365,6 +365,12 @@ export class GameScene extends Phaser.Scene {
     this.room.state.towers.onRemove((_tower, id) => {
       if (this.room === connectedRoom && this.arenaStarted) this.removeTower(id);
     });
+    this.room.state.bases.onAdd((base, id) => {
+      if (this.room === connectedRoom && this.arenaStarted) this.upsertBase(base, id);
+    });
+    this.room.state.bases.onRemove((_base, id) => {
+      if (this.room === connectedRoom && this.arenaStarted) this.removeBase(id);
+    });
     this.room.state.projectiles.forEach((projectile, id) => this.upsertProjectile(projectile, id));
     this.room.state.projectiles.onAdd((projectile, id) => {
       if (this.room === connectedRoom && this.arenaStarted) this.upsertProjectile(projectile, id);
@@ -875,6 +881,7 @@ export class GameScene extends Phaser.Scene {
 
   private removeTank(sessionId: string) {
     this.visibleEntities.delete(sessionId);
+    this.removeTargetFeedback(sessionId);
     if (sessionId === this.room?.sessionId) this.cameras.main.stopFollow();
     this.tankSprites.get(sessionId)?.destroy();
     this.tankSprites.delete(sessionId);
@@ -944,6 +951,21 @@ export class GameScene extends Phaser.Scene {
         flash.destroy();
       }
     });
+  }
+
+  private removeBase(id: string) {
+    this.visibleEntities.delete(id);
+    this.removeTargetFeedback(id);
+    this.baseSprites.get(id)?.fort.destroy();
+    this.baseSprites.delete(id);
+    this.baseShotCounts.delete(id);
+    const flash = this.baseMuzzleFlashes.get(id);
+    if (flash) {
+      this.tweens.killTweensOf(flash);
+      flash.destroy();
+      this.baseMuzzleFlashes.delete(id);
+    }
+    this.removeHealthBar(id);
   }
 
   private createBaseFortress(
@@ -1099,6 +1121,7 @@ export class GameScene extends Phaser.Scene {
 
   private removeMinion(id: string) {
     this.visibleEntities.delete(id);
+    this.removeTargetFeedback(id);
     this.minionSprites.get(id)?.destroy();
     this.minionSprites.delete(id);
     this.removeHealthBar(id);
@@ -1106,6 +1129,7 @@ export class GameScene extends Phaser.Scene {
 
   private removeTower(id: string) {
     this.visibleEntities.delete(id);
+    this.removeTargetFeedback(id);
     const visual = this.towerSprites.get(id);
     visual?.outpost?.destroy();
     visual?.ruin?.destroy();
@@ -1118,6 +1142,15 @@ export class GameScene extends Phaser.Scene {
       this.towerMuzzleFlashes.delete(id);
     }
     this.removeHealthBar(id);
+  }
+
+  private removeTargetFeedback(id: string) {
+    this.attackMarkers = this.attackMarkers.filter(marker => {
+      if (marker.targetId !== id) return true;
+      this.tweens.killTweensOf(marker.graphics);
+      marker.graphics.destroy();
+      return false;
+    });
   }
 
   private upsertProjectile(projectile: any, id: string) {

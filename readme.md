@@ -60,17 +60,32 @@ your tank. Allies remain on the map; enemies appear only while revealed, with no
 last-known-position dots. Minimap clicks never move the tank or camera or fire
 abilities. The map scales with the viewport and is removed on leaving the arena.
 
-**Developer limitation:** the server enforces visibility for gameplay commands,
-but Colyseus still replicates full room state. Concealment is for the normal game
-client, not network-level redaction or protection against modified map-hack clients.
+**Network visibility:** the server keeps full canonical state private and sends
+each connection a separate visibility-filtered Colyseus schema view. Concealed
+enemies and hostile projectiles are absent from initial snapshots and removed by
+patches on vision loss; stationary structures reappear when a scout reveals them.
+Hidden target/owner references are cleared. Move destinations, attack-lock intent,
+XP and ability cooldown details are private to the controlling player. Public
+lobby identity/team/role and scoreboards remain available; the waiting lobby does
+not expose canonical spawn positions. Unknown memberships receive no spatial
+entities, and match results do not lift visibility restrictions.
+Clients can retain information they previously observed: this prevents new hidden
+state from being transmitted, not historical knowledge or deductions from visible
+projectile trajectories. In-flight tracking and damage still use canonical state.
+
 Deploy shared schemas, backend and frontend together, using fresh rooms. Roll
 back all three together rather than mixing versions; no database migration is needed.
 
 After starting the frontend, `/tests/fogOfWar.html` runs deterministic Phaser
 checks for concealment, effects, minimap input, resize, teardown and fog sampling
 performance (10 and 200 observers). With a local backend on port 2578, append
-`?live` to also check two real Colyseus clients, replicated sight values, hidden
-target rejection and movement into fog. For this check, start the backend with
+`?live` to also check two real Colyseus clients, replicated sight values, absent
+concealed entities, hidden target rejection and movement into fog. Backend schema
+roundtrip tests decode actual snapshots and patches for reveal/conceal transitions,
+private metadata, team changes, late joins and rejoin. A loopback WebSocket test
+uses two real SDK clients against a stopped `GameRoom` fixture to check repeated
+stationary tower/base revelation and removal callbacks. It reuses the existing
+client SDK as a backend test-only dependency. For the live check, start the backend with
 `$env:PORT='2578'; npm run dev --workspace=backend` in PowerShell.
 
 ### Rollen-Grafik: Sanitaetspanzer, Bastion und Jaeger

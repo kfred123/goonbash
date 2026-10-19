@@ -30,7 +30,7 @@ Every combat-capable unit SHALL automatically select the nearest living enemy-te
 - **THEN** that enemy is eligible for acquisition and firing
 
 ### Requirement: Visible Projectiles
-When a unit fires at its currently team-visible target, the system SHALL spawn a projectile entity that travels from the shooter's position toward its target and is replicated to all clients. A client SHALL render allied projectiles within its camera viewport and enemy projectiles only where their current position is visible to its team. Rendering SHALL NOT expose concealed enemy entities through attached trails or target feedback.
+When a unit fires at its currently team-visible target, the system SHALL spawn a projectile entity that travels from the shooter's position toward its target. The server SHALL replicate allied projectiles and only currently team-visible enemy projectiles to each client, clearing references to concealed owners or targets. A client SHALL render allied projectiles within its camera viewport and enemy projectiles only where their current position is visible to its team. Rendering SHALL NOT expose concealed enemy entities through attached trails or target feedback.
 
 #### Scenario: Unit fires
 - **WHEN** a unit's fire cooldown reaches zero and it has a valid current team-visible target within range during a started match

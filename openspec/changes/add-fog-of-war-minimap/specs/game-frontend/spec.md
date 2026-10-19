@@ -36,6 +36,14 @@ The frontend SHALL render the 2D game world using an HTML5 canvas engine, includ
 - **WHEN** a tween or state callback updates an enemy effect after that enemy loses team visibility
 - **THEN** the callback does not reshow the effect or expose the concealed enemy
 
+#### Scenario: Network removes a concealed entity
+- **WHEN** an entity is removed from the receiving client's visibility-scoped state
+- **THEN** the frontend destroys its complete presentation, health bar, effects, interpolation, shot-count cache and any target markers as applicable, and removes its minimap dot without treating concealment as a death event
+
+#### Scenario: Network restores an unchanged structure
+- **WHEN** a stationary enemy base or tower is added again after a scout reveals it
+- **THEN** its current allowed appearance is recreated without replaying shots missed while concealed
+
 ### Requirement: Render Lane Towers
 The frontend SHALL render each allied or currently team-visible lane tower as a small, team-colored fortified outpost with a visible cannon and a health bar that updates as the tower takes damage. The cannon SHALL rotate to face the tower's current target and SHALL visibly fire when the tower fires while visible. The outpost design SHALL be visually smaller than the main-tower design while sharing its fortified visual style. When the tower is destroyed, the frontend SHALL render a static ruin at its last position until the match ends, without a health bar or active cannon, subject to current team visibility for enemy ruins. The ruin SHALL not be targetable or block movement.
 

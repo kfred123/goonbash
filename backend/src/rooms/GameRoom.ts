@@ -10,6 +10,7 @@ import { getLaneTowerPlacements } from "./towerPlacement.js";
 import { effectiveTerrainMoveSpeed } from "./terrain.js";
 import { applyTankProgressionStats, distributeKillXp, purchaseAbilityUpgrade } from "./progressionService.js";
 import { endMatchAfterBaseDestroyed, recordPlayerDamage, recordPlayerKill, removeLeavingPlayerTank } from "./matchResults.js";
+import { VisibilitySerializer } from "./VisibilitySerializer.js";
 
 const RESPAWN_DELAY_MS = 3000;
 const PROJECTILE_HIT_RADIUS = 12;
@@ -26,6 +27,7 @@ const WORLD_BOUNDS = { minX: MIN_X, maxX: MAX_X, minY: MIN_Y, maxY: MAX_Y };
 
 export class GameRoom extends Room<GameState> {
   maxClients = 10;
+  private readonly visibilitySerializer = new VisibilitySerializer();
   private spawnTimer = 0;
   private projectileLifetimes = new Map<string, number>();
   private minionPaths = new Map<string, Array<{ x: number; y: number }>>();
@@ -38,6 +40,8 @@ export class GameRoom extends Room<GameState> {
     const state = new GameState();
     state.lobbyName = lobby.name;
     this.setState(state);
+    this.visibilitySerializer.reset(state);
+    this.setSerializer(this.visibilitySerializer);
     this.createBase("blue", BLUE_BASE_POSITION.x, BLUE_BASE_POSITION.y);
     this.createBase("red", RED_BASE_POSITION.x, RED_BASE_POSITION.y);
     this.onMessage("command", (client, command: { x?: unknown; y?: unknown; targetId?: unknown }) => {
@@ -46,16 +50,16 @@ export class GameRoom extends Room<GameState> {
       const targetId = typeof command?.targetId === "string" ? command.targetId : "";
       if (targetId) {
         const target = this.findLivingEntity(targetId);
-        if (target && target.team !== tank.team) {
-          if (!this.teamVision(tank.team).canSee(target)) {
-            client.send(INVALID_TARGET_MESSAGE, { action: "attack", reason: "invalid_target" });
-            return;
-          }
+        if (!target || !this.teamVision(tank.team).canSee(target)) {
+          client.send(INVALID_TARGET_MESSAGE, { action: "attack", reason: "invalid_target" });
+          return;
+        }
+        if (target.team !== tank.team) {
           tank.lockedTargetId = targetId;
           tank.hasMoveTarget = false;
           return;
         }
-        // invalid/friendly targetId: fall through and try to treat it as a move-to-point instead
+        // Friendly targetId: fall through and treat it as a move-to-point instead.
       }
       if (this.isEntrenched(tank, Date.now())) return;
       const x = typeof command?.x === "number" ? command.x : NaN;
@@ -93,8 +97,8 @@ export class GameRoom extends Room<GameState> {
       if (abilityId === "damagedealer-homing-rocket") {
         if (typeof payload.targetId !== "string") return;
         const target = this.findLivingEntity(payload.targetId);
-        if (!target || !isValidRocketTarget(tank, target, abilityConfig.range ?? 0)) return;
-        if (!this.teamVision(tank.team).canSee(target)) {
+        if (!target || !this.teamVision(tank.team).canSee(target)
+          || !isValidRocketTarget(tank, target, abilityConfig.range ?? 0)) {
           client.send(INVALID_TARGET_MESSAGE, { action: "rocket", reason: "invalid_target" });
           return;
         }
@@ -543,6 +547,7 @@ export class GameRoom extends Room<GameState> {
   }
 
   onLeave (client: Client, consented: boolean) {
+    this.visibilitySerializer.removeClient(client);
     console.log(client.sessionId, "left!");
     removeLeavingPlayerTank(this.state, client.sessionId);
     this.state.hostSessionId = resolveHostAfterLeave(
@@ -554,6 +559,7 @@ export class GameRoom extends Room<GameState> {
   }
 
   onDispose() {
+    this.visibilitySerializer.dispose();
     console.log("room", this.roomId, "disposing...");
   }
 
