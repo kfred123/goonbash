@@ -1,4 +1,4 @@
-import { Base, getBaseCannonAimAngle, getBaseCannonMuzzlePosition, Projectile } from "shared";
+import { Base, getBaseCannonAimAngle, getBaseCannonMuzzlePosition, Projectile, Tower, TOWER_CANNON_MUZZLE_DISTANCE } from "shared";
 
 export interface CombatCandidate {
   id: string;
@@ -68,13 +68,22 @@ export function createShotProjectile(shooter: ShootingUnit, target: CombatCandid
   projectile.team = shooter.team;
   projectile.ownerId = shooter.id;
   projectile.targetId = target.id;
-  const origin = shooter instanceof Base ? getBaseCannonMuzzlePosition(shooter, target) : shooter;
+  let origin = shooter instanceof Base ? getBaseCannonMuzzlePosition(shooter, target) : shooter;
   projectile.x = origin.x;
   projectile.y = origin.y;
   projectile.damage = shooter.fireDamage;
   if (shooter instanceof Base) {
     shooter.shotAngle = getBaseCannonAimAngle(shooter, target);
     shooter.shotCount += 1;
+  } else if (shooter instanceof Tower) {
+    shooter.shotAngle = Math.atan2(target.y - shooter.y, target.x - shooter.x);
+    shooter.shotCount += 1;
+    origin = {
+      x: shooter.x + Math.cos(shooter.shotAngle) * TOWER_CANNON_MUZZLE_DISTANCE,
+      y: shooter.y + Math.sin(shooter.shotAngle) * TOWER_CANNON_MUZZLE_DISTANCE
+    };
+    projectile.x = origin.x;
+    projectile.y = origin.y;
   }
   return projectile;
 }

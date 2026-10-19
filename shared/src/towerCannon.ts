@@ -1,0 +1,1 @@
+export const TOWER_CANNON_MUZZLE_DISTANCE = 21;
