@@ -8,12 +8,12 @@ The system SHALL render Healer, Tank and Damagedealer as distinct armored tracke
 #### Scenario: Tank rendered in game world
 - **WHEN** a player tank is rendered
 - **THEN** Healer uses the H1 repair tank with an ivory tool turret and rear toolboxes, Tank uses the T2 wide-tracked Bastion with wedge armor, and Damagedealer uses the D1 narrow Jaeger with a long cannon
-- **AND** team color, ownership marking, health and name remain identifiable
+- **AND** team color, the local player's `(You)` name suffix, health and name remain identifiable without surrounding circles
 
 #### Scenario: Role preview in lobby
 - **WHEN** a player views the role selection controls in the waiting lobby
 - **THEN** each role card displays the same vehicle identity in the player's team color
-- **AND** its simplified small drawing retains visible tracks and cannon
+- **AND** its drawing retains visible tracks and cannon at a nominal width of 32 units instead of 20, with clear space for the role label within the card
 
 ## ADDED Requirements
 
@@ -23,7 +23,7 @@ Each role's cannon SHALL face its current combat target independently of the cha
 #### Scenario: Moving while engaging a target
 - **WHEN** a tank moves in one direction and engages an enemy in another
 - **THEN** its chassis follows movement and its turret points at the enemy
-- **AND** the selection marking and attached labels remain correctly positioned
+- **AND** attached labels remain correctly positioned
 
 #### Scenario: Combat target disappears
 - **WHEN** the tank no longer has a visible combat target
@@ -38,11 +38,17 @@ Every repair wrench illustration SHALL depict a consistent recognizable metal to
 - **AND** fine highlights may be omitted at small sizes without replacing the jaw or ring with abstract lines
 
 ### Requirement: Preserve vehicle presentation lifecycle
-Role visuals SHALL preserve independent healer ability effects, ownership marking, camera follow, death visibility and cleanup without changing combat rules.
+Role visuals SHALL preserve independent healer service marks and speed effects, camera follow, death visibility and cleanup without changing combat rules. Vehicles SHALL NOT have surrounding selection, team, healing or protection circles.
 
 #### Scenario: Defensive ability on the local Tank
 - **WHEN** the local Tank activates a defensive ability
-- **THEN** protection is visible without removing the white ownership marking
+- **THEN** no protection or ownership circle appears around the vehicle
+- **AND** the defensive ability state remains visible in the HUD
+
+#### Scenario: Active healing without rings
+- **WHEN** Heal Aura is active
+- **THEN** healed allies retain their floating repair wrench and the Healer retains its service marks
+- **AND** no healing ring surrounds the vehicle
 
 #### Scenario: Death and removal
 - **WHEN** a tank dies or is removed

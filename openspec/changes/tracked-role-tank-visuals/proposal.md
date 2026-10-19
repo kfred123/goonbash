@@ -9,7 +9,8 @@ The current geometric Tank and Damagedealer and round Healer do not read strongl
 - Replace all three role drawings with tracked, armored vehicles using the selected designs in gameplay and lobby.
 - Rotate each cannon toward its combat target independently of the chassis.
 - Replace all wrench drawings with one recognizable combination wrench: open jaw, solid shaft and open ring end.
-- Preserve team identification, selection, ability effects, camera follow and gameplay rules.
+- Preserve team identification, camera follow and gameplay rules without surrounding selection, team, healing or defensive circles, as requested in follow-up feedback.
+- Increase lobby vehicles from 20 to 32 units nominal width and enlarge role cards to keep labels clear.
 
 ## Capabilities
 

@@ -40,7 +40,7 @@ for (const heal of [false, true]) {
       const { graphics, calls } = recorder();
       drawWorkshopEffects(graphics, { heal, speed }, 500);
       assert.deepEqual(calls[0], { method: 'clear', args: [] });
-      assert.equal(calls.filter((call) => call.method === 'strokeCircle').length, heal ? 2 : 0);
+      assert.equal(calls.filter((call) => call.method === 'strokeCircle' || call.method === 'fillCircle').length, 0, 'no surrounding ability circles');
       assert.equal(calls.filter((call) => call.method === 'lineBetween').length, (heal ? 2 : 0) + (speed ? 4 : 0));
       calls.length = 0;
       drawWorkshopEffects(graphics, { heal: false, speed: false }, 600);

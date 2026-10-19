@@ -8,25 +8,14 @@ export function createRoleTank(scene: Phaser.Scene, x: number, y: number, role: 
   const effects = scene.add.graphics().setScale(size / 40).clear();
   const chassis = scene.add.graphics().setScale(size / 68);
   const turret = scene.add.graphics().setScale(size / 68);
-  const defense = scene.add.circle(0, 0, size * 0.59, 0, 0).setStrokeStyle(7, 0x101720).setVisible(false);
-  const outline = scene.add.circle(0, 0, size * 0.66, 0, 0);
   drawRoleChassis(chassis, role, teamColor, size > 20);
   drawRoleTurret(turret, role, teamColor, size > 20);
-  root.add([effects, defense, chassis, turret, outline]);
+  root.add([effects, chassis, turret]);
 
   return Object.assign(root, {
     chassis,
     turret,
     effects,
-    defense,
-    outline,
-    setStrokeStyle(width: number, color: number) {
-      outline.setStrokeStyle(width, color);
-      return root;
-    },
-    setDefensiveState(active: boolean) {
-      defense.setVisible(active);
-    },
     updateAbilityVisuals(dead: boolean, healUntil: number, speedUntil: number, now: number, animationTime: number) {
       if (role === 'healer') {
         effects.rotation = chassis.rotation;

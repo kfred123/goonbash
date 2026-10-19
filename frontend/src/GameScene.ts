@@ -611,7 +611,7 @@ export class GameScene extends Phaser.Scene {
     ROLE_ORDER.forEach((role, index) => {
       const x = 250 + index * 150;
       const teamColor = myTank?.team === 'blue' ? 0x4d8dff : 0xff4444;
-      this.addRoleCard(x, 460, role, myTank?.role === role, teamColor, () => this.room.send('select_role', role));
+      this.addRoleCard(x, 467, role, myTank?.role === role, teamColor, () => this.room.send('select_role', role));
     });
 
     this.addButton(730, 30, 130, 34, 'LEAVE GAME', () => this.backToMainMenu());
@@ -654,12 +654,12 @@ export class GameScene extends Phaser.Scene {
     y = this.viewportY(y);
     const visual = ROLE_VISUALS[role];
     const width = 130;
-    const height = 60;
+    const height = 84;
     const card = this.add.rectangle(x, y, width, height, teamColor, selected ? 0.85 : 0.25).setScale(this.viewportScale()).setInteractive({ useHandCursor: true });
     card.setStrokeStyle(selected ? 4 : 2, teamColor, selected ? 1 : 0.6);
-    const icon = this.createRoleShape(x, y - 8, role, 20, teamColor);
+    const icon = this.createRoleShape(x, y - 10 * this.viewportScale(), role, 32, teamColor);
     icon.setAlpha(selected ? 1 : 0.85).setScale(this.viewportScale());
-    const text = this.add.text(x, y + 18, visual.label, { color: '#ffffff', fontSize: '13px', fontStyle: 'bold' }).setOrigin(0.5).setScale(this.viewportScale());
+    const text = this.add.text(x, y + 27 * this.viewportScale(), visual.label, { color: '#ffffff', fontSize: '13px', fontStyle: 'bold' }).setOrigin(0.5).setScale(this.viewportScale());
     card.on('pointerover', () => card.setFillStyle(teamColor, selected ? 0.85 : 0.45));
     card.on('pointerout', () => card.setFillStyle(teamColor, selected ? 0.85 : 0.25));
     card.on('pointerdown', action);
@@ -773,7 +773,6 @@ export class GameScene extends Phaser.Scene {
       // Spawn new
       const sprite = this.createRoleShape(x, y, role, 40, teamColor);
       sprite.chassis.rotation = sprite.turret.rotation = tank.team === 'blue' ? Math.PI / 2 : -Math.PI / 2;
-      sprite.setStrokeStyle(isMe ? 4 : 2, isMe ? 0xffffff : teamColor);
       const nameText = this.add.text(x, y - 38, fullDisplayName, {
         color: tank.team === 'blue' ? '#4d8dff' : '#ff4444',
         fontSize: '11px'
@@ -1251,11 +1250,7 @@ export class GameScene extends Phaser.Scene {
     this.applyRoleAbilityVisuals();
   }
 
-  /**
-   * Renders the visible side-effects of an active role ability on the units themselves:
-   * a dark protection ring surrounds the Tank while defended, and a bobbing wrench icon
-   * hovers over every unit currently receiving the healer's heal-aura.
-   */
+  /** Updates healer service marks, exhaust and the repair tool over healed allies without surrounding rings. */
   private applyRoleAbilityVisuals() {
     if (!this.arenaStarted || !this.room) return;
     const now = Date.now();
@@ -1283,11 +1278,6 @@ export class GameScene extends Phaser.Scene {
         now,
         this.time.now
       );
-      const defensiveAbilityActive = tank.role === 'tank' && (
-        now < (tank.abilities?.get('tank-shield')?.activeUntil ?? 0) ||
-        now < (tank.abilities?.get('tank-entrench')?.activeUntil ?? 0)
-      );
-      sprite.setDefensiveState(tank.state !== 'dead' && defensiveAbilityActive);
     });
 
     healedSessionIds.forEach((sessionId) => {

@@ -50,10 +50,11 @@
         this.arenaStarted = true;
         this.upsertTank(tank, 'local');
         const sprite = this.tankSprites.get('local');
-        const { effects, chassis, turret, defense, outline } = sprite;
+        const { effects, chassis, turret } = sprite;
         check(sprite instanceof Phaser.GameObjects.Container, 'Healer verwendet einen Container');
         check(sprite.x === 100 && sprite.y === 100 && sprite.width === 40, 'Weltposition und Groesse erhalten');
-        check(outline.strokeColor === 0xffffff && outline.lineWidth === 4, 'Eigener Spieler hat weissen Auswahlrand');
+        check(sprite.list.length === 3 && sprite.list.every(child => child instanceof Phaser.GameObjects.Graphics), 'Eigener Spieler hat keine Kreisobjekte');
+        check(this.tankNameTexts.get('local').text.includes('(You)'), 'Eigener Spieler bleibt am Namen erkennbar');
         check(this.cameras.main._follow === sprite, 'Kamera folgt der Container-Wurzel');
         this.upsertTank({ ...tank, x: 140 }, 'local');
         GameScene.prototype.update.call(this);
@@ -112,21 +113,32 @@
         this.applyRoleAbilityVisuals();
         check(effects.commandBuffer.length === 0, 'Abgelaufene Effekte werden geloescht');
 
-        const preview = this.createRoleShape(240, 100, 'healer', 20, 0xff4444).setScale(1.5);
-        check(preview.chassis.scaleX === 20 / 68 && preview.scaleX === 1.5, 'Lobbydetailgroesse und Viewportskalierung getrennt');
+        const preview = this.createRoleShape(240, 100, 'healer', 32, 0xff4444).setScale(1.5);
+        check(preview.chassis.scaleX === 32 / 68 && preview.scaleX === 1.5, 'Lobbydetailgroesse und Viewportskalierung getrennt');
         check(preview.effects.commandBuffer.length === 0, 'Lobbyvorschau hat keine aktiven Effekte');
         preview.destroy();
-        for (const role of ['healer', 'tank', 'damagedealer']) {
-          const model = this.createRoleShape(0, 0, role, 40, 0x4d8dff);
-          check(model instanceof Phaser.GameObjects.Container && model.chassis !== model.turret, `${role}: Wanne und Turm getrennt`);
-          model.destroy();
-          this.addRoleCard(400, 300, role, true, 0xff4444, () => {});
-          const lobbyModel = this.menuElements.find(element => element instanceof Phaser.GameObjects.Container);
-          check(lobbyModel?.width === 20 && lobbyModel.turret.commandBuffer.length > 0, `${role}: Lobbykarte zeigt kleinen Panzer mit Kanone`);
-          this.destroyMenuElements();
+        for (const [width, height] of [[1000, 810], [640, 480]]) {
+          this.scale.resize(width, height);
+          for (const [index, role] of ['healer', 'tank', 'damagedealer'].entries()) {
+            const model = this.createRoleShape(0, 0, role, 40, 0x4d8dff);
+            check(model instanceof Phaser.GameObjects.Container && model.chassis !== model.turret, `${role}: Wanne und Turm getrennt (${width}px)`);
+            check(model.list.length === 3 && model.list.every(child => child instanceof Phaser.GameObjects.Graphics), `${role}: keine umlaufenden Kreisobjekte (${width}px)`);
+            model.destroy();
+            this.addRoleCard(250 + index * 150, 467, role, index === 1, 0xff4444, () => {});
+            const [card, lobbyModel, label] = this.menuElements;
+            const bounds = card.getBounds();
+            const textBounds = label.getBounds();
+            const scale = lobbyModel.scaleX * 32 / 68;
+            check(lobbyModel.width === 32 && lobbyModel.turret.commandBuffer.length > 0, `${role}: Lobbygrafik 60 Prozent groesser (${width}px)`);
+            check(lobbyModel.y - 50 * scale > bounds.top && lobbyModel.y + 41 * scale < textBounds.top, `${role}: Grafik passt oberhalb der Beschriftung (${width}px)`);
+            check(textBounds.bottom < bounds.bottom && textBounds.left > bounds.left && textBounds.right < bounds.right, `${role}: Beschriftung passt in Karte (${width}px)`);
+            check(bounds.top >= this.viewportY(425) - 0.01 && bounds.bottom < this.viewportY(515), `${role}: Karte passt zwischen Ueberschrift und Startknopf (${width}px)`);
+            this.destroyMenuElements();
+          }
         }
+        this.scale.resize(1000, 810);
         this.removeTank('local');
-        check([sprite, chassis, turret, effects, defense, outline].every(child => !child.scene), 'Spielerentfernung zerstoert alle Kindobjekte');
+        check([sprite, chassis, turret, effects].every(child => !child.scene), 'Spielerentfernung zerstoert alle Kindobjekte');
         check(!this.tankTargets.has('local') && !this.healthBars.has('local') && !this.tankNameTexts.has('local'), 'Spielerentfernung raeumt Folgeanzeigen auf');
         check(this.cameras.main._follow === null, 'Spielerentfernung beendet Kamerafolge');
 
@@ -135,13 +147,13 @@
         this.upsertTank(tank, 'local');
         const respawned = this.tankSprites.get('local');
         this.applyRoleAbilityVisuals();
-        check(respawned.defense.visible && respawned.outline.strokeColor === 0xffffff, 'Schutz behaelt weissen Auswahlrand');
+        check(respawned.list.length === 3 && respawned.list.every(child => child instanceof Phaser.GameObjects.Graphics), 'Shield erzeugt keinen Schutz- oder Auswahlkreis');
         tank.abilities = new Map([['tank-entrench', { activeUntil: now + 60000 }]]);
         this.applyRoleAbilityVisuals();
-        check(respawned.defense.visible, 'Entrench zeigt ebenfalls Schutz');
+        check(respawned.list.length === 3 && respawned.list.every(child => child instanceof Phaser.GameObjects.Graphics), 'Entrench erzeugt keinen Schutzkreis');
         tank.abilities.clear();
         this.applyRoleAbilityVisuals();
-        check(!respawned.defense.visible, 'Abgelaufener Schutz verschwindet');
+        check(respawned.list.length === 3, 'Abgelaufene Verteidigung hinterlaesst keine Kreisobjekte');
         const children = [...respawned.list];
         this.clearArenaPresentation();
         check(!respawned.scene && children.every((child) => !child.scene), 'Arena-Aufraeumen zerstoert gesamten Panzer');
@@ -172,15 +184,12 @@
         [0x4d8dff, 0xff4444].forEach((color, teamIndex) => {
           const x = 210 + teamIndex * 280;
           const model = this.createRoleShape(x, y + 10, role, 40, color).setScale(2.5);
-          model.setStrokeStyle(teamIndex ? 2 : 4, teamIndex ? color : 0xffffff);
           model.role = role;
-          model.setDefensiveState(role === 'tank');
           this.models.push(model);
           const world = this.createRoleShape(720 + teamIndex * 100, y - 15, role, 40, color);
-          world.setStrokeStyle(2, color);
           world.role = role;
           this.models.push(world);
-          this.createRoleShape(720 + teamIndex * 100, y + 45, role, 20, color);
+          this.createRoleShape(720 + teamIndex * 100, y + 45, role, 32, color);
         });
       });
       this.add.rectangle(500, 702, 980, 180, 0x1c2a3c);
