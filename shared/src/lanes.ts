@@ -5,6 +5,23 @@ export interface LanePoint {
 
 export const LANE_EDGE_Y = [150, 900, 1650] as const;
 export const LANE_TURN_X = [750, 1650] as const;
+export const LANE_ROAD_WIDTH = 112;
+
+/** Returns whether a point falls within the rendered stone width of any lane path. */
+export function isPointOnLane(point: LanePoint, lanes: LanePoint[][], roadWidth = LANE_ROAD_WIDTH): boolean {
+  return lanes.some((lane) => lane.slice(1).some((to, index) => {
+    const from = lane[index];
+    const segmentX = to.x - from.x;
+    const segmentY = to.y - from.y;
+    const segmentLengthSquared = segmentX * segmentX + segmentY * segmentY;
+    const projection = segmentLengthSquared === 0
+      ? 0
+      : Math.max(0, Math.min(1, ((point.x - from.x) * segmentX + (point.y - from.y) * segmentY) / segmentLengthSquared));
+    const closestX = from.x + projection * segmentX;
+    const closestY = from.y + projection * segmentY;
+    return Math.hypot(point.x - closestX, point.y - closestY) <= roadWidth / 2;
+  }));
+}
 
 /**
  * Builds the original lane waypoints from one base to its opponent.

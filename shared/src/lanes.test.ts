@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { buildLanePath, getLaneWaypoints, pointAlongPath } from "./lanes.js";
+import { buildLanePath, getLaneWaypoints, isPointOnLane, pointAlongPath } from "./lanes.js";
 
 const blueBase = { x: 240, y: 900 };
 const redBase = { x: 2160, y: 900 };
@@ -41,4 +41,12 @@ test("interpolates by distance along each segment", () => {
     x: 3,
     y: 0.5
   });
+});
+
+test("classifies points inside the rendered lane width as lane terrain", () => {
+  const lanes = getLaneWaypoints(blueBase, redBase);
+  assert.equal(isPointOnLane({ x: 1200, y: 900 }, lanes), true);
+  assert.equal(isPointOnLane({ x: 1200, y: 955 }, lanes), true);
+  assert.equal(isPointOnLane({ x: 1200, y: 957 }, lanes), false);
+  assert.equal(isPointOnLane({ x: 1200, y: 700 }, lanes), false);
 });

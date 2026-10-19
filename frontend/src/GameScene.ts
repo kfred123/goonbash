@@ -3,6 +3,7 @@ import { Client, Room } from 'colyseus.js';
 import {
   GameState,
   getLaneWaypoints,
+  LANE_ROAD_WIDTH,
   getAbilityDefinition,
   getRequiredXpForNextLevel,
   LobbyInfo,
@@ -387,7 +388,7 @@ export class GameScene extends Phaser.Scene {
 
   private drawLaneStreets() {
     const lanes = getLaneWaypoints({ x: 240, y: 900 }, { x: 2160, y: 900 });
-    const roadWidth = 112;
+    const roadWidth = LANE_ROAD_WIDTH;
     const borderWidth = 124;
     const textureKey = 'lane-roads';
     if (this.textures.exists(textureKey)) this.textures.remove(textureKey);

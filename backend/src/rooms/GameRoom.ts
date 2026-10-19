@@ -6,6 +6,7 @@ import { canChangeRole, canChangeTeam, canJoinRoom, canManageLobby, canUseGamepl
 import { clampToBounds, createShotProjectile, findNearestEnemyInRange, getLivingTowers, hasDied, hasProjectileReachedTarget, isReadyToRespawn, isWithinRange, stepHomingProjectile, stepProjectileTowardTarget, stepToward, applyDamage as computeDamagedHp, nearBasePosition, respawnTank, tickShooter } from "./combat.js";
 import { activateAbility, applyDamageReduction, canActivateRoleAbility, effectiveFireCooldown, effectiveMoveSpeed, healOverTick, homingRocketDamage, isAbilityActive, isMovementLocked, isValidRocketTarget, strongestReduction } from "./ability.js";
 import { getLaneTowerPlacements } from "./towerPlacement.js";
+import { effectiveTerrainMoveSpeed } from "./terrain.js";
 import { applyTankProgressionStats, distributeKillXp, purchaseAbilityUpgrade } from "./progressionService.js";
 import { endMatchAfterBaseDestroyed, recordPlayerDamage, recordPlayerKill, removeLeavingPlayerTank } from "./matchResults.js";
 
@@ -142,8 +143,9 @@ export class GameRoom extends Room<GameState> {
       const dy = minion.waypointY - minion.y;
       const distance = Math.hypot(dx, dy);
       if (distance > 1) {
-        minion.x += dx / distance * minion.speed * elapsedSeconds;
-        minion.y += dy / distance * minion.speed * elapsedSeconds;
+        const speed = effectiveTerrainMoveSpeed(minion.speed, minion) * elapsedSeconds;
+        minion.x += dx / distance * speed;
+        minion.y += dy / distance * speed;
       } else {
         const remainingPath = this.minionPaths.get(minion.id);
         const next = remainingPath?.shift();
@@ -177,7 +179,8 @@ export class GameRoom extends Room<GameState> {
       const speedMultiplier = speedAbility
         ? computeAbilityConfigForLevel("healer-speed", speedAbility.level).magnitude
         : 1;
-      const speed = effectiveMoveSpeed(tank.moveSpeed, speedActive, speedMultiplier) * elapsedSeconds;
+      const effectiveSpeed = effectiveMoveSpeed(tank.moveSpeed, speedActive, speedMultiplier);
+      const speed = effectiveTerrainMoveSpeed(effectiveSpeed, tank) * elapsedSeconds;
       if (tank.lockedTargetId) {
         const target = this.findLivingEntity(tank.lockedTargetId);
         if (!target || isWithinRange(tank, target, tank.fireRange)) return;
