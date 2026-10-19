@@ -1,17 +1,19 @@
 <!doctype html>
 <html lang="de">
 <meta charset="utf-8">
-<title>Werkstatt-Sanitaeter: Renderer-Integration</title>
+<title>GoonBash: Panzer und Werkzeug</title>
 <style>
   body { margin: 24px; background: #151c28; color: #f3f0dc; font: 16px system-ui; }
   canvas { display: block; max-width: 100%; }
 </style>
-<h1>Werkstatt-Sanitaeter</h1>
+<h1>H1 Sanitaetspanzer / T2 Bastion / D1 Jaeger</h1>
 <p id="result">Renderer-Integration wird geprueft ...</p>
 <div id="preview"></div>
 <script type="module">
   import Phaser from 'phaser';
   import { GameScene } from '../src/GameScene.ts';
+  import { drawWrench } from '../src/wrenchVisuals.ts';
+  import { getVehicleHeading } from '../src/roleTankVisuals.ts';
 
   const checks = [];
   function check(condition, message) {
@@ -21,7 +23,14 @@
 
   class RendererCheck extends GameScene {
     preload() {}
-    update() {}
+    update(time) {
+      this.models?.forEach((model) => {
+        model.turret.rotation = Math.sin(time / 1600) * 0.9;
+        if (model.role === 'healer') {
+          model.updateAbilityVisuals(false, 1000, 1000, 100, time);
+        }
+      });
+    }
 
     create() {
       try {
@@ -29,16 +38,19 @@
         const tank = {
           x: 100, y: 100, team: 'blue', role: 'healer', name: 'Werkstatt',
           hp: 90, maxHp: 90, level: 1, state: 'alive',
+          targetId: '',
           abilities: new Map([
             ['healer-aura', { activeUntil: now + 60000 }],
             ['healer-speed', { activeUntil: now + 60000 }]
           ])
         };
-        this.room = { sessionId: 'local', state: { tanks: new Map([['local', tank]]) } };
+        this.room = { sessionId: 'local', state: {
+          tanks: new Map([['local', tank]]), minions: new Map(), bases: new Map(), towers: new Map()
+        } };
         this.arenaStarted = true;
         this.upsertTank(tank, 'local');
         const sprite = this.tankSprites.get('local');
-        const [effects, body, outline] = sprite.list;
+        const { effects, chassis, turret, defense, outline } = sprite;
         check(sprite instanceof Phaser.GameObjects.Container, 'Healer verwendet einen Container');
         check(sprite.x === 100 && sprite.y === 100 && sprite.width === 40, 'Weltposition und Groesse erhalten');
         check(outline.strokeColor === 0xffffff && outline.lineWidth === 4, 'Eigener Spieler hat weissen Auswahlrand');
@@ -48,8 +60,43 @@
         check(sprite.x === 110 && sprite.y === 100, 'Positionsinterpolation bewegt die Figur');
         check(this.tankNameTexts.get('local').x === sprite.x, 'Name folgt der Wurzelposition');
         check(this.healthBars.get('local').bg.x === sprite.x, 'Lebensbalken folgt der Wurzelposition');
+        check(this.healthBars.get('local').bg.getBounds().bottom < this.tankNameTexts.get('local').getBounds().top, 'Lebensbalken und Name ueberlappen nicht');
         check(effects.commandBuffer.length > 0, 'Gleichzeitige Effekte werden gezeichnet');
         check(this.healEffectIcons.has('local'), 'Bisheriger Heilungs-Schraubenschluessel bleibt erhalten');
+        const effect = this.healEffectIcons.get('local');
+        const expectedWrench = this.add.graphics();
+        drawWrench(expectedWrench, 0, 0, 22);
+        check(JSON.stringify(effect.commandBuffer) === JSON.stringify(expectedWrench.commandBuffer), 'Heilung verwendet dieselbe Werkzeuggeometrie');
+        expectedWrench.destroy();
+        const hudExpected = this.add.graphics().clear();
+        const hudActual = this.add.graphics();
+        drawWrench(hudExpected, 0, 0, 22);
+        this.drawAbilityIcon(hudActual, 'healer-aura', 0, 0, 22);
+        check(JSON.stringify(hudActual.commandBuffer) === JSON.stringify(hudExpected.commandBuffer), 'HUD verwendet dieselbe Werkzeuggeometrie');
+        hudExpected.destroy();
+        hudActual.destroy();
+
+        const enemy = { ...tank, x: 250, y: 100, team: 'red', role: 'damagedealer', abilities: new Map() };
+        this.room.state.tanks.set('enemy', enemy);
+        this.upsertTank(enemy, 'enemy');
+        tank.targetId = 'enemy';
+        this.tankTargets.set('local', { x: sprite.x, y: sprite.y + 40 });
+        this.tankTargets.set('enemy', { x: 290, y: 100 });
+        GameScene.prototype.update.call(this);
+        const enemySprite = this.tankSprites.get('enemy');
+        check(Math.abs(Math.abs(chassis.rotation) - Math.PI) < 0.001, 'Wanne folgt Bewegung nach unten');
+        check(Math.abs(turret.rotation - getVehicleHeading(sprite, enemySprite, 0)) < 0.001, 'Turm zielt unabhaengig auf interpolierten Gegner');
+        const heading = turret.rotation;
+        tank.targetId = '';
+        GameScene.prototype.update.call(this);
+        check(turret.rotation === heading, 'Turm behaelt ohne Ziel seine letzte Richtung');
+        tank.targetId = 'enemy';
+        enemy.state = 'dead';
+        GameScene.prototype.update.call(this);
+        check(turret.rotation === heading, 'Totes Ziel dreht Turm nicht weiter');
+        tank.targetId = '';
+        this.removeTank('enemy');
+        this.room.state.tanks.delete('enemy');
 
         tank.state = 'dead';
         this.upsertTank(tank, 'local');
@@ -65,31 +112,45 @@
         this.applyRoleAbilityVisuals();
         check(effects.commandBuffer.length === 0, 'Abgelaufene Effekte werden geloescht');
 
-        const preview = this.createRoleShape(240, 100, 'circle', 20, 0xff4444).setScale(1.5);
-        check(preview.list[1].scaleX === 0.5 && preview.scaleX === 1.5, 'Lobbydetailgroesse und Viewportskalierung getrennt');
-        check(preview.list[0].commandBuffer.length === 0, 'Lobbyvorschau hat keine aktiven Effekte');
+        const preview = this.createRoleShape(240, 100, 'healer', 20, 0xff4444).setScale(1.5);
+        check(preview.chassis.scaleX === 20 / 68 && preview.scaleX === 1.5, 'Lobbydetailgroesse und Viewportskalierung getrennt');
+        check(preview.effects.commandBuffer.length === 0, 'Lobbyvorschau hat keine aktiven Effekte');
         preview.destroy();
-        const square = this.createRoleShape(0, 0, 'square', 40, 0x4d8dff);
-        const triangle = this.createRoleShape(0, 0, 'triangle', 40, 0xff4444);
-        check(square instanceof Phaser.GameObjects.Rectangle && triangle instanceof Phaser.GameObjects.Triangle, 'Andere Rollen bleiben unveraendert');
-        square.destroy();
-        triangle.destroy();
+        for (const role of ['healer', 'tank', 'damagedealer']) {
+          const model = this.createRoleShape(0, 0, role, 40, 0x4d8dff);
+          check(model instanceof Phaser.GameObjects.Container && model.chassis !== model.turret, `${role}: Wanne und Turm getrennt`);
+          model.destroy();
+          this.addRoleCard(400, 300, role, true, 0xff4444, () => {});
+          const lobbyModel = this.menuElements.find(element => element instanceof Phaser.GameObjects.Container);
+          check(lobbyModel?.width === 20 && lobbyModel.turret.commandBuffer.length > 0, `${role}: Lobbykarte zeigt kleinen Panzer mit Kanone`);
+          this.destroyMenuElements();
+        }
         this.removeTank('local');
-        check(!sprite.scene && !body.scene && !effects.scene && !outline.scene, 'Spielerentfernung zerstoert alle Kindobjekte');
+        check([sprite, chassis, turret, effects, defense, outline].every(child => !child.scene), 'Spielerentfernung zerstoert alle Kindobjekte');
         check(!this.tankTargets.has('local') && !this.healthBars.has('local') && !this.tankNameTexts.has('local'), 'Spielerentfernung raeumt Folgeanzeigen auf');
         check(this.cameras.main._follow === null, 'Spielerentfernung beendet Kamerafolge');
 
+        tank.role = 'tank';
+        tank.abilities = new Map([['tank-shield', { activeUntil: now + 60000 }]]);
         this.upsertTank(tank, 'local');
         const respawned = this.tankSprites.get('local');
+        this.applyRoleAbilityVisuals();
+        check(respawned.defense.visible && respawned.outline.strokeColor === 0xffffff, 'Schutz behaelt weissen Auswahlrand');
+        tank.abilities = new Map([['tank-entrench', { activeUntil: now + 60000 }]]);
+        this.applyRoleAbilityVisuals();
+        check(respawned.defense.visible, 'Entrench zeigt ebenfalls Schutz');
+        tank.abilities.clear();
+        this.applyRoleAbilityVisuals();
+        check(!respawned.defense.visible, 'Abgelaufener Schutz verschwindet');
         const children = [...respawned.list];
         this.clearArenaPresentation();
-        check(!respawned.scene && children.every((child) => !child.scene), 'Arena-Aufraeumen zerstoert gesamten Healer');
+        check(!respawned.scene && children.every((child) => !child.scene), 'Arena-Aufraeumen zerstoert gesamten Panzer');
         check(this.tankSprites.size === 0 && this.healEffectIcons.size === 0, 'Arena-Aufraeumen leert die Maps');
         this.resetCamera();
         this.arenaStarted = false;
         this.drawPreview();
         window.healerCheckResult = { ok: true, checks };
-        document.getElementById('result').textContent = `${checks.length} Renderer-Pruefungen erfolgreich. Links vergroessert, rechts in Spiel- und Lobbygroesse.`;
+        document.getElementById('result').textContent = `${checks.length} Renderer-Pruefungen erfolgreich. Links vergroessert, rechts in Spiel- und Lobbygroesse. Tuerme drehen unabhaengig von der Wanne.`;
       } catch (error) {
         window.healerCheckResult = { ok: false, error: error.stack, checks };
         document.getElementById('result').textContent = error.message;
@@ -98,32 +159,47 @@
     }
 
     drawPreview() {
-      const states = [
-        ['Ruhe', false, false],
-        ['Heal Aura', true, false],
-        ['Speed', false, true],
-        ['Beide aktiv', true, true]
+      const roles = [
+        ['healer', 'H1 / Sanitaetspanzer'],
+        ['tank', 'T2 / Bastion'],
+        ['damagedealer', 'D1 / Jaeger']
       ];
-      states.forEach(([label, heal, speed], index) => {
-        const y = 90 + index * 145;
-        this.add.rectangle(500, y, 980, 135, index % 2 ? 0x627649 : 0x9b947f);
-        this.add.text(24, y - 55, label, { color: '#ffffff', fontSize: '18px' });
+      this.models = [];
+      roles.forEach(([role, label], index) => {
+        const y = 115 + index * 180;
+        this.add.rectangle(500, y, 980, 170, index % 2 ? 0x627649 : 0x9b947f);
+        this.add.text(24, y - 74, label, { color: '#ffffff', fontSize: '18px' });
         [0x4d8dff, 0xff4444].forEach((color, teamIndex) => {
           const x = 210 + teamIndex * 280;
-          const model = this.createRoleShape(x, y, 'circle', 40, color).setScale(2.5);
+          const model = this.createRoleShape(x, y + 10, role, 40, color).setScale(2.5);
           model.setStrokeStyle(teamIndex ? 2 : 4, teamIndex ? color : 0xffffff);
-          model.updateAbilityVisuals(false, heal ? 1000 : 0, speed ? 1000 : 0, 100, 500);
-          const world = this.createRoleShape(720 + teamIndex * 100, y - 15, 'circle', 40, color);
+          model.role = role;
+          model.setDefensiveState(role === 'tank');
+          this.models.push(model);
+          const world = this.createRoleShape(720 + teamIndex * 100, y - 15, role, 40, color);
           world.setStrokeStyle(2, color);
-          world.updateAbilityVisuals(false, heal ? 1000 : 0, speed ? 1000 : 0, 100, 500);
-          this.createRoleShape(720 + teamIndex * 100, y + 35, 'circle', 20, color);
+          world.role = role;
+          this.models.push(world);
+          this.createRoleShape(720 + teamIndex * 100, y + 45, role, 20, color);
         });
       });
+      this.add.rectangle(500, 702, 980, 180, 0x1c2a3c);
+      this.add.text(24, 622, 'Ein Werkzeug, ueberall dieselbe Form', { fontSize: '20px', color: '#f3f0dc' });
+      const largeWrench = this.add.graphics();
+      drawWrench(largeWrench, 165, 720, 115);
+      this.add.text(300, 677, 'Offenes Maul / Metallschaft / Ringende', { fontSize: '17px', color: '#bacbda' });
+      for (const [x, size] of [[340, 22], [470, 30], [600, 12]]) {
+        const g = this.add.graphics();
+        drawWrench(g, x, 735, size, size > 12);
+        this.add.text(x, 767, `${size} px`, { fontSize: '12px', color: '#bacbda' }).setOrigin(.5);
+      }
+      this.add.text(700, 710, '22 px: Heilung\n30 px: HUD\n12 px: Turm', { fontSize: '16px', color: '#bacbda', lineSpacing: 8 });
+      window.rolePreviewScene = this;
     }
   }
 
   new Phaser.Game({
-    type: Phaser.CANVAS, width: 1000, height: 660, parent: 'preview',
+    type: Phaser.CANVAS, width: 1000, height: 810, parent: 'preview',
     backgroundColor: '#151c28', audio: { noAudio: true }, scene: [RendererCheck]
   });
 </script>

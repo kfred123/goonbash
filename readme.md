@@ -26,13 +26,13 @@ The goal is simple: **Destroy the Enemy Command Center**.
 - Gain experience and scrap metal (currency) by destroying enemy minions and tanks.
 - Upgrade tank abilities or buy temporary power-ups during the match.
 
-### Healer: Werkstatt-Sanitaeter
+### Rollen-Grafik: Sanitaetspanzer, Bastion und Jaeger
 
-Der Healer erscheint im Spiel als runder Comic-Reparaturpanzer in seiner Teamfarbe, mit kurzen Ketten, hellem Werkzeugdeckel samt Schraubenschluessel und einer kurzen Reparaturduese. Die Lobby zeigt eine vereinfachte Version derselben Figur. Ein weisser Auswahlrand markiert weiterhin den eigenen Spieler.
+Alle drei Rollen erscheinen als Comic-Kettenpanzer in ihrer Teamfarbe. Der **Healer (H1 Sanitaetspanzer)** besitzt einen hellen Werkzeugturm und Heckboxen, der **Tank (T2 Bastion)** breite Ketten und schwere Keilpanzerung, der **Damagedealer (D1 Jaeger)** eine schmale Wanne und lange Kanone. Die Lobby zeigt vereinfachte Versionen derselben Fahrzeuge. Im Spiel dreht sich die Wanne in Fahrtrichtung, der Turm unabhaengig davon zum aktuellen Kampfziel; ohne Ziel behaelt er seine letzte Ausrichtung.
 
-Bei aktiver Heal Aura pulsiert ein kleiner gruener Ring am Fahrzeug; bei aktivem Speed erscheinen helle Auspuffstreifen. Beide Anzeigen koennen gleichzeitig auftreten und sind rein dekorativ: Spielwerte, Trefferbereich und Faehigkeitsregeln bleiben unveraendert. Die bestehenden Schraubenschluessel ueber geheilten Verbuendeten bleiben erhalten.
+Ein einheitlicher metallischer Schraubenschluessel mit offenem Maul, massivem Schaft und offenem Ringende kennzeichnet den Healer-Turm, das Heal-Aura-Symbol und geheilte Verbuendete. Bei aktiver Heal Aura pulsiert ein kleiner gruener Ring am Fahrzeug; bei aktivem Speed erscheinen helle Auspuffstreifen. Beide Anzeigen koennen gleichzeitig auftreten. Ein weisser Auswahlrand markiert den eigenen Spieler auch bei aktiver Verteidigung. Spielwerte, Trefferbereich und Faehigkeitsregeln bleiben unveraendert.
 
-Eine lokale Phaser-Pruefseite fuer die Healer-Darstellung laesst sich nach dem Clientstart unter `/tests/workshopHealer.html` oeffnen. Sie prueft Spiel- und Lobbygroessen sowie Teamfarben, Faehigkeitsanzeigen, Respawn und Aufraeumen ohne Backendverbindung.
+Eine lokale Phaser-Pruefseite laesst sich nach `npm run dev --workspace=frontend` unter `/tests/workshopHealer.html` oeffnen. Sie zeigt alle ausgewaehlten Rollen und den neuen Schraubenschluessel und prueft Spiel- und Lobbygroessen, Teamfarben, Turmausrichtung, Faehigkeitsanzeigen, Respawn und Aufraeumen ohne Backendverbindung.
 
 ## Technical Goals
 - **Multiplayer**: Real-time synchronization for competitive play.
