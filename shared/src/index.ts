@@ -10,7 +10,7 @@ export { Tower } from "./state/Tower";
 export { GameState } from "./state/GameState";
 export { MatchPlayerStats } from "./state/MatchPlayerStats";
 export { AbilityState } from "./state/AbilityState";
-export { LANE_EDGE_Y, LANE_TURN_X, buildLanePath, getLaneWaypoints, pointAlongPath } from "./lanes";
+export { LANE_EDGE_Y, LANE_ROAD_WIDTH, LANE_TURN_X, buildLanePath, getLaneWaypoints, isPointOnLane, pointAlongPath } from "./lanes";
 export type { LanePoint } from "./lanes";
 export type { Role, RoleStats, RoleAbilityConfig, RoleVisual } from "./roles";
 export { isRole, ROLE_STATS, ROLE_ABILITY_CONFIG, ROLE_VISUALS, resolveRoleStats, resolveRoleAbilityConfig } from "./roles";
