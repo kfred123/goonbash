@@ -18,13 +18,14 @@ import { formatPlayerNameTag } from './nameFormatter.js';
 import { getAbilityHudStatus, getRoleAbilityAtIndex, resolveArenaClick, shouldCancelRocketTargetSelection, shouldHandleAbilityKeydown } from './abilityControls.js';
 import { getBaseCannonRotation, getBaseCannonShotFeedback } from './baseCannonVisuals.js';
 import { getMatchResultsPage, MatchResultsSort, nextMatchResultsSort, sortMatchResults, SortableMatchStat } from './matchResults.js';
+import { createWorkshopHealer, WorkshopHealer } from './workshopHealer.js';
 
 const ROLE_ORDER: Role[] = ['healer', 'tank', 'damagedealer'];
 
 export class GameScene extends Phaser.Scene {
   private client!: Client;
   private room!: Room<GameState>;
-  private tankSprites: Map<string, Phaser.GameObjects.Shape> = new Map();
+  private tankSprites: Map<string, Phaser.GameObjects.Shape | WorkshopHealer> = new Map();
   private tankTargets: Map<string, { x: number; y: number }> = new Map();
   private tankNameTexts: Map<string, Phaser.GameObjects.Text> = new Map();
   private minionSprites: Map<string, Phaser.GameObjects.Rectangle> = new Map();
@@ -302,6 +303,7 @@ export class GameScene extends Phaser.Scene {
     this.room.state.tanks.onAdd((tank, sessionId) => {
       if (this.arenaStarted) this.upsertTank(tank, sessionId);
     });
+    this.room.state.tanks.onRemove((_tank, sessionId) => this.removeTank(sessionId));
     this.room.state.minions.forEach((minion, id) => this.upsertMinion(minion, id));
     this.room.state.minions.onAdd((minion, id) => {
       if (this.arenaStarted) this.upsertMinion(minion, id);
@@ -628,7 +630,7 @@ export class GameScene extends Phaser.Scene {
     return button;
   }
 
-  /** Renders a selectable role card (shape preview + label) for the lobby role picker; colored with the player's team color, never a per-role color. */
+  /** Renders a selectable role preview in the player's team color. */
   private addRoleCard(x: number, y: number, role: Role, selected: boolean, teamColor: number, action: () => void) {
     x = this.viewportX(x);
     y = this.viewportY(y);
@@ -647,14 +649,14 @@ export class GameScene extends Phaser.Scene {
     return card;
   }
 
-  /** Looks up the color/shape visual for a role, falling back to the Tank visual for an unset/unknown role. */
+  /** Looks up role metadata, falling back to Tank for an unset/unknown role. */
   private resolveRoleVisual(role: unknown): RoleVisual {
     return ROLE_VISUALS[(role as Role)] ?? ROLE_VISUALS.tank;
   }
 
-  /** Creates the Phaser shape used to represent a role (circle/square/triangle), centered at the given position. */
-  private createRoleShape(x: number, y: number, shape: RoleVisual['shape'], size: number, color: number): Phaser.GameObjects.Shape {
-    if (shape === 'circle') return this.add.circle(x, y, size / 2, color);
+  /** Shares the Healer's workshop identity between gameplay and the smaller lobby preview. */
+  private createRoleShape(x: number, y: number, shape: RoleVisual['shape'], size: number, color: number): Phaser.GameObjects.Shape | WorkshopHealer {
+    if (shape === 'circle') return createWorkshopHealer(this, x, y, size, color);
     if (shape === 'triangle') {
       const half = size / 2;
       return this.add.triangle(x, y, 0, -half, -half, half, half, half, color);
@@ -794,6 +796,21 @@ export class GameScene extends Phaser.Scene {
         abilities
       };
     }
+  }
+
+  private removeTank(sessionId: string) {
+    if (sessionId === this.room.sessionId) this.cameras.main.stopFollow();
+    this.tankSprites.get(sessionId)?.destroy();
+    this.tankSprites.delete(sessionId);
+    this.tankTargets.delete(sessionId);
+    this.tankNameTexts.get(sessionId)?.destroy();
+    this.tankNameTexts.delete(sessionId);
+    const healthBar = this.healthBars.get(sessionId);
+    healthBar?.bg.destroy();
+    healthBar?.fill.destroy();
+    this.healthBars.delete(sessionId);
+    this.healEffectIcons.get(sessionId)?.destroy();
+    this.healEffectIcons.delete(sessionId);
   }
 
   private upsertMinion(minion: any, id: string) {
@@ -1123,6 +1140,15 @@ export class GameScene extends Phaser.Scene {
     this.room.state.tanks.forEach((tank: any, sessionId: string) => {
       const sprite = this.tankSprites.get(sessionId);
       if (!sprite) return;
+      if ('updateAbilityVisuals' in sprite) {
+        sprite.updateAbilityVisuals(
+          tank.state === 'dead',
+          tank.abilities?.get('healer-aura')?.activeUntil ?? 0,
+          tank.abilities?.get('healer-speed')?.activeUntil ?? 0,
+          now,
+          this.time.now
+        );
+      }
       const defensiveAbilityActive = tank.role === 'tank' && (
         now < (tank.abilities?.get('tank-shield')?.activeUntil ?? 0) ||
         now < (tank.abilities?.get('tank-entrench')?.activeUntil ?? 0)
