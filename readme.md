@@ -26,6 +26,14 @@ The goal is simple: **Destroy the Enemy Command Center**.
 - Gain experience and scrap metal (currency) by destroying enemy minions and tanks.
 - Upgrade tank abilities or buy temporary power-ups during the match.
 
+### Healer: Werkstatt-Sanitaeter
+
+Der Healer erscheint im Spiel als runder Comic-Reparaturpanzer in seiner Teamfarbe, mit kurzen Ketten, hellem Werkzeugdeckel samt Schraubenschluessel und einer kurzen Reparaturduese. Die Lobby zeigt eine vereinfachte Version derselben Figur. Ein weisser Auswahlrand markiert weiterhin den eigenen Spieler.
+
+Bei aktiver Heal Aura pulsiert ein kleiner gruener Ring am Fahrzeug; bei aktivem Speed erscheinen helle Auspuffstreifen. Beide Anzeigen koennen gleichzeitig auftreten und sind rein dekorativ: Spielwerte, Trefferbereich und Faehigkeitsregeln bleiben unveraendert. Die bestehenden Schraubenschluessel ueber geheilten Verbuendeten bleiben erhalten.
+
+Eine lokale Phaser-Pruefseite fuer die Healer-Darstellung laesst sich nach dem Clientstart unter `/tests/workshopHealer.html` oeffnen. Sie prueft Spiel- und Lobbygroessen sowie Teamfarben, Faehigkeitsanzeigen, Respawn und Aufraeumen ohne Backendverbindung.
+
 ## Technical Goals
 - **Multiplayer**: Real-time synchronization for competitive play.
 - **Cross-Platform**: Seamless play on both **Web Browsers** and **Mobile Devices**.

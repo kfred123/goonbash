@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="de">
+<meta charset="utf-8">
+<title>Werkstatt-Sanitaeter: Renderer-Integration</title>
+<style>
+  body { margin: 24px; background: #151c28; color: #f3f0dc; font: 16px system-ui; }
+  canvas { display: block; max-width: 100%; }
+</style>
+<h1>Werkstatt-Sanitaeter</h1>
+<p id="result">Renderer-Integration wird geprueft ...</p>
+<div id="preview"></div>
+<script type="module">
+  import Phaser from 'phaser';
+  import { GameScene } from '../src/GameScene.ts';
+
+  const checks = [];
+  function check(condition, message) {
+    if (!condition) throw new Error(message);
+    checks.push(message);
+  }
+
+  class RendererCheck extends GameScene {
+    preload() {}
+    update() {}
+
+    create() {
+      try {
+        const now = Date.now();
+        const tank = {
+          x: 100, y: 100, team: 'blue', role: 'healer', name: 'Werkstatt',
+          hp: 90, maxHp: 90, level: 1, state: 'alive',
+          abilities: new Map([
+            ['healer-aura', { activeUntil: now + 60000 }],
+            ['healer-speed', { activeUntil: now + 60000 }]
+          ])
+        };
+        this.room = { sessionId: 'local', state: { tanks: new Map([['local', tank]]) } };
+        this.arenaStarted = true;
+        this.upsertTank(tank, 'local');
+        const sprite = this.tankSprites.get('local');
+        const [effects, body, outline] = sprite.list;
+        check(sprite instanceof Phaser.GameObjects.Container, 'Healer verwendet einen Container');
+        check(sprite.x === 100 && sprite.y === 100 && sprite.width === 40, 'Weltposition und Groesse erhalten');
+        check(outline.strokeColor === 0xffffff && outline.lineWidth === 4, 'Eigener Spieler hat weissen Auswahlrand');
+        check(this.cameras.main._follow === sprite, 'Kamera folgt der Container-Wurzel');
+        this.upsertTank({ ...tank, x: 140 }, 'local');
+        GameScene.prototype.update.call(this);
+        check(sprite.x === 110 && sprite.y === 100, 'Positionsinterpolation bewegt die Figur');
+        check(this.tankNameTexts.get('local').x === sprite.x, 'Name folgt der Wurzelposition');
+        check(this.healthBars.get('local').bg.x === sprite.x, 'Lebensbalken folgt der Wurzelposition');
+        check(effects.commandBuffer.length > 0, 'Gleichzeitige Effekte werden gezeichnet');
+        check(this.healEffectIcons.has('local'), 'Bisheriger Heilungs-Schraubenschluessel bleibt erhalten');
+
+        tank.state = 'dead';
+        this.upsertTank(tank, 'local');
+        this.applyRoleAbilityVisuals();
+        check(!sprite.visible && effects.commandBuffer.length === 0, 'Tod blendet Figur und Effekte aus');
+        check(!this.healEffectIcons.has('local'), 'Tod entfernt Heilungssymbol');
+        tank.state = 'alive';
+        this.upsertTank(tank, 'local');
+        this.applyRoleAbilityVisuals();
+        check(sprite.visible && this.tankSprites.get('local') === sprite, 'Respawn verwendet dieselbe vollstaendige Figur');
+        tank.abilities.get('healer-aura').activeUntil = 0;
+        tank.abilities.get('healer-speed').activeUntil = 0;
+        this.applyRoleAbilityVisuals();
+        check(effects.commandBuffer.length === 0, 'Abgelaufene Effekte werden geloescht');
+
+        const preview = this.createRoleShape(240, 100, 'circle', 20, 0xff4444).setScale(1.5);
+        check(preview.list[1].scaleX === 0.5 && preview.scaleX === 1.5, 'Lobbydetailgroesse und Viewportskalierung getrennt');
+        check(preview.list[0].commandBuffer.length === 0, 'Lobbyvorschau hat keine aktiven Effekte');
+        preview.destroy();
+        const square = this.createRoleShape(0, 0, 'square', 40, 0x4d8dff);
+        const triangle = this.createRoleShape(0, 0, 'triangle', 40, 0xff4444);
+        check(square instanceof Phaser.GameObjects.Rectangle && triangle instanceof Phaser.GameObjects.Triangle, 'Andere Rollen bleiben unveraendert');
+        square.destroy();
+        triangle.destroy();
+        this.removeTank('local');
+        check(!sprite.scene && !body.scene && !effects.scene && !outline.scene, 'Spielerentfernung zerstoert alle Kindobjekte');
+        check(!this.tankTargets.has('local') && !this.healthBars.has('local') && !this.tankNameTexts.has('local'), 'Spielerentfernung raeumt Folgeanzeigen auf');
+        check(this.cameras.main._follow === null, 'Spielerentfernung beendet Kamerafolge');
+
+        this.upsertTank(tank, 'local');
+        const respawned = this.tankSprites.get('local');
+        const children = [...respawned.list];
+        this.clearArenaPresentation();
+        check(!respawned.scene && children.every((child) => !child.scene), 'Arena-Aufraeumen zerstoert gesamten Healer');
+        check(this.tankSprites.size === 0 && this.healEffectIcons.size === 0, 'Arena-Aufraeumen leert die Maps');
+        this.resetCamera();
+        this.arenaStarted = false;
+        this.drawPreview();
+        window.healerCheckResult = { ok: true, checks };
+        document.getElementById('result').textContent = `${checks.length} Renderer-Pruefungen erfolgreich. Links vergroessert, rechts in Spiel- und Lobbygroesse.`;
+      } catch (error) {
+        window.healerCheckResult = { ok: false, error: error.stack, checks };
+        document.getElementById('result').textContent = error.message;
+        console.error(error);
+      }
+    }
+
+    drawPreview() {
+      const states = [
+        ['Ruhe', false, false],
+        ['Heal Aura', true, false],
+        ['Speed', false, true],
+        ['Beide aktiv', true, true]
+      ];
+      states.forEach(([label, heal, speed], index) => {
+        const y = 90 + index * 145;
+        this.add.rectangle(500, y, 980, 135, index % 2 ? 0x627649 : 0x9b947f);
+        this.add.text(24, y - 55, label, { color: '#ffffff', fontSize: '18px' });
+        [0x4d8dff, 0xff4444].forEach((color, teamIndex) => {
+          const x = 210 + teamIndex * 280;
+          const model = this.createRoleShape(x, y, 'circle', 40, color).setScale(2.5);
+          model.setStrokeStyle(teamIndex ? 2 : 4, teamIndex ? color : 0xffffff);
+          model.updateAbilityVisuals(false, heal ? 1000 : 0, speed ? 1000 : 0, 100, 500);
+          const world = this.createRoleShape(720 + teamIndex * 100, y - 15, 'circle', 40, color);
+          world.setStrokeStyle(2, color);
+          world.updateAbilityVisuals(false, heal ? 1000 : 0, speed ? 1000 : 0, 100, 500);
+          this.createRoleShape(720 + teamIndex * 100, y + 35, 'circle', 20, color);
+        });
+      });
+    }
+  }
+
+  new Phaser.Game({
+    type: Phaser.CANVAS, width: 1000, height: 660, parent: 'preview',
+    backgroundColor: '#151c28', audio: { noAudio: true }, scene: [RendererCheck]
+  });
+</script>
+</html>
