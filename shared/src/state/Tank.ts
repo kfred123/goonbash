@@ -17,6 +17,7 @@ export class Tank extends Entity {
   @type("number") respawnAt: number = 0;
   @type("string") targetId: string = "";
   @type("number") fireRange: number = 150;
+  @type("number") sightRange: number = 195;
   @type("number") fireCooldown: number = 0;
   @type("number") fireCooldownMax: number = 800;
   @type("number") fireDamage: number = 8;

@@ -54,3 +54,4 @@ export class LobbyRegistry {
     lobby.status = "waiting";
   }
 }
+export const lobbyRegistry = new LobbyRegistry();

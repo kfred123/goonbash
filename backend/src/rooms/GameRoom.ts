@@ -1,7 +1,8 @@
 import { Room, Client } from "colyseus";
 import { Base, computeAbilityConfigForLevel, GameState, getLaneWaypoints, isAbilityId, MatchPlayerStats, Minion, Projectile, Tank, Tower } from "shared";
 import { isRole, resolveRoleStats } from "shared";
-import { lobbyRegistry } from "../index.js";
+import { BLUE_BASE_POSITION, RED_BASE_POSITION, WORLD_WIDTH, WORLD_HEIGHT, TeamVision, getVisionEntities, INVALID_TARGET_MESSAGE } from "shared";
+import { lobbyRegistry } from "../lobbies/LobbyRegistry.js";
 import { canChangeRole, canChangeTeam, canJoinRoom, canManageLobby, canUseGameplayActions, normalizeLobbyName, normalizePlayerName, resolveHostAfterLeave, selectBalancedTeam } from "./lobbyControls.js";
 import { clampToBounds, createShotProjectile, findNearestEnemyInRange, getLivingTowers, hasDied, hasProjectileReachedTarget, isReadyToRespawn, isWithinRange, stepHomingProjectile, stepProjectileTowardTarget, stepToward, applyDamage as computeDamagedHp, nearBasePosition, respawnTank, tickShooter } from "./combat.js";
 import { activateAbility, applyDamageReduction, canActivateRoleAbility, effectiveFireCooldown, effectiveMoveSpeed, healOverTick, homingRocketDamage, isAbilityActive, isMovementLocked, isValidRocketTarget, strongestReduction } from "./ability.js";
@@ -15,8 +16,7 @@ const PROJECTILE_HIT_RADIUS = 12;
 const PROJECTILE_MAX_LIFETIME_MS = 3000;
 
 // World is 3x the original 800x600 arena so the camera only shows part of the map at once.
-export const WORLD_WIDTH = 2400;
-export const WORLD_HEIGHT = 1800;
+export { WORLD_WIDTH, WORLD_HEIGHT } from "shared";
 const WORLD_MARGIN = 60;
 const MIN_X = WORLD_MARGIN;
 const MAX_X = WORLD_WIDTH - WORLD_MARGIN;
@@ -38,8 +38,8 @@ export class GameRoom extends Room<GameState> {
     const state = new GameState();
     state.lobbyName = lobby.name;
     this.setState(state);
-    this.createBase("blue", 240, 900);
-    this.createBase("red", 2160, 900);
+    this.createBase("blue", BLUE_BASE_POSITION.x, BLUE_BASE_POSITION.y);
+    this.createBase("red", RED_BASE_POSITION.x, RED_BASE_POSITION.y);
     this.onMessage("command", (client, command: { x?: unknown; y?: unknown; targetId?: unknown }) => {
       const tank = this.state.tanks.get(client.sessionId);
       if (!tank || !canUseGameplayActions(this.state.phase) || tank.state === "dead") return;
@@ -47,6 +47,10 @@ export class GameRoom extends Room<GameState> {
       if (targetId) {
         const target = this.findLivingEntity(targetId);
         if (target && target.team !== tank.team) {
+          if (!this.teamVision(tank.team).canSee(target)) {
+            client.send(INVALID_TARGET_MESSAGE, { action: "attack", reason: "invalid_target" });
+            return;
+          }
           tank.lockedTargetId = targetId;
           tank.hasMoveTarget = false;
           return;
@@ -90,6 +94,10 @@ export class GameRoom extends Room<GameState> {
         if (typeof payload.targetId !== "string") return;
         const target = this.findLivingEntity(payload.targetId);
         if (!target || !isValidRocketTarget(tank, target, abilityConfig.range ?? 0)) return;
+        if (!this.teamVision(tank.team).canSee(target)) {
+          client.send(INVALID_TARGET_MESSAGE, { action: "rocket", reason: "invalid_target" });
+          return;
+        }
         this.spawnHomingRocket(tank, target, homingRocketDamage(tank.fireDamage, ability.level), abilityConfig.projectileSpeed ?? 450);
       }
       const timing = activateAbility(now, abilityConfig);
@@ -183,7 +191,13 @@ export class GameRoom extends Room<GameState> {
       const speed = effectiveTerrainMoveSpeed(effectiveSpeed, tank) * elapsedSeconds;
       if (tank.lockedTargetId) {
         const target = this.findLivingEntity(tank.lockedTargetId);
-        if (!target || isWithinRange(tank, target, tank.fireRange)) return;
+        if (!target || target.team === tank.team || !this.teamVision(tank.team).canSee(target)) {
+          tank.lockedTargetId = "";
+          tank.targetId = "";
+          tank.hasMoveTarget = false;
+          return;
+        }
+        if (isWithinRange(tank, target, tank.fireRange)) return;
         const next = stepToward(tank, target, speed);
         const clamped = clampToBounds(next, MIN_X, MAX_X, MIN_Y, MAX_Y);
         tank.x = clamped.x;
@@ -206,13 +220,21 @@ export class GameRoom extends Room<GameState> {
     const bases = [...this.state.bases.values()].filter((base) => !hasDied(base.hp));
     const towers = getLivingTowers(this.state.towers.values());
     const enemyCandidates: Array<Tank | Minion | Base | Tower> = [...aliveTanks, ...minions, ...bases, ...towers];
-
-    for (const tank of aliveTanks) this.updateLockedShooter(tank, enemyCandidates, deltaTime);
-    for (const minion of minions) this.updateShooter(minion, enemyCandidates, deltaTime);
-    for (const tower of towers) this.updateShooter(tower, enemyCandidates, deltaTime);
-    for (const base of bases) this.updateShooter(base, enemyCandidates, deltaTime);
+    const visibleCandidates = new Map<string, Array<Tank | Minion | Base | Tower>>();
+    for (const team of ["blue", "red"]) {
+      const vision = this.teamVision(team);
+      visibleCandidates.set(team, enemyCandidates.filter((candidate) => candidate.team !== team && vision.canSee(candidate)));
+    }
+    for (const tank of aliveTanks) this.updateLockedShooter(tank, visibleCandidates.get(tank.team) ?? [], deltaTime);
+    for (const minion of minions) this.updateShooter(minion, visibleCandidates.get(minion.team) ?? [], deltaTime);
+    for (const tower of towers) this.updateShooter(tower, visibleCandidates.get(tower.team) ?? [], deltaTime);
+    for (const base of bases) this.updateShooter(base, visibleCandidates.get(base.team) ?? [], deltaTime);
 
     this.updateProjectiles(deltaTime);
+  }
+
+  private teamVision(team: string): TeamVision {
+    return new TeamVision(team, getVisionEntities(this.state));
   }
 
   /**
@@ -227,9 +249,10 @@ export class GameRoom extends Room<GameState> {
     if (tank.fireCooldown > 0) tank.fireCooldown = Math.max(0, tank.fireCooldown - deltaTime);
     if (tank.lockedTargetId) {
       const target = this.findLivingEntity(tank.lockedTargetId);
-      if (!target || target.team === tank.team) {
+      if (!target || !enemyCandidates.includes(target)) {
         tank.lockedTargetId = "";
         tank.targetId = "";
+        tank.hasMoveTarget = false;
       } else if (isWithinRange(tank, target, tank.fireRange)) {
         tank.targetId = target.id;
         if (tank.fireCooldown <= 0) {
@@ -407,6 +430,7 @@ export class GameRoom extends Room<GameState> {
     tank.hp = stats.maxHp;
     tank.moveSpeed = stats.moveSpeed;
     tank.fireRange = stats.fireRange;
+    tank.sightRange = stats.sightRange;
     tank.fireCooldownMax = stats.fireCooldownMax;
     tank.fireDamage = stats.fireDamage;
     applyTankProgressionStats(tank);
