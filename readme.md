@@ -65,7 +65,9 @@ each connection a separate visibility-filtered Colyseus schema view. Concealed
 enemies and hostile projectiles are absent from initial snapshots and removed by
 patches on vision loss; stationary structures reappear when a scout reveals them.
 Hidden target/owner references are cleared. Move destinations, attack-lock intent,
-XP and ability cooldown details are private to the controlling player. Public
+XP and ability cooldown details are private to the controlling player. Other
+players receive effect timestamps only while the effect is still active, not
+expired cast timestamps from periods of concealment. Public
 lobby identity/team/role and scoreboards remain available; the waiting lobby does
 not expose canonical spawn positions. Unknown memberships receive no spatial
 entities, and match results do not lift visibility restrictions.

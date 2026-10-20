@@ -43,6 +43,14 @@ Outgoing entity data SHALL NOT contain references to concealed entities through 
 - **WHEN** an enemy is currently visible but has a movement destination in concealed terrain
 - **THEN** its visible position is replicated but its canonical movement destination and private lock intent are not
 
+#### Scenario: Concealed ability cast has ended before revelation
+- **WHEN** another player's unit is revealed after an ability effect has expired, including a zero-duration Homing Rocket cast
+- **THEN** its outgoing effect timestamp is zero rather than the historical cast time, while the controlling player retains the canonical timestamp
+
+#### Scenario: Visible effect expires
+- **WHEN** a currently visible ability effect reaches its end timestamp
+- **THEN** subsequent projections clear that timestamp for other players without changing the owner's state
+
 #### Scenario: Waiting lobby and final results
 - **WHEN** a client views the lobby or match results
 - **THEN** public roster and scoreboard data remain available without exposing canonical lobby spawn positions or disabling spatial filtering after the match

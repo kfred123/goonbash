@@ -53,6 +53,7 @@ function copyCombat(destination: Tank | Minion | Base | Tower, source: Tank | Mi
 
 /** Keeps canonical schema objects entirely outside the outgoing schema trees. */
 export function updateClientView(view: GameState, source: GameState, sessionId: string, vision: TeamVision): void {
+  const now = Date.now();
   if (source.phase === "waiting" && view.phase !== "waiting") view.tanks.clear();
   view.phase = source.phase;
   view.lobbyName = source.lobbyName;
@@ -98,7 +99,8 @@ export function updateClientView(view: GameState, source: GameState, sessionId: 
       destination.skillPoints = own ? tank.skillPoints : 0;
       destination.abilities.forEach((ability, abilityId) => {
         const canonical = tank.abilities.get(abilityId);
-        ability.activeUntil = canonical?.activeUntil ?? 0;
+        const activeUntil = canonical?.activeUntil ?? 0;
+        ability.activeUntil = own || activeUntil > now ? activeUntil : 0;
         ability.level = own ? canonical?.level ?? 0 : 0;
         ability.cooldownEndsAt = own ? canonical?.cooldownEndsAt ?? 0 : 0;
         ability.cooldownMax = own ? canonical?.cooldownMax ?? 0 : 0;

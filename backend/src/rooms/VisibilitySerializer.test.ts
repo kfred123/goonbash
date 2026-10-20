@@ -4,8 +4,9 @@ import { performance } from "node:perf_hooks";
 import { test } from "node:test";
 import { ClientState, Protocol } from "colyseus";
 import type { Client } from "colyseus";
-import { Base, GameState, MatchPlayerStats, Minion, Projectile, Tank, Tower } from "shared";
+import { Base, computeAbilityConfigForLevel, GameState, MatchPlayerStats, Minion, Projectile, Tank, Tower } from "shared";
 import { VisibilitySerializer } from "./VisibilitySerializer.js";
+import { activateAbility } from "./ability.js";
 
 function connection(id: string) {
   const decoded = new GameState();
@@ -189,12 +190,50 @@ test("enemy and allied movement goals, waypoints and private ability data stay p
     assert.equal(projected.xp, 0);
     assert.equal(projected.skillPoints, 0);
     assert.equal(projected.abilities.get("tank-entrench")!.cooldownEndsAt, 0);
-    assert.equal(projected.abilities.get("tank-entrench")!.activeUntil, 5678);
+    assert.equal(projected.abilities.get("tank-entrench")!.activeUntil, 0);
   }
   assert.equal(first.decoded.tanks.get("blue")!.moveTargetX, blue.moveTargetX);
   assert.equal(second.decoded.tanks.get("red")!.moveTargetY, red.moveTargetY);
   assert.equal(second.decoded.tanks.get("red")!.abilities.get("tank-entrench")!.cooldownEndsAt, 123456789);
+  assert.equal(first.decoded.tanks.get("blue")!.abilities.get("tank-entrench")!.activeUntil, 5678);
+  assert.equal(second.decoded.tanks.get("red")!.abilities.get("tank-entrench")!.activeUntil, 5678);
   assert.equal(first.decoded.minions.get("minion")!.waypointX, 0);
+});
+
+test("a concealed rocket cast is private on revelation, while only unexpired effects reach other clients", (t) => {
+  let now = 1000000;
+  t.mock.method(Date, "now", () => now);
+  const { red, first, second, patch, join } = setup();
+  const rocketId = "damagedealer-homing-rocket";
+  const rocket = red.abilities.get(rocketId)!;
+  Object.assign(rocket, activateAbility(now, computeAbilityConfigForLevel(rocketId, 1)));
+  assert.equal(rocket.activeUntil, now);
+  patch();
+  assert.equal(first.decoded.tanks.has(red.id), false);
+  assert.equal(second.decoded.tanks.get(red.id)!.abilities.get(rocketId)!.activeUntil, now);
+
+  now += 100;
+  red.x = 1020;
+  const effect = red.abilities.get("tank-entrench")!;
+  Object.assign(effect, activateAbility(now, computeAbilityConfigForLevel("tank-entrench", 1)));
+  assert.ok(effect.activeUntil > now);
+  patch();
+  const revealed = first.decoded.tanks.get(red.id)!;
+  assert.equal(revealed.abilities.get(rocketId)!.activeUntil, 0);
+  assert.equal(revealed.abilities.get(rocketId)!.cooldownEndsAt, 0);
+  assert.equal(revealed.abilities.get("tank-entrench")!.activeUntil, effect.activeUntil);
+
+  const late = connection("blue");
+  join(late);
+  assert.equal(late.decoded.tanks.get(red.id)!.abilities.get(rocketId)!.activeUntil, 0);
+  assert.equal(late.decoded.tanks.get(red.id)!.abilities.get("tank-entrench")!.activeUntil, effect.activeUntil);
+
+  now = effect.activeUntil;
+  patch();
+  assert.equal(revealed.abilities.get("tank-entrench")!.activeUntil, 0);
+  assert.equal(second.decoded.tanks.get(red.id)!.abilities.get("tank-entrench")!.activeUntil, now);
+  assert.equal(rocket.activeUntil, 1000000);
+  assert.equal(second.decoded.tanks.get(red.id)!.abilities.get(rocketId)!.activeUntil, rocket.activeUntil);
 });
 
 test("hostile projectiles follow their own sight boundary, regardless of owner visibility", () => {
