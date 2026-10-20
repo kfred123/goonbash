@@ -35,13 +35,13 @@ again when the last observer leaves or dies. Ruins and dead tanks provide no sig
 
 | Observer | Absolute sight range (world units) |
 |---|---:|
-| Healer | 182 |
-| Tank | 169 |
-| Damagedealer | 208 |
+| Healer | 325 |
+| Tank | 325 |
+| Damagedealer | 325 |
 | Minion | 130 |
 | Lane tower / main base | 325 |
 
-These defaults are initially 30% above baseline firing range, but are independent
+All player roles have the same sight range as towers. Sight ranges are independent
 absolute values: firing-range changes and progression do not multiply sight.
 The direct sightline costs one budget unit per road unit and two per grass unit.
 The rendered road border counts as road for sight (movement still uses the existing

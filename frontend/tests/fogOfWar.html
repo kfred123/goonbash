@@ -239,7 +239,7 @@
         check(blueRoom.state.tanks.get(blueRoom.sessionId).team !== blueRoom.state.tanks.get(redRoom.sessionId).team, 'Live lobby balances opposing teams');
         blueRoom.send('start_game');
         await until(() => this.arenaStarted && this.fog && redRoom.state.phase === 'started', 'started arena');
-        check(blueRoom.state.tanks.get(blueRoom.sessionId).sightRange === 169, 'Live client receives initialized absolute role sight');
+        check(blueRoom.state.tanks.get(blueRoom.sessionId).sightRange === 325, 'Live client receives the same absolute sight as towers');
         check(!blueRoom.state.tanks.has(redRoom.sessionId) && !this.tankSprites.has(redRoom.sessionId), 'Live initial arena removes opposing spawn from state and presentation');
         const firstTeam = blueRoom.state.tanks.get(blueRoom.sessionId).team;
         const secondTeam = redRoom.state.tanks.get(redRoom.sessionId).team;

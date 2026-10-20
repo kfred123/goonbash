@@ -8,7 +8,7 @@ The arena currently exposes every enemy, making scouting and terrain irrelevant 
 
 - Add a fixed-screen minimap showing the arena, allied units and towers, and currently visible enemy units and towers as small team-colored dots.
 - Dim terrain outside the local team's current vision; conceal enemy entities and their attached presentation outside that vision on both the arena and minimap. Previously revealed areas become dark again when vision is lost.
-- Give player tanks, minions, lane towers, and main bases explicit absolute sight-range values, initially about 30% greater than their baseline firing ranges, without a runtime dependency on firing range.
+- Give player tanks, minions, lane towers, and main bases explicit absolute sight-range values without a runtime dependency on firing range. All player roles use 325, matching towers and main bases; minions use 130.
 - Share vision from all living allied observers. Dead tanks and destroyed structures provide no vision.
 - Make grass consume twice the sight budget per world unit along a direct sightline. An observer standing in grass additionally receives half its normal sight budget, producing terrain-dependent visibility contours rather than circles.
 - Require team visibility for automatic target acquisition, player target locks, pursuit, and targeted ability activation. Clear locks on vision loss; preserve the behavior of already-fired projectiles.

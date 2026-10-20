@@ -13,11 +13,22 @@ const observer = (overrides: Partial<VisionEntity> = {}): VisionEntity => ({
 });
 
 test("absolute sight defaults are independent of combat stats", () => {
-  assert.deepEqual([ROLE_STATS.healer.sightRange, ROLE_STATS.tank.sightRange, ROLE_STATS.damagedealer.sightRange], [182, 169, 208]);
-  for (const [unit, sight] of [[new Tank(), 195], [new Minion(), 130], [new Tower(), 325], [new Base(), 325]] as const) {
+  assert.deepEqual([ROLE_STATS.healer.sightRange, ROLE_STATS.tank.sightRange, ROLE_STATS.damagedealer.sightRange], [325, 325, 325]);
+  for (const [unit, sight] of [[new Tank(), 325], [new Minion(), 130], [new Tower(), 325], [new Base(), 325]] as const) {
     assert.equal(unit.sightRange, sight);
     unit.fireRange *= 2;
     assert.equal(unit.sightRange, sight);
+  }
+});
+
+test("every player role matches tower sight on roads and with the unchanged grass penalties", () => {
+  for (const stats of [...Object.values(ROLE_STATS), new Tank(), new Tower()]) {
+    const onRoad = new TeamVision("blue", [observer({ sightRange: stats.sightRange })], road);
+    assert.equal(onRoad.canSee({ x: 625, y: 500 }), true);
+    assert.equal(onRoad.canSee({ x: 625.001, y: 500 }), false);
+    const inGrass = new TeamVision("blue", [observer({ x: 300, y: 700, sightRange: stats.sightRange })], road);
+    assert.equal(inGrass.canSee({ x: 381.25, y: 700 }), true);
+    assert.equal(inGrass.canSee({ x: 381.251, y: 700 }), false);
   }
 });
 

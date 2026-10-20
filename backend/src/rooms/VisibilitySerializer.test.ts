@@ -30,7 +30,7 @@ function connection(id: string) {
 function setup() {
   const source = new GameState();
   source.phase = "started";
-  // All positions lie in grass: default tank vision is 195 / 4 = 48.75.
+  // All positions lie in grass: default tank vision is 325 / 4 = 81.25.
   const blue = Object.assign(new Tank(), { id: "blue", team: "blue", x: 1000, y: 600 });
   const red = Object.assign(new Tank(), { id: "red", team: "red", x: 1100, y: 600 });
   source.tanks.set(blue.id, blue);

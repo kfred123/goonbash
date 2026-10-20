@@ -3,7 +3,7 @@
 ## 1. Shared terrain and sight model
 
 - [x] 1.1 Reconcile current main-base/tower code and overlapping active change requirements, then extract the existing arena dimensions, lane anchors, and road widths into shared definitions reused by road rendering; verify existing lane, tower placement, and cannon tests still pass and streets retain their original geometry.
-- [x] 1.2 Add independent replicated sight ranges to tanks, minions, lane towers, and bases and explicit role sight defaults (182/169/208, minion 130, structures 325); wire role initialization and preserve sight through progression and respawn; verify schema/default, role-stat, progression, and respawn tests, including firing-range changes that do not alter sight.
+- [x] 1.2 Add independent replicated sight ranges to tanks, minions, lane towers, and bases and explicit role sight defaults (all player roles 325, minion 130, structures 325); wire role initialization and preserve sight through progression and respawn; verify schema/default, role-stat, progression, and respawn tests, including firing-range changes that do not alter sight.
 - [x] 1.3 Implement pure shared road/grass classification and direct sightline terrain-length accounting with merged round-corridor intervals; add tests for road edges, caps, joins, overlapping roads, tangent rays, zero-length rays, and bounds; verify the targeted shared tests pass.
 - [x] 1.4 Implement observer budget penalties and the union of living allied observers; test 200-unit all-road range, the 80-road-plus-60-grass boundary, 50-unit all-grass range, intervening grass, inclusive cutoffs, overlapping allied sight, observer death/removal, destroyed structures, and respawn; verify deterministic shared tests pass.
 - [x] 1.5 Register new shared tests in the existing test script if its explicit test list requires it and document the absolute sight table, shared vision, road-border classification, and quarter-range all-grass example in the existing gameplay documentation; verify the workspace test command includes the new cases and the documentation matches numerical fixtures.
@@ -45,3 +45,7 @@
 - [x] 6.2 Redact hidden target/owner references and private movement/ability intent, preserve public lobby/results metadata, and release views on disconnect; verify tests for both teams, unknown clients, team changes, deaths/respawns, join/rejoin and hidden projectile tracking without modifying canonical simulation.
 - [x] 6.3 Wire base and other entity removal/re-addition into client presentation and target-marker cleanup; verify browser fixtures and two real network clients observe absence rather than merely invisible sprites, including stationary structures and minimap cleanup.
 - [x] 6.4 Replace the documented full-state limitation with the filtered-state contract and historical-observation caveat; run workspace tests, builds, actual schema roundtrip/network checks and 10-client projection profiling, then verify strict OpenSpec validity and completed task tracking.
+
+## 7. Player sight balancing
+
+- [x] 7.1 Set all player role and generic tank sight defaults to 325, matching towers; preserve firing ranges, minion sight and grass penalties, update fixtures/docs/specs, and verify role initialization, progression, respawn and exact road/grass visibility boundaries.

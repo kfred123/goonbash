@@ -28,14 +28,14 @@ Add a replicated `sightRange` only to combat observer types, not to projectiles.
 
 | Observer | Baseline fire range | Absolute sight range |
 |---|---:|---:|
-| Healer | 140 | 182 |
-| Tank role | 130 | 169 |
-| Damagedealer | 160 | 208 |
+| Healer | 140 | 325 |
+| Tank role | 130 | 325 |
+| Damagedealer | 160 | 325 |
 | Minion | 100 | 130 |
 | Lane tower | 250 | 325 |
 | Main base | 250 | 325 |
 
-Keep any generic pre-role Tank schema default coherent with its current generic 150-unit fire range using an explicit 195-unit sight default; initialized gameplay tanks use their role value. Sight is not multiplied from fire range during simulation, respawn, level-ups, or ability changes. Later balancing can change the absolute defaults independently.
+All player roles and the generic pre-role Tank schema use 325 sight, matching towers, as explicitly requested in the balancing follow-up. Firing ranges and minion sight remain unchanged. Sight is not multiplied from fire range during simulation, respawn, level-ups, or ability changes. Later balancing can change the absolute defaults independently.
 
 Alternative rejected: deriving sight from current firing range would contradict the requested independent absolute tuning and couple future combat buffs to reconnaissance.
 

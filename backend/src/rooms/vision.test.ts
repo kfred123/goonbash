@@ -44,18 +44,20 @@ function setup(t: TestContext) {
 
 test("role sight initialization survives progression, fire range changes and respawn", (t) => {
   const { room, blue } = setup(t);
-  blue.role = "healer";
-  room["applyRoleStats"](blue);
-  assert.equal(blue.sightRange, 182);
-  blue.level = 5;
-  blue.fireRange = 500;
-  applyTankProgressionStats(blue);
-  assert.equal(blue.sightRange, 182);
-  blue.state = "dead";
-  blue.respawnAt = 0;
-  room["resolveRespawns"](Date.now());
-  assert.equal(blue.state, "alive");
-  assert.equal(blue.sightRange, 182);
+  for (const role of ["healer", "tank", "damagedealer"]) {
+    blue.role = role;
+    room["applyRoleStats"](blue);
+    assert.equal(blue.sightRange, new Tower().sightRange);
+    blue.level = 5;
+    blue.fireRange = 500;
+    applyTankProgressionStats(blue);
+    assert.equal(blue.sightRange, 325);
+    blue.state = "dead";
+    blue.respawnAt = 0;
+    room["resolveRespawns"](Date.now());
+    assert.equal(blue.state, "alive");
+    assert.equal(blue.sightRange, 325);
+  }
 });
 
 test("hidden targets inside firing range are skipped; allied spotting enables fire without extending range", (t) => {

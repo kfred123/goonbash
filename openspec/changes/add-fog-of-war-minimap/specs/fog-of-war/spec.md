@@ -5,7 +5,7 @@ Define temporary shared team vision and terrain-sensitive concealment so that al
 ## ADDED Requirements
 
 ### Requirement: Independent Absolute Sight Ranges
-Player tanks, minions, lane towers, and main bases SHALL have explicit sight ranges in world units. Initial role sight ranges SHALL be 182 for Healer, 169 for Tank, and 208 for Damagedealer; minions SHALL use 130 and lane towers and main bases SHALL use 325. These SHALL be independent absolute values, initially 30% above baseline firing ranges, not runtime multipliers of firing range.
+Player tanks, minions, lane towers, and main bases SHALL have explicit sight ranges in world units. All player roles (Healer, Tank, Damagedealer) and the generic Tank schema SHALL use 325, matching lane towers and main bases. Minions SHALL use 130. These SHALL be independent absolute values, not runtime multipliers of firing range. The existing road/grass sight costs and observer-in-grass penalty SHALL apply unchanged.
 
 #### Scenario: Role initializes
 - **WHEN** a match initializes a player's role stats
