@@ -1,4 +1,10 @@
-## ADDED Requirements
+# Multiplayer Networking
+
+## Purpose
+
+Define persistent client connections and authoritative state synchronization.
+
+## Requirements
 
 ### Requirement: WebSocket Connection
 The system SHALL establish and maintain a persistent bidirectional WebSocket connection between the HTML5 client and the Node.js server using a framework like Colyseus or Socket.io.

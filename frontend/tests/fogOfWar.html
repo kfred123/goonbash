@@ -1,0 +1,275 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>Fog of war integration checks</title>
+<style>body { background: #151c28; color: white; font: 16px system-ui; } canvas { max-width: 100%; }</style>
+<h1>Fog of war and minimap</h1>
+<pre id="result">Running renderer checks...</pre>
+<div id="preview"></div>
+<script type="module">
+  import Phaser from 'phaser';
+  import { Client } from 'colyseus.js';
+  import { Base, GameState, Minion, Projectile, Tank, Tower, TeamVision, getVisionEntities, INVALID_TARGET_MESSAGE } from 'shared';
+  import { GameScene } from '../src/GameScene.ts';
+  import { getMinimapBounds, sampleFog } from '../src/visionPresentation.ts';
+
+  const checks = [];
+  function check(condition, label) {
+    if (!condition) throw new Error(label);
+    checks.push(label);
+  }
+  const wait = (milliseconds) => new Promise(resolve => setTimeout(resolve, milliseconds));
+  async function until(predicate, label) {
+    const start = performance.now();
+    while (!predicate()) {
+      if (performance.now() - start > 10000) throw new Error(`Timeout: ${label}`);
+      await wait(30);
+    }
+  }
+  function entity(Type, id, team, x, y) {
+    return Object.assign(new Type(), { id, team, x, y });
+  }
+
+  class FogChecks extends GameScene {
+    update() {}
+
+    async create() {
+      try {
+        this.statusText = this.add.text(10, 10, 'Fog checks').setDepth(2200).setScrollFactor(0);
+        const state = new GameState();
+        state.phase = 'started';
+        const local = entity(Tank, 'local', 'blue', 1100, 900);
+        const enemy = entity(Tank, 'enemy', 'red', 1200, 900);
+        const tower = entity(Tower, 'tower', 'red', 1100, 1100);
+        const base = entity(Base, 'base', 'red', 1600, 600);
+        const minion = entity(Minion, 'minion', 'red', 1100, 1100);
+        state.tanks.set(local.id, local);
+        state.tanks.set(enemy.id, enemy);
+        state.towers.set(tower.id, tower);
+        state.bases.set(base.id, base);
+        state.minions.set(minion.id, minion);
+        const commands = [];
+        this.room = { sessionId: local.id, state, send: (...args) => commands.push(args) };
+        this.createArena('Fog integration');
+        this.arenaStarted = true;
+        state.tanks.forEach((tank, id) => this.upsertTank(tank, id));
+        this.upsertTower(tower, tower.id);
+        this.upsertBase(base, base.id);
+        this.upsertMinion(minion, minion.id);
+        GameScene.prototype.update.call(this);
+        check(this.tankSprites.get('enemy').visible, 'Visible enemy tank is rendered');
+        check(!this.towerSprites.get('tower').outpost.visible && !this.healthBars.get('tower').bg.visible, 'Hidden tower and health bar are concealed');
+        check(!this.baseSprites.get('base').fort.visible && !this.minionSprites.get('minion').visible, 'Hidden base and minion are concealed');
+        check(this.hitTestClick(1100, 1100) === null, 'Hidden entity has no hit region');
+        this.handlePointerClick({ x: 100, y: 100, worldX: 1100, worldY: 1100, button: 0 });
+        check(commands.at(-1)[0] === 'command' && commands.at(-1)[1].x === 1100, 'Click at hidden entity sends movement, not attack');
+        this.showAttackMarker('enemy', enemy.x, enemy.y, 0xff3333);
+        enemy.x = 1500;
+        this.upsertTank(enemy, 'enemy');
+        this.rebuildVision();
+        GameScene.prototype.update.call(this);
+        check(!this.tankSprites.get('enemy').visible && !this.tankNameTexts.get('enemy').visible && !this.healthBars.get('enemy').fill.visible, 'State update hides interpolated enemy and complete labels');
+        check(this.attackMarkers.length === 0, 'Target marker stops following concealed enemy');
+        const scout = entity(Minion, 'scout', 'blue', 1100, 1100);
+        state.minions.set(scout.id, scout);
+        this.rebuildVision();
+        this.applyVisibility();
+        this.refreshFog();
+        const fogContext = this.fog.fogTexture.context;
+        check(fogContext.getImageData(Math.floor(1100 / 8), Math.floor(1100 / 8), 1, 1).data[3] === 0, 'Revealed terrain has no fog alpha');
+        check(fogContext.getImageData(Math.floor(2300 / 8), Math.floor(1700 / 8), 1, 1).data[3] === 153, 'Concealed terrain uses 60 percent black overlay');
+        check(this.towerSprites.get('tower').outpost.visible && this.minionSprites.get('minion').visible, 'Allied scout reveals enemies in grass');
+        tower.shotCount = 1;
+        this.upsertTower(tower, tower.id);
+        check(this.towerMuzzleFlashes.has('tower'), 'Visible tower gets muzzle feedback');
+        scout.hp = 0;
+        this.rebuildVision();
+        this.applyVisibility();
+        check(!this.towerMuzzleFlashes.has('tower'), 'Vision loss destroys active muzzle feedback');
+        this.refreshFog();
+        check(fogContext.getImageData(Math.floor(1100 / 8), Math.floor(1100 / 8), 1, 1).data[3] === 153, 'Losing a scout darkens its old revealed area again');
+        tower.shotCount = 2;
+        this.upsertTower(tower, tower.id);
+        scout.hp = 50;
+        this.rebuildVision();
+        this.upsertTower(tower, tower.id);
+        this.applyVisibility();
+        check(!this.towerMuzzleFlashes.has('tower'), 'Revealing a tower does not replay missed shots');
+        tower.hp = 0;
+        this.upsertTower(tower, tower.id);
+        check(this.towerSprites.get('tower').ruin.visible && !this.healthBars.has('tower'), 'Visible destroyed tower becomes a ruin without HP bar');
+        scout.hp = 0;
+        this.rebuildVision();
+        this.applyVisibility();
+        check(!this.towerSprites.get('tower').ruin.visible, 'Enemy ruin conceals again without explored memory');
+        const baseScout = entity(Minion, 'base-scout', 'blue', base.x, base.y);
+        state.minions.set(baseScout.id, baseScout);
+        this.rebuildVision();
+        this.applyVisibility();
+        base.shotCount = 1;
+        this.upsertBase(base, base.id);
+        this.showAttackMarker(base.id, base.x, base.y, 0xff3333);
+        check(this.baseSprites.get(base.id).fort.visible && this.baseMuzzleFlashes.has(base.id), 'Revealed base receives normal presentation and flash');
+        state.bases.delete(base.id);
+        this.removeBase(base.id);
+        check(!this.baseSprites.has(base.id) && !this.healthBars.has(base.id) && !this.baseMuzzleFlashes.has(base.id)
+          && !this.baseShotCounts.has(base.id) && !this.visibleEntities.has(base.id) && this.attackMarkers.length === 0,
+          'Network base removal clears fortress, health, flash, shot cache and target marker');
+        base.shotCount = 25;
+        state.bases.set(base.id, base);
+        this.upsertBase(base, base.id);
+        check(this.baseSprites.get(base.id).fort.visible && !this.baseMuzzleFlashes.has(base.id), 'Network base re-add restores current state without replaying hidden shots');
+        this.showAttackMarker(enemy.id, enemy.x, enemy.y, 0xff3333);
+        state.tanks.delete(enemy.id);
+        this.removeTank(enemy.id);
+        check(!this.tankSprites.has(enemy.id) && !this.tankTargets.has(enemy.id) && !this.tankNameTexts.has(enemy.id)
+          && !this.healthBars.has(enemy.id) && this.attackMarkers.length === 0, 'Network tank removal clears interpolation, labels and markers');
+        state.tanks.set(enemy.id, enemy);
+        this.upsertTank(enemy, enemy.id);
+        const projectile = entity(Projectile, 'shot', 'red', 1700, 1100);
+        state.projectiles.set(projectile.id, projectile);
+        this.upsertProjectile(projectile, projectile.id);
+        check(!this.projectileSprites.get('shot').visible, 'Enemy shot is concealed in fog');
+        projectile.team = 'blue';
+        this.upsertProjectile(projectile, projectile.id);
+        check(this.projectileSprites.get('shot').visible, 'Allied shot stays visible');
+        local.state = 'dead';
+        scout.hp = 50;
+        this.rebuildVision();
+        this.applyVisibility();
+        check(!this.tankSprites.get('local').visible && this.minionSprites.get('minion').visible, 'Dead player retains allied vision without showing dead tank');
+        local.state = 'alive';
+        this.room.sessionId = 'enemy';
+        this.rebuildVision();
+        this.applyVisibility();
+        check(this.tankSprites.get('enemy').visible && !this.tankSprites.get('local').visible, 'Red viewpoint uses its own team vision');
+        this.room.sessionId = 'local';
+        this.rebuildVision();
+        this.applyVisibility();
+        for (const [width, height] of [[800, 600], [320, 240], [1200, 800]]) {
+          this.scale.resize(width, height);
+          this.fog.resize();
+          this.refreshFog();
+          const bounds = getMinimapBounds(width, height);
+          const before = commands.length;
+          this.rocketTargetSelection = true;
+          this.handlePointerClick({ x: bounds.x + 2, y: bounds.y + 2, worldX: 1700, worldY: 1100, button: 0 });
+          check(commands.length === before && this.rocketTargetSelection, `Minimap isolates rocket and world input at ${width}px`);
+        }
+        const measure = (count) => {
+          const observers = Array.from({ length: count }, (_, index) => entity(
+            index < 10 ? Tank : Minion, `load-${index}`, 'blue',
+            240 + (index % 30) * 60, 900 + Math.floor(index / 30) * 12
+          ));
+          const vision = new TeamVision('blue', observers);
+          const originalRoom = this.room;
+          const loadState = new GameState();
+          loadState.phase = 'started';
+          observers.forEach((observer, index) => {
+            observer.team = index % 2 ? 'red' : 'blue';
+            if (observer instanceof Tank) {
+              loadState.tanks.set(observer.id, observer);
+              this.upsertTank(observer, observer.id);
+            } else {
+              loadState.minions.set(observer.id, observer);
+              this.upsertMinion(observer, observer.id);
+            }
+          });
+          this.room = { sessionId: observers[0].id, state: loadState, send() {} };
+          this.rebuildVision();
+          sampleFog(vision);
+          const times = [];
+          const sceneTimes = [];
+          for (let i = 0; i < 12; i++) {
+            const start = performance.now();
+            sampleFog(vision);
+            times.push(performance.now() - start);
+            const sceneStart = performance.now();
+            this.refreshFog();
+            GameScene.prototype.update.call(this);
+            sceneTimes.push(performance.now() - sceneStart);
+          }
+          this.room = originalRoom;
+          return {
+            observers: count, meanMs: times.reduce((a, b) => a + b) / times.length, maxMs: Math.max(...times),
+            fullSceneUpdateMeanMs: sceneTimes.reduce((a, b) => a + b) / sceneTimes.length
+          };
+        };
+        const profile = [measure(10), measure(200)];
+        for (let i = 0; i < 3; i++) {
+          this.clearArenaPresentation();
+          check(!this.textures.exists('team-vision-fog') && !this.textures.exists('minimap-terrain') && !this.textures.exists('lane-roads'), 'Arena teardown removes owned textures');
+          this.createArena('Fresh match');
+          this.arenaStarted = true;
+          check(this.children.list.filter(child => child.texture?.key === 'team-vision-fog').length === 1, 'Reentry creates exactly one world fog');
+        }
+        this.clearArenaPresentation();
+        this.arenaStarted = false;
+        this.resetCamera();
+        window.fogCheckScene = this;
+        if (new URLSearchParams(location.search).has('live')) {
+          await this.checkLiveMatch();
+          await this.checkLiveMatch();
+          check(true, 'Live client can leave and start another fresh room without stale callbacks');
+        }
+        window.fogCheckResult = { ok: true, checks, profile };
+        document.getElementById('result').textContent = JSON.stringify(window.fogCheckResult, null, 2);
+      } catch (error) {
+        window.fogCheckResult = { ok: false, error: error.stack, checks };
+        document.getElementById('result').textContent = JSON.stringify(window.fogCheckResult, null, 2);
+        console.error(error);
+      }
+    }
+
+    async checkLiveMatch() {
+      this.backendWsUrl = 'ws://127.0.0.1:2578';
+      this.playerName = 'Fog Blue';
+      const response = await fetch('http://127.0.0.1:2578/lobbies', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'Fog acceptance' })
+      });
+      if (!response.ok) throw new Error(`Lobby creation failed: ${response.status}`);
+      const { lobby } = await response.json();
+      await this.connectToLobby(lobby);
+      await until(() => this.room.state.tanks.has(this.room.sessionId), 'blue state');
+      const blueRoom = this.room;
+      const redRoom = await new Client(this.backendWsUrl).joinOrCreate('game_room', { lobbyId: lobby.id, playerName: 'Fog Red' });
+      try {
+        redRoom.onMessage(INVALID_TARGET_MESSAGE, () => {});
+        await until(() => redRoom.state.tanks.size === 2 && blueRoom.state.tanks.size === 2, 'two-client state');
+        check(blueRoom.state.tanks.get(blueRoom.sessionId).team !== blueRoom.state.tanks.get(redRoom.sessionId).team, 'Live lobby balances opposing teams');
+        blueRoom.send('start_game');
+        await until(() => this.arenaStarted && this.fog && redRoom.state.phase === 'started', 'started arena');
+        check(blueRoom.state.tanks.get(blueRoom.sessionId).sightRange === 325, 'Live client receives the same absolute sight as towers');
+        check(!blueRoom.state.tanks.has(redRoom.sessionId) && !this.tankSprites.has(redRoom.sessionId), 'Live initial arena removes opposing spawn from state and presentation');
+        const firstTeam = blueRoom.state.tanks.get(blueRoom.sessionId).team;
+        const secondTeam = redRoom.state.tanks.get(redRoom.sessionId).team;
+        check(blueRoom.state.bases.size === 1 && [...blueRoom.state.bases.values()].every(base => base.team === firstTeam), 'First live state contains only its allied base');
+        check(redRoom.state.bases.size === 1 && [...redRoom.state.bases.values()].every(base => base.team === secondTeam), 'Opposing live state contains only its allied base');
+        check(blueRoom.state.towers.size === 6 && [...blueRoom.state.towers.values()].every(tower => tower.team === firstTeam), 'First live state contains only its allied towers');
+        const redVision = new TeamVision(secondTeam, getVisionEntities(redRoom.state));
+        check(!redRoom.state.tanks.has(blueRoom.sessionId) && !redVision.canSee(blueRoom.state.tanks.get(blueRoom.sessionId)), 'Second live client receives no opposing tank');
+        let rejected = false;
+        blueRoom.onMessage(INVALID_TARGET_MESSAGE, () => { rejected = true; });
+        blueRoom.send('command', { targetId: redRoom.sessionId });
+        await until(() => rejected, 'hidden attack rejection');
+        check(blueRoom.state.tanks.get(blueRoom.sessionId).lockedTargetId === '', 'Live server rejects a real concealed enemy ID');
+        const initialX = blueRoom.state.tanks.get(blueRoom.sessionId).x;
+        blueRoom.send('command', { x: 1200, y: 900 });
+        await until(() => Math.abs(blueRoom.state.tanks.get(blueRoom.sessionId).x - initialX) > 5, 'movement into dark terrain');
+        check(true, 'Live movement into fog remains available');
+        await this.backToMainMenu();
+        check(!this.fog && !this.textures.exists('team-vision-fog'), 'Live leave clears fog and minimap');
+      } finally {
+        await redRoom.leave();
+        if (this.room === blueRoom) this.backToMainMenu();
+      }
+    }
+  }
+
+  new Phaser.Game({
+    type: new URLSearchParams(location.search).has('webgl') ? Phaser.WEBGL : Phaser.CANVAS,
+    width: 800, height: 600, parent: 'preview',
+    backgroundColor: '#151c28', audio: { noAudio: true }, scene: [FogChecks]
+  });
+</script>
+</html>

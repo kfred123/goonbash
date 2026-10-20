@@ -37,7 +37,7 @@
         const now = Date.now();
         const tank = {
           x: 100, y: 100, team: 'blue', role: 'healer', name: 'Werkstatt',
-          hp: 90, maxHp: 90, level: 1, state: 'alive',
+          hp: 90, maxHp: 90, level: 1, state: 'alive', sightRange: 2000,
           targetId: '',
           abilities: new Map([
             ['healer-aura', { activeUntil: now + 60000 }],
@@ -45,9 +45,10 @@
           ])
         };
         this.room = { sessionId: 'local', state: {
-          tanks: new Map([['local', tank]]), minions: new Map(), bases: new Map(), towers: new Map()
+          tanks: new Map([['local', tank]]), minions: new Map(), bases: new Map(), towers: new Map(), projectiles: new Map()
         } };
         this.arenaStarted = true;
+        this.rebuildVision();
         this.upsertTank(tank, 'local');
         const sprite = this.tankSprites.get('local');
         const { effects, chassis, turret } = sprite;
