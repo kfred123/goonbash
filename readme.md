@@ -34,7 +34,14 @@ Ein einheitlicher metallischer Schraubenschluessel mit offenem Maul, massivem Sc
 
 Eine lokale Phaser-Pruefseite laesst sich nach `npm run dev --workspace=frontend` unter `/tests/workshopHealer.html` oeffnen. Sie zeigt alle ausgewaehlten Rollen und den neuen Schraubenschluessel und prueft Spiel- und Lobbygroessen, Teamfarben, Turmausrichtung, Faehigkeitsanzeigen, Respawn und Aufraeumen ohne Backendverbindung.
 
+### Mob-Grafik: Nietenkaefer
+
+Die automatisch spawnenden Mobs erscheinen als kleine mechanische Nietenkaefer mit sechseckiger teamfarbener Panzerung, hellem Sichtschlitz, Nieten, kurzer Kanone und vier beweglichen Beinen. Diagonal gegenueberliegende Beinpaare laufen im Wechsel; die Schrittfolge folgt der tatsaechlich dargestellten Wegstrecke und wird bei langsamer Bewegung entsprechend langsamer. Im Stand ruhen die Beine. Der Koerper folgt der Fahrtrichtung, die Kanone zielt unabhaengig auf das aktuelle Kampfziel.
+
+Die nominale Mob-Groesse bleibt bei 18 Einheiten; Trefferflaechen, Spielwerte und Lebensbalken bleiben unveraendert. Blau und Rot entsprechen den Spieler-Teamfarben, umlaufende Kreise gibt es nicht. Nach `npm run dev --workspace=frontend` zeigt `/tests/minionBeetle.html` beide Teams vergroessert und in Spielgroesse beim Laufen, Anhalten und Umkehren, einschliesslich Renderer-Pruefungen ohne Backend.
+
 ## Technical Goals
+
 - **Multiplayer**: Real-time synchronization for competitive play.
 - **Cross-Platform**: Seamless play on both **Web Browsers** and **Mobile Devices**.
 - **Aesthetic**: Vibrant, "Comic-style" 2D or stylized 3D graphics with high-impact visual effects.
