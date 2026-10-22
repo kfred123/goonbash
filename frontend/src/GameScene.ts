@@ -2,7 +2,13 @@ import Phaser from 'phaser';
 import { Client, Room } from 'colyseus.js';
 import {
   GameState,
-  getLaneWaypoints,
+  ARENA_LANES,
+  LANE_BORDER_WIDTH,
+  WORLD_WIDTH,
+  WORLD_HEIGHT,
+  TeamVision,
+  getVisionEntities,
+  INVALID_TARGET_MESSAGE,
   LANE_ROAD_WIDTH,
   getAbilityDefinition,
   getRequiredXpForNextLevel,
@@ -14,7 +20,9 @@ import {
   Role,
   isRole
 } from 'shared';
-import type { AbilityId, Base, Minion } from 'shared';
+import type { AbilityId, Base, Minion, VisionEntity, InvalidTargetMessage } from 'shared';
+import { FogPresentation } from './FogPresentation.js';
+import { isEntityPresented, isProjectilePresented } from './visionPresentation.js';
 import { formatPlayerNameTag } from './nameFormatter.js';
 import { getAbilityHudStatus, getRoleAbilityAtIndex, resolveArenaClick, shouldCancelRocketTargetSelection, shouldHandleAbilityKeydown } from './abilityControls.js';
 import { getBaseCannonRotation, getBaseCannonShotFeedback } from './baseCannonVisuals.js';
@@ -55,6 +63,9 @@ export class GameScene extends Phaser.Scene {
   private menuBackground?: Phaser.GameObjects.Rectangle;
   private arenaBackgroundObjects: Phaser.GameObjects.GameObject[] = [];
   private arenaTitle?: Phaser.GameObjects.Text;
+  private fog?: FogPresentation;
+  private vision = new TeamVision('', []);
+  private visibleEntities = new Set<string>();
   private viewportWidth = 800;
   private viewportHeight = 600;
   private nameInputEl: HTMLInputElement | null = null;
@@ -112,8 +123,8 @@ export class GameScene extends Phaser.Scene {
   private static readonly HUD_BAR_HEIGHT = 92;
   // World is 3x the 800x600 viewport (matching backend GameRoom's WORLD_WIDTH/WORLD_HEIGHT)
   // so the camera only ever shows a portion of the map at once.
-  private static readonly WORLD_WIDTH = 2400;
-  private static readonly WORLD_HEIGHT = 1800;
+  private static readonly WORLD_WIDTH = WORLD_WIDTH;
+  private static readonly WORLD_HEIGHT = WORLD_HEIGHT;
   private static readonly CAMERA_LERP = 0.1;
   private readonly backendHttpUrl = (import.meta as any).env?.VITE_BACKEND_HTTP_URL || `${window.location.protocol}//${window.location.hostname}:2567`;
   private readonly backendWsUrl = (import.meta as any).env?.VITE_BACKEND_WS_URL || `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.hostname}:2567`;
@@ -129,6 +140,9 @@ export class GameScene extends Phaser.Scene {
   }
 
   create() {
+    this.leavingRoom = false;
+    this.arenaStarted = false;
+    this.resultsShown = false;
     this.viewportWidth = this.scale.width;
     this.viewportHeight = this.scale.height;
     this.scale.on(Phaser.Scale.Events.RESIZE, this.handleResize, this);
@@ -136,7 +150,7 @@ export class GameScene extends Phaser.Scene {
     this.statusText = this.add.text(10, 10, 'Lobby menu', {
       color: '#aaaaff', fontSize: '14px',
       backgroundColor: '#00000088', padding: { x: 6, y: 4 }
-    }).setScrollFactor(0);
+    }).setScrollFactor(0).setDepth(2200);
     this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => this.handlePointerClick(pointer));
     this.input.keyboard?.on('keydown-SPACE', (event: KeyboardEvent) => {
       if (shouldHandleAbilityKeydown(event)) this.activateRoleAbility(0);
@@ -146,6 +160,14 @@ export class GameScene extends Phaser.Scene {
     });
     this.input.keyboard?.on('keydown-ESC', (event: KeyboardEvent) => {
       if (shouldCancelRocketTargetSelection(-1, event.key)) this.cancelRocketTargetSelection();
+    });
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      this.arenaStarted = false;
+      this.leavingRoom = true;
+      this.room?.removeAllListeners();
+      if (this.room) void this.room.leave().catch((error) => console.error('[GameScene] Failed to leave room on shutdown', error));
+      this.clearArenaPresentation();
+      this.scale.off(Phaser.Scale.Events.RESIZE, this.handleResize, this);
     });
     this.showMainMenu();
   }
@@ -308,26 +330,57 @@ export class GameScene extends Phaser.Scene {
     };
     this.client = new Client(this.backendWsUrl);
     this.room = await this.client.joinOrCreate<GameState>('game_room', { lobbyId: lobby.id, playerName: this.playerName });
+    const connectedRoom = this.room;
+    this.room.onLeave(() => {
+      if (this.room === connectedRoom && !this.leavingRoom && this.sys.isActive()) this.backToMainMenu();
+    });
+    this.room.onMessage(INVALID_TARGET_MESSAGE, (message: InvalidTargetMessage) => {
+      if (this.room !== connectedRoom || message.reason !== 'invalid_target') return;
+      this.attackMarkers.forEach(({ graphics }) => {
+        this.tweens.killTweensOf(graphics);
+        graphics.destroy();
+      });
+      this.attackMarkers = [];
+      this.cancelRocketTargetSelection();
+      this.statusText.setText('Target is no longer visible or valid.').setColor('#ffbb88');
+    });
     this.statusText.setText(`Connected | ${this.room.sessionId}`);
     this.statusText.setColor('#44ff88');
     this.destroyMenuElements();
     this.room.state.tanks.onAdd((tank, sessionId) => {
-      if (this.arenaStarted) this.upsertTank(tank, sessionId);
+      if (this.room === connectedRoom && this.arenaStarted) this.upsertTank(tank, sessionId);
     });
-    this.room.state.tanks.onRemove((_tank, sessionId) => this.removeTank(sessionId));
+    this.room.state.tanks.onRemove((_tank, sessionId) => {
+      if (this.room === connectedRoom && this.arenaStarted) this.removeTank(sessionId);
+    });
     this.room.state.minions.forEach((minion, id) => this.upsertMinion(minion, id));
     this.room.state.minions.onAdd((minion, id) => {
-      if (this.arenaStarted) this.upsertMinion(minion, id);
+      if (this.room === connectedRoom && this.arenaStarted) this.upsertMinion(minion, id);
     });
-    this.room.state.minions.onRemove((_minion, id) => this.removeMinion(id));
+    this.room.state.minions.onRemove((_minion, id) => {
+      if (this.room === connectedRoom && this.arenaStarted) this.removeMinion(id);
+    });
     this.room.state.towers.onAdd((tower, id) => {
-      if (this.arenaStarted) this.upsertTower(tower, id);
+      if (this.room === connectedRoom && this.arenaStarted) this.upsertTower(tower, id);
     });
-    this.room.state.towers.onRemove((_tower, id) => this.removeTower(id));
+    this.room.state.towers.onRemove((_tower, id) => {
+      if (this.room === connectedRoom && this.arenaStarted) this.removeTower(id);
+    });
+    this.room.state.bases.onAdd((base, id) => {
+      if (this.room === connectedRoom && this.arenaStarted) this.upsertBase(base, id);
+    });
+    this.room.state.bases.onRemove((_base, id) => {
+      if (this.room === connectedRoom && this.arenaStarted) this.removeBase(id);
+    });
     this.room.state.projectiles.forEach((projectile, id) => this.upsertProjectile(projectile, id));
-    this.room.state.projectiles.onAdd((projectile, id) => this.upsertProjectile(projectile, id));
-    this.room.state.projectiles.onRemove((_projectile, id) => this.removeProjectile(id));
+    this.room.state.projectiles.onAdd((projectile, id) => {
+      if (this.room === connectedRoom && this.arenaStarted) this.upsertProjectile(projectile, id);
+    });
+    this.room.state.projectiles.onRemove((_projectile, id) => {
+      if (this.room === connectedRoom && this.arenaStarted) this.removeProjectile(id);
+    });
     this.room.onStateChange((state: any) => {
+      if (this.room !== connectedRoom) return;
       if (this.resultsShown) return;
       if (state.phase === 'waiting') {
         this.showWaitingLobby(state);
@@ -337,6 +390,7 @@ export class GameScene extends Phaser.Scene {
         this.showMatchResults(state);
         return;
       }
+      this.rebuildVision();
       if (state.phase === 'started' && !this.arenaStarted) {
         this.createArena(state.lobbyName);
         this.arenaStarted = true;
@@ -359,6 +413,8 @@ export class GameScene extends Phaser.Scene {
       if (this.arenaStarted && state.towers && typeof state.towers.forEach === 'function') {
         state.towers.forEach((tower: any, id: string) => this.upsertTower(tower, id));
       }
+      this.applyVisibility();
+      this.refreshFog();
     });
     this.showWaitingLobby(this.room.state);
   }
@@ -373,6 +429,9 @@ export class GameScene extends Phaser.Scene {
       .setDepth(1500)
       .setScale(this.viewportScale());
     this.createAbilityHud();
+    this.fog = new FogPresentation(this);
+    this.rebuildVision();
+    this.refreshFog();
   }
 
   /** Creates the tilemap-based arena background from the preloaded Tiled JSON and texture assets. */
@@ -390,9 +449,9 @@ export class GameScene extends Phaser.Scene {
   }
 
   private drawLaneStreets() {
-    const lanes = getLaneWaypoints({ x: 240, y: 900 }, { x: 2160, y: 900 });
+    const lanes = ARENA_LANES;
     const roadWidth = LANE_ROAD_WIDTH;
-    const borderWidth = 124;
+    const borderWidth = LANE_BORDER_WIDTH;
     const textureKey = 'lane-roads';
     if (this.textures.exists(textureKey)) this.textures.remove(textureKey);
     const roadTexture = this.textures.createCanvas(textureKey, GameScene.WORLD_WIDTH, GameScene.WORLD_HEIGHT);
@@ -445,11 +504,16 @@ export class GameScene extends Phaser.Scene {
   }
 
   private clearArenaPresentation() {
+    this.fog?.destroy();
+    this.fog = undefined;
+    this.vision = new TeamVision('', []);
+    this.visibleEntities.clear();
     this.destroyAbilityHud();
     this.arenaTitle?.destroy();
     this.arenaTitle = undefined;
     this.arenaBackgroundObjects.forEach((object) => object.destroy());
     this.arenaBackgroundObjects = [];
+    if (this.textures.exists('lane-roads')) this.textures.remove('lane-roads');
     this.tankSprites.forEach((sprite) => sprite.destroy());
     this.tankSprites.clear();
     this.tankTargets.clear();
@@ -496,6 +560,8 @@ export class GameScene extends Phaser.Scene {
     this.arenaStarted = true;
     this.resetCamera();
     this.destroyAbilityHud();
+    this.fog?.destroy();
+    this.fog = undefined;
     this.destroyMenuElements();
 
     const background = this.add.rectangle(0, 0, this.scale.width, this.scale.height, 0x0a0d13, 0.97)
@@ -714,6 +780,8 @@ export class GameScene extends Phaser.Scene {
       this.arenaTitle.y
     ).setScale(scaleRatio);
     this.resizeAbilityHud(scaleRatio, deltaY);
+    this.fog?.resize();
+    this.refreshFog();
     this.viewportWidth = this.scale.width;
     this.viewportHeight = this.scale.height;
   }
@@ -809,10 +877,13 @@ export class GameScene extends Phaser.Scene {
         abilities
       };
     }
+    this.setEntityVisibility(sessionId, this.canPresent(tank, this.tankSprites.get(sessionId)));
   }
 
   private removeTank(sessionId: string) {
-    if (sessionId === this.room.sessionId) this.cameras.main.stopFollow();
+    this.visibleEntities.delete(sessionId);
+    this.removeTargetFeedback(sessionId);
+    if (sessionId === this.room?.sessionId) this.cameras.main.stopFollow();
     this.tankSprites.get(sessionId)?.destroy();
     this.tankSprites.delete(sessionId);
     this.tankTargets.delete(sessionId);
@@ -837,6 +908,7 @@ export class GameScene extends Phaser.Scene {
     sprite.setDestination(x, y);
     this.minionSprites.set(id, sprite);
     this.updateHealthBar(id, sprite.x, sprite.y - 16, minion.hp, minion.maxHp, true);
+    this.setEntityVisibility(id, this.canPresent(minion, sprite));
   }
 
   private upsertBase(base: Base, id: string) {
@@ -851,10 +923,11 @@ export class GameScene extends Phaser.Scene {
     this.updateHealthBar(id, x, y - 44, base.hp, base.maxHp, true);
     const shot = getBaseCannonShotFeedback(base, this.baseShotCounts.get(id));
     this.baseShotCounts.set(id, base.shotCount);
-    if (shot) {
+    if (shot && this.visibleEntities.has(id) && this.canPresent(base)) {
       sprite.cannon.rotation = shot.angle;
       this.showBaseMuzzleFlash(id, shot.muzzle);
     }
+    this.setEntityVisibility(id, this.canPresent(base));
   }
 
   private showBaseMuzzleFlash(id: string, muzzle: { x: number; y: number }) {
@@ -875,6 +948,21 @@ export class GameScene extends Phaser.Scene {
         flash.destroy();
       }
     });
+  }
+
+  private removeBase(id: string) {
+    this.visibleEntities.delete(id);
+    this.removeTargetFeedback(id);
+    this.baseSprites.get(id)?.fort.destroy();
+    this.baseSprites.delete(id);
+    this.baseShotCounts.delete(id);
+    const flash = this.baseMuzzleFlashes.get(id);
+    if (flash) {
+      this.tweens.killTweensOf(flash);
+      flash.destroy();
+      this.baseMuzzleFlashes.delete(id);
+    }
+    this.removeHealthBar(id);
   }
 
   private createBaseFortress(
@@ -930,6 +1018,7 @@ export class GameScene extends Phaser.Scene {
       else visual.ruin.setPosition(x, y);
       this.towerSprites.set(id, visual);
       this.towerShotCounts.set(id, tower.shotCount ?? 0);
+      this.setEntityVisibility(id, this.canPresent(tower, undefined, true));
       return;
     }
     if (visual.ruin) {
@@ -948,10 +1037,11 @@ export class GameScene extends Phaser.Scene {
     this.updateHealthBar(id, x, y - 22, tower.hp, tower.maxHp, true);
     const shot = getTowerCannonShotFeedback(tower, this.towerShotCounts.get(id));
     this.towerShotCounts.set(id, tower.shotCount ?? 0);
-    if (shot) {
+    if (shot && this.visibleEntities.has(id) && this.canPresent(tower)) {
       visual.cannon.rotation = shot.angle;
       this.showTowerMuzzleFlash(id, shot.muzzle);
     }
+    this.setEntityVisibility(id, this.canPresent(tower));
   }
 
   private createTowerOutpost(
@@ -1027,12 +1117,16 @@ export class GameScene extends Phaser.Scene {
   }
 
   private removeMinion(id: string) {
+    this.visibleEntities.delete(id);
+    this.removeTargetFeedback(id);
     this.minionSprites.get(id)?.destroy();
     this.minionSprites.delete(id);
     this.removeHealthBar(id);
   }
 
   private removeTower(id: string) {
+    this.visibleEntities.delete(id);
+    this.removeTargetFeedback(id);
     const visual = this.towerSprites.get(id);
     visual?.outpost?.destroy();
     visual?.ruin?.destroy();
@@ -1045,6 +1139,15 @@ export class GameScene extends Phaser.Scene {
       this.towerMuzzleFlashes.delete(id);
     }
     this.removeHealthBar(id);
+  }
+
+  private removeTargetFeedback(id: string) {
+    this.attackMarkers = this.attackMarkers.filter(marker => {
+      if (marker.targetId !== id) return true;
+      this.tweens.killTweensOf(marker.graphics);
+      marker.graphics.destroy();
+      return false;
+    });
   }
 
   private upsertProjectile(projectile: any, id: string) {
@@ -1060,6 +1163,7 @@ export class GameScene extends Phaser.Scene {
     sprite.x = x;
     sprite.y = y;
     this.projectileSprites.set(id, sprite);
+    sprite.setVisible(isProjectilePresented(projectile, this.vision));
   }
 
   private removeProjectile(id: string) {
@@ -1107,6 +1211,7 @@ export class GameScene extends Phaser.Scene {
   private hitTestClick(worldX: number, worldY: number): { id: string; team: string; x: number; y: number } | null {
     let closest: { id: string; team: string; x: number; y: number; distSq: number } | null = null;
     const consider = (id: string, x: number, y: number, team: string, radius: number) => {
+      if (!this.visibleEntities.has(id)) return;
       const dx = x - worldX;
       const dy = y - worldY;
       const distSq = dx * dx + dy * dy;
@@ -1133,6 +1238,7 @@ export class GameScene extends Phaser.Scene {
 
   /** Tank targets follow their rendered center, including positional interpolation. */
   private findEntityPosition(id: string): { x: number; y: number } | null {
+    if (!this.visibleEntities.has(id)) return null;
     const tank = this.room.state.tanks.get(id) as any;
     if (tank) {
       if (tank.state === 'dead') return null;
@@ -1192,6 +1298,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private handlePointerClick(pointer: Phaser.Input.Pointer) {
+    if (this.fog?.contains(pointer)) return;
     if (this.rocketTargetSelection && shouldCancelRocketTargetSelection(pointer.button)) {
       this.cancelRocketTargetSelection();
       return;
@@ -1239,6 +1346,7 @@ export class GameScene extends Phaser.Scene {
         this.updateHealthBarPosition(sessionId, sprite.x, sprite.y - 49);
       }
     });
+    this.applyVisibility();
     if (this.arenaStarted && this.room) {
       this.room.state.minions.forEach((minion, id) => {
         const target = minion.targetId ? this.findEntityPosition(minion.targetId) : null;
@@ -1254,14 +1362,76 @@ export class GameScene extends Phaser.Scene {
     this.attackMarkers.forEach(({ graphics, targetId }) => {
       const position = this.findEntityPosition(targetId);
       if (position) graphics.setPosition(position.x, position.y);
+      else {
+        this.tweens.killTweensOf(graphics);
+        graphics.destroy();
+      }
     });
+    this.attackMarkers = this.attackMarkers.filter(({ graphics }) => graphics.active);
     this.refreshAbilityHud();
     this.applyRoleAbilityVisuals();
+    this.applyVisibility();
+  }
+
+  private rebuildVision() {
+    if (!this.room) return;
+    const team = this.room.state.tanks.get(this.room.sessionId)?.team
+      ?? this.room.state.playerStats.get(this.room.sessionId)?.team ?? '';
+    this.vision = new TeamVision(team, getVisionEntities(this.room.state));
+  }
+
+  private refreshFog() {
+    if (!this.fog || !this.room) return;
+    const state = this.room.state;
+    this.fog.update(this.vision, [
+      ...state.tanks.values(), ...state.minions.values(), ...state.towers.values(), ...state.bases.values()
+    ], this.room.sessionId);
+  }
+
+  private canPresent(entity: VisionEntity, rendered?: { x: number; y: number }, ruin = false): boolean {
+    return isEntityPresented(entity, this.vision, rendered, ruin);
+  }
+
+  private setEntityVisibility(id: string, visible: boolean) {
+    this.tankSprites.get(id)?.setVisible(visible);
+    this.tankNameTexts.get(id)?.setVisible(visible);
+    this.minionSprites.get(id)?.setVisible(visible);
+    this.baseSprites.get(id)?.fort.setVisible(visible);
+    const tower = this.towerSprites.get(id);
+    tower?.outpost?.setVisible(visible);
+    tower?.ruin?.setVisible(visible);
+    const bar = this.healthBars.get(id);
+    bar?.bg.setVisible(visible);
+    bar?.fill.setVisible(visible);
+    this.healEffectIcons.get(id)?.setVisible(visible);
+    this.baseMuzzleFlashes.get(id)?.setVisible(visible);
+    this.towerMuzzleFlashes.get(id)?.setVisible(visible);
+    if (!visible) {
+      for (const flashes of [this.baseMuzzleFlashes, this.towerMuzzleFlashes]) {
+        const flash = flashes.get(id);
+        if (!flash) continue;
+        this.tweens.killTweensOf(flash);
+        flash.destroy();
+        flashes.delete(id);
+      }
+    }
+    if (visible) this.visibleEntities.add(id);
+    else this.visibleEntities.delete(id);
+  }
+
+  private applyVisibility() {
+    if (!this.room || !this.arenaStarted || this.resultsShown) return;
+    const state = this.room.state;
+    state.tanks.forEach((tank, id) => this.setEntityVisibility(id, this.canPresent(tank, this.tankSprites.get(id))));
+    state.minions.forEach((minion, id) => this.setEntityVisibility(id, this.canPresent(minion, this.minionSprites.get(id))));
+    state.bases.forEach((base, id) => this.setEntityVisibility(id, this.canPresent(base)));
+    state.towers.forEach((tower, id) => this.setEntityVisibility(id, this.canPresent(tower, undefined, tower.hp <= 0)));
+    state.projectiles.forEach((projectile, id) => this.projectileSprites.get(id)?.setVisible(isProjectilePresented(projectile, this.vision)));
   }
 
   /** Updates healer service marks, exhaust and the repair tool over healed allies without surrounding rings. */
   private applyRoleAbilityVisuals() {
-    if (!this.arenaStarted || !this.room) return;
+    if (!this.arenaStarted || !this.room || this.resultsShown) return;
     const now = Date.now();
     const healRadius = getAbilityDefinition('healer-aura').config.radius ?? 0;
     const healedSessionIds = new Set<string>();

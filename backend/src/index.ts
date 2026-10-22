@@ -3,12 +3,12 @@ import cors from "cors";
 import { Server } from "colyseus";
 import { createServer } from "http";
 import { GameRoom } from "./rooms/GameRoom.js";
-import { LobbyRegistry } from "./lobbies/LobbyRegistry.js";
+import { lobbyRegistry } from "./lobbies/LobbyRegistry.js";
 import { getDeploymentInfo } from "./deploymentInfo.js";
 
 const port = Number(process.env.PORT || 2567);
 const app = express();
-export const lobbyRegistry = new LobbyRegistry();
+export { lobbyRegistry };
 
 app.use(cors());
 app.use(express.json());
