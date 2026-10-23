@@ -22,7 +22,7 @@ import {
   Role,
   isRole
 } from 'shared';
-import type { AbilityId, Base, Minion, VisionEntity, InvalidTargetMessage } from 'shared';
+import type { AbilityId, Base, Minion, Tank, VisionEntity, InvalidTargetMessage } from 'shared';
 import { FogPresentation } from './FogPresentation.js';
 import { isEntityPresented, isProjectilePresented } from './visionPresentation.js';
 import { formatPlayerNameTag } from './nameFormatter.js';
@@ -34,6 +34,7 @@ import { createRoleTank, RoleTank } from './roleTank.js';
 import { getVehicleHeading } from './roleTankVisuals.js';
 import { drawWrench } from './wrenchVisuals.js';
 import { createMinionBeetle, MinionBeetle } from './minionBeetle.js';
+import { getRespawnCountdown, getTankPresentation } from './respawnPresentation.js';
 
 const ROLE_ORDER: Role[] = ['healer', 'tank', 'damagedealer'];
 
@@ -43,6 +44,7 @@ export class GameScene extends Phaser.Scene {
   private tankSprites: Map<string, RoleTank> = new Map();
   private tankTargets: Map<string, { x: number; y: number }> = new Map();
   private tankNameTexts: Map<string, Phaser.GameObjects.Text> = new Map();
+  private respawnCountdown?: Phaser.GameObjects.Text;
   private minionSprites: Map<string, MinionBeetle> = new Map();
   private baseSprites: Map<string, { fort: Phaser.GameObjects.Container; cannon: Phaser.GameObjects.Container }> = new Map();
   private baseMuzzleFlashes: Map<string, Phaser.GameObjects.Arc> = new Map();
@@ -511,6 +513,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private clearArenaPresentation() {
+    this.destroyRespawnCountdown();
     this.fog?.destroy();
     this.fog = undefined;
     this.vision = new TeamVision('', []);
@@ -563,6 +566,7 @@ export class GameScene extends Phaser.Scene {
 
   private showMatchResults(state: GameState) {
     if (!this.room) return;
+    this.destroyRespawnCountdown();
     this.resultsShown = true;
     this.arenaStarted = true;
     this.resetCamera();
@@ -825,7 +829,7 @@ export class GameScene extends Phaser.Scene {
     this.rocketTargetHint?.setX(width / 2).setScale(this.viewportScale());
   }
 
-  private upsertTank(tank: any, sessionId: string) {
+  private upsertTank(tank: Tank, sessionId: string) {
     if (!tank) return;
 
     const x = tank.x ?? 200;
@@ -840,10 +844,12 @@ export class GameScene extends Phaser.Scene {
     if (this.tankSprites.has(sessionId)) {
       this.tankTargets.set(sessionId, { x, y });
       const sprite = this.tankSprites.get(sessionId)!;
+      if (isDead) sprite.setPosition(x, y);
       sprite.setVisible(!isDead);
       const nameText = this.tankNameTexts.get(sessionId);
       if (nameText) {
         nameText.setText(fullDisplayName);
+        if (isDead) nameText.setPosition(x, y - GameScene.TANK_NAME_OFFSET);
         nameText.setVisible(!isDead);
       }
     } else {
@@ -884,13 +890,22 @@ export class GameScene extends Phaser.Scene {
         abilities
       };
     }
-    this.setEntityVisibility(sessionId, this.canPresent(tank, this.tankSprites.get(sessionId)));
+    if (isDead) {
+      this.tankSprites.get(sessionId)?.updateAbilityVisuals(true, 0, 0, Date.now(), this.time.now);
+      this.removeTargetFeedback(sessionId);
+      if (isMe) this.cancelRocketTargetSelection();
+    }
+    this.applyTankVisibility(tank, sessionId);
+    if (isMe) this.refreshRespawnCountdown();
   }
 
   private removeTank(sessionId: string) {
     this.visibleEntities.delete(sessionId);
     this.removeTargetFeedback(sessionId);
-    if (sessionId === this.room?.sessionId) this.cameras.main.stopFollow();
+    if (sessionId === this.room?.sessionId) {
+      this.cameras.main.stopFollow();
+      this.destroyRespawnCountdown();
+    }
     this.tankSprites.get(sessionId)?.destroy();
     this.tankSprites.delete(sessionId);
     this.tankTargets.delete(sessionId);
@@ -1378,6 +1393,29 @@ export class GameScene extends Phaser.Scene {
     this.refreshAbilityHud();
     this.applyRoleAbilityVisuals();
     this.applyVisibility();
+    this.refreshRespawnCountdown();
+  }
+
+  private destroyRespawnCountdown() {
+    this.respawnCountdown?.destroy();
+    this.respawnCountdown = undefined;
+  }
+
+  private refreshRespawnCountdown() {
+    const tank = this.room?.state.tanks.get(this.room.sessionId);
+    const sprite = this.tankSprites.get(this.room?.sessionId);
+    const text = getRespawnCountdown(tank, true, this.room?.state.phase ?? '', Date.now());
+    if (!this.arenaStarted || this.resultsShown || text === null || !sprite?.visible) {
+      this.destroyRespawnCountdown();
+      return;
+    }
+    if (!this.respawnCountdown) {
+      this.respawnCountdown = this.add.text(0, 0, '', {
+        color: '#ffffff', fontSize: '16px', fontStyle: 'bold',
+        backgroundColor: '#000000aa', padding: { x: 4, y: 2 }
+      }).setOrigin(0.5).setDepth(501);
+    }
+    this.respawnCountdown.setText(text).setPosition(sprite.x, sprite.y - 68 * WORLD_SCALE.entity);
   }
 
   private rebuildVision() {
@@ -1429,11 +1467,19 @@ export class GameScene extends Phaser.Scene {
   private applyVisibility() {
     if (!this.room || !this.arenaStarted || this.resultsShown) return;
     const state = this.room.state;
-    state.tanks.forEach((tank, id) => this.setEntityVisibility(id, this.canPresent(tank, this.tankSprites.get(id))));
+    state.tanks.forEach((tank, id) => this.applyTankVisibility(tank, id));
     state.minions.forEach((minion, id) => this.setEntityVisibility(id, this.canPresent(minion, this.minionSprites.get(id))));
     state.bases.forEach((base, id) => this.setEntityVisibility(id, this.canPresent(base)));
     state.towers.forEach((tower, id) => this.setEntityVisibility(id, this.canPresent(tower, undefined, tower.hp <= 0)));
     state.projectiles.forEach((projectile, id) => this.projectileSprites.get(id)?.setVisible(isProjectilePresented(projectile, this.vision)));
+  }
+
+  private applyTankVisibility(tank: Tank, id: string) {
+    const sprite = this.tankSprites.get(id);
+    const presentation = getTankPresentation(tank, this.vision, sprite);
+    this.setEntityVisibility(id, presentation.combatVisible);
+    sprite?.setVisible(presentation.visible).setAlpha(presentation.alpha);
+    this.tankNameTexts.get(id)?.setVisible(presentation.visible);
   }
 
   /** Updates healer service marks, exhaust and the repair tool over healed allies without surrounding rings. */

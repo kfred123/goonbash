@@ -12,6 +12,7 @@ import {
   isReadyToRespawn,
   isWithinRange,
   nearBasePosition,
+  respawnDelayMs,
   respawnTank,
   stepToward,
   stepHomingProjectile,
@@ -70,15 +71,16 @@ test("reduces HP by the damage amount and clamps it at zero", () => {
   assert.equal(applyDamage(0, 5), 0);
 });
 
-test("respawning a tank restores full HP and positions it near, but not exactly on, the base", () => {
-  const respawned = respawnTank(100, 80, 300, TEST_BOUNDS);
-  assert.equal(respawned.hp, 100);
-  assert.equal(respawned.state, "alive");
-  assert.equal(respawned.respawnAt, 0);
-  const dx = respawned.x - 80;
-  const dy = respawned.y - 300;
-  const distance = Math.sqrt(dx * dx + dy * dy);
-  assert.ok(distance >= 80 && distance <= 140, `expected distance ${distance} to be within the near-base radius`);
+test("respawn delay scales exactly with the level at death", () => {
+  assert.equal(respawnDelayMs(1), 2000);
+  assert.equal(respawnDelayMs(5), 10000);
+  assert.equal(respawnDelayMs(10), 20000);
+});
+
+test("respawning restores full HP without moving the preview", () => {
+  assert.deepEqual(respawnTank(145, 80, 300), {
+    hp: 145, x: 80, y: 300, state: "alive", respawnAt: 0
+  });
 });
 
 test("nearBasePosition stays within the near-base radius and within world bounds across repeated calls", () => {

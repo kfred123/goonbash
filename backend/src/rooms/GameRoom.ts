@@ -4,7 +4,7 @@ import { isRole, resolveRoleStats } from "shared";
 import { BLUE_BASE_POSITION, RED_BASE_POSITION, WORLD_WIDTH, WORLD_HEIGHT, TeamVision, getVisionEntities, INVALID_TARGET_MESSAGE } from "shared";
 import { lobbyRegistry } from "../lobbies/LobbyRegistry.js";
 import { canChangeRole, canChangeTeam, canJoinRoom, canManageLobby, canUseGameplayActions, normalizeLobbyName, normalizePlayerName, resolveHostAfterLeave, selectBalancedTeam } from "./lobbyControls.js";
-import { clampToBounds, createShotProjectile, findNearestEnemyInRange, getLivingTowers, hasDied, hasProjectileReachedTarget, isReadyToRespawn, isWithinRange, stepHomingProjectile, stepProjectileTowardTarget, stepToward, applyDamage as computeDamagedHp, nearBasePosition, respawnTank, tickShooter } from "./combat.js";
+import { clampToBounds, createShotProjectile, findNearestEnemyInRange, getLivingTowers, hasDied, hasProjectileReachedTarget, isReadyToRespawn, isWithinRange, stepHomingProjectile, stepProjectileTowardTarget, stepToward, applyDamage as computeDamagedHp, nearBasePosition, respawnDelayMs, respawnTank, tickShooter } from "./combat.js";
 import { activateAbility, applyDamageReduction, canActivateRoleAbility, effectiveFireCooldown, effectiveMoveSpeed, healOverTick, homingRocketDamage, isAbilityActive, isMovementLocked, isValidRocketTarget, strongestReduction } from "./ability.js";
 import { getLaneTowerPlacements } from "./towerPlacement.js";
 import { effectiveTerrainMoveSpeed } from "./terrain.js";
@@ -12,7 +12,6 @@ import { applyTankProgressionStats, distributeKillXp, purchaseAbilityUpgrade } f
 import { endMatchAfterBaseDestroyed, recordPlayerDamage, recordPlayerKill, removeLeavingPlayerTank } from "./matchResults.js";
 import { VisibilitySerializer } from "./VisibilitySerializer.js";
 
-const RESPAWN_DELAY_MS = 3000;
 const PROJECTILE_HIT_RADIUS = 12;
 const PROJECTILE_MAX_LIFETIME_MS = 3000;
 
@@ -383,6 +382,7 @@ export class GameRoom extends Room<GameState> {
   }
 
   private applyDamage(entity: Tank | Minion | Base | Tower, damage: number, attackerId = "") {
+    if (entity instanceof Tank && entity.state === "dead") return;
     let effectiveDamage = damage;
     if (entity instanceof Tank && entity.role === "tank") {
       const now = Date.now();
@@ -419,12 +419,20 @@ export class GameRoom extends Room<GameState> {
   }
 
   private killTank(tank: Tank) {
+    const base = this.state.bases.get(`${tank.team}-base`)
+      ?? (tank.team === "blue" ? BLUE_BASE_POSITION : RED_BASE_POSITION);
+    const position = nearBasePosition(base.x, base.y, WORLD_BOUNDS);
+    tank.hp = 0;
     tank.state = "dead";
+    tank.x = position.x;
+    tank.y = position.y;
     tank.targetId = "";
     tank.lockedTargetId = "";
     tank.hasMoveTarget = false;
+    tank.moveTargetX = position.x;
+    tank.moveTargetY = position.y;
     tank.abilities.forEach((ability) => { ability.activeUntil = 0; });
-    tank.respawnAt = Date.now() + RESPAWN_DELAY_MS;
+    tank.respawnAt = Date.now() + respawnDelayMs(tank.level);
   }
 
   /** Applies the base stats for a tank's currently selected role (spawn/match-start stat setup). */
@@ -464,8 +472,7 @@ export class GameRoom extends Room<GameState> {
   private resolveRespawns(now: number) {
     this.state.tanks.forEach((tank) => {
       if (!isReadyToRespawn(tank, now)) return;
-      const base = this.state.bases.get(`${tank.team}-base`);
-      const respawned = respawnTank(tank.maxHp, base?.x ?? tank.x, base?.y ?? tank.y, WORLD_BOUNDS);
+      const respawned = respawnTank(tank.maxHp, tank.x, tank.y);
       tank.hp = respawned.hp;
       tank.x = respawned.x;
       tank.y = respawned.y;

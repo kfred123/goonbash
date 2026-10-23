@@ -137,7 +137,9 @@
         scout.hp = 50;
         this.rebuildVision();
         this.applyVisibility();
-        check(!this.tankSprites.get('local').visible && this.minionSprites.get('minion').visible, 'Dead player retains allied vision without showing dead tank');
+        check(this.tankSprites.get('local').visible && this.tankSprites.get('local').alpha === 0.5
+          && !this.healthBars.get('local').bg.visible && this.minionSprites.get('minion').visible,
+          'Dead player retains allied vision with a noncombat translucent preview');
         local.state = 'alive';
         this.room.sessionId = 'enemy';
         this.rebuildVision();

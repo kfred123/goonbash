@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>Ghost respawn integration checks</title>
+<style>body { background: #151c28; color: white; font: 16px system-ui; } canvas { max-width: 100%; }</style>
+<h1>Allied respawn previews and private countdown</h1>
+<pre id="result">Running renderer checks...</pre>
+<div id="preview"></div>
+<script type="module">
+  import Phaser from 'phaser';
+  import { Base, GameState, Tank, WORLD_SCALE } from 'shared';
+  import { GameScene } from '../src/GameScene.ts';
+  import { getMinimapEntities } from '../src/visionPresentation.ts';
+
+  const checks = [];
+  function check(condition, label) {
+    if (!condition) throw new Error(label);
+    checks.push(label);
+  }
+  class RespawnChecks extends GameScene {
+    preload() {}
+    update() {}
+    create() {
+      const realNow = Date.now;
+      let now = 100000;
+      Date.now = () => now;
+      try {
+        this.statusText = this.add.text(10, 10, 'Respawn checks');
+        const state = new GameState();
+        state.phase = 'started';
+        const commands = [];
+        this.room = { sessionId: 'local', state, send: (...args) => commands.push(args) };
+        this.arenaStarted = true;
+        for (const team of ['blue', 'red']) {
+          for (const role of ['healer', 'tank', 'damagedealer']) {
+            this.clearArenaPresentation();
+            state.tanks.clear();
+            const tank = Object.assign(new Tank(), { id: 'local', team, role, x: 1000, y: 600 });
+            const ally = Object.assign(new Tank(), { id: 'ally', team, x: 1500, y: 600 });
+            state.tanks.set(tank.id, tank);
+            state.tanks.set(ally.id, ally);
+            this.rebuildVision();
+            this.upsertTank(tank, tank.id);
+            const sprite = this.tankSprites.get(tank.id);
+            this.upsertTank(ally, ally.id);
+            tank.state = ally.state = 'dead';
+            tank.hp = ally.hp = 0;
+            tank.x = ally.x = team === 'blue' ? 240 : 2160;
+            tank.y = ally.y = 900;
+            tank.respawnAt = now + 4200;
+            this.rocketTargetSelection = true;
+            this.upsertTank(tank, tank.id);
+            this.upsertTank(ally, ally.id);
+            this.rebuildVision();
+            GameScene.prototype.update.call(this);
+            check(sprite.visible && sprite.alpha === 0.5, `${team}/${role}: local preview is half opaque`);
+            check(this.tankSprites.get(ally.id).visible && this.tankSprites.get(ally.id).alpha === 0.5, 'Teammate sees the same preview');
+            check(sprite.x === tank.x && sprite.y === tank.y, 'Figure snaps instead of interpolating across the battlefield');
+            check(this.cameras.main._follow === sprite, 'Camera keeps following the relocated figure');
+            check(!this.healthBars.get(tank.id).bg.visible && !this.healthBars.get(ally.id).fill.visible, 'Per-frame visibility does not expose dead health bars');
+            check(sprite.effects.commandBuffer.length === 0 && !this.healEffectIcons.has(tank.id), 'Preview has no active ability effects');
+            check(!this.visibleEntities.has(tank.id) && this.hitTestClick(tank.x, tank.y) === null, 'Visible preview is not selectable');
+            check(getMinimapEntities([tank, ally], this.vision).length === 0, 'Previews do not add minimap dots');
+            check(!this.rocketTargetSelection, 'Death cancels rocket target selection');
+            check(this.respawnCountdown.text === '5s', 'Only owner countdown rounds 4.2 seconds up to 5s');
+            check(this.respawnCountdown.x === sprite.x && this.respawnCountdown.y === sprite.y - 68 * WORLD_SCALE.entity, 'Countdown follows displayed figure above the name');
+            check(this.respawnCountdown.getBounds().bottom < this.tankNameTexts.get(tank.id).getBounds().top, 'Countdown does not overlap the name');
+            const label = this.respawnCountdown;
+            now += 200;
+            GameScene.prototype.update.call(this);
+            check(this.respawnCountdown === label && label.text === '4s', 'One label refreshes between state patches');
+            now = tank.respawnAt + 100;
+            GameScene.prototype.update.call(this);
+            check(label.text === '0s' && sprite.alpha === 0.5, 'Zero display never locally respawns the figure');
+            this.handlePointerClick({ x: 100, y: 100, worldX: 1200, worldY: 900, button: 0 });
+            this.activateAbility('healer-speed');
+            check(commands.length === 0, 'Dead player cannot issue movement or ability commands');
+            tank.state = 'alive';
+            tank.hp = tank.maxHp;
+            this.upsertTank(tank, tank.id);
+            check(!label.scene && !this.respawnCountdown, 'Alive confirmation destroys the countdown');
+            check(sprite.alpha === 1 && this.healthBars.get(tank.id).bg.visible && sprite.x === tank.x, 'Alive confirmation restores presentation at the same position');
+            // A client must also reject an enemy preview even if it erroneously receives one.
+            ally.team = team === 'blue' ? 'red' : 'blue';
+            this.applyVisibility();
+            check(!this.tankSprites.get(ally.id).visible, 'Enemy preview has no figure or labels');
+            tank.state = 'dead';
+            tank.hp = 0;
+            tank.respawnAt = now + 2000;
+            this.upsertTank(tank, tank.id);
+            const secondLabel = this.respawnCountdown;
+            this.removeTank(tank.id);
+            check(!secondLabel.scene && !this.respawnCountdown, 'Removal cleans up a repeated countdown');
+            this.upsertTank(tank, tank.id);
+            const thirdLabel = this.respawnCountdown;
+            this.clearArenaPresentation();
+            check(!thirdLabel.scene && !this.respawnCountdown, 'Room/scene cleanup removes countdown resources');
+          }
+        }
+        this.rebuildVision();
+        const local = state.tanks.get('local');
+        this.upsertTank(local, local.id);
+        const resultLabel = this.respawnCountdown;
+        state.phase = 'ended';
+        this.showMatchResults(state);
+        check(!resultLabel.scene && !this.respawnCountdown, 'Match results remove a waiting countdown');
+        GameScene.prototype.update.call(this);
+        check(!this.respawnCountdown, 'Results do not recreate countdowns');
+        this.clearArenaPresentation();
+        this.destroyMenuElements();
+        state.phase = 'started';
+        this.resultsShown = false;
+        state.tanks.clear();
+        const preview = Object.assign(new Tank(), {
+          id: 'local', team: 'blue', role: 'healer', name: 'Respawn preview',
+          x: 440, y: 430, state: 'dead', hp: 0, respawnAt: now + 10000
+        });
+        const base = Object.assign(new Base(), { id: 'blue-base', team: 'blue', x: 560, y: 430 });
+        state.tanks.set(preview.id, preview);
+        state.bases.set(base.id, base);
+        this.rebuildVision();
+        this.upsertTank(preview, preview.id);
+        this.upsertBase(base, base.id);
+        this.cameras.main.setBounds(0, 0, 2400, 1800);
+        window.respawnCheckResult = { ok: true, checks };
+        document.getElementById('result').textContent = `${checks.length} checks passed`;
+      } catch (error) {
+        window.respawnCheckResult = { ok: false, checks, error: String(error.stack || error) };
+        document.getElementById('result').textContent = String(error.stack || error);
+        console.error(error);
+      } finally {
+        Date.now = realNow;
+      }
+    }
+  }
+  new Phaser.Game({ type: Phaser.CANVAS, width: 1000, height: 700, parent: 'preview', backgroundColor: '#202c3c', scene: RespawnChecks, audio: { noAudio: true } });
+</script>
+</html>
