@@ -60,13 +60,17 @@ for (const role of ['healer', 'tank', 'damagedealer'] satisfies Role[]) {
   });
 }
 
-test('north-facing artwork aims in all cardinal directions and holds its last idle heading', () => {
+test('north-facing artwork aims at targets and falls back to the chassis heading', () => {
   const origin = { x: 100, y: 100 };
+  const chassisHeading = Math.PI / 4;
   assert.equal(getVehicleHeading(origin, { x: 100, y: 0 }, 2), 0);
   assert.equal(getVehicleHeading(origin, { x: 200, y: 100 }, 2), Math.PI / 2);
   assert.equal(getVehicleHeading(origin, { x: 100, y: 200 }, 2), Math.PI);
   assert.equal(getVehicleHeading(origin, { x: 0, y: 100 }, 2), Math.PI * 1.5);
-  assert.equal(getVehicleHeading(origin, null, 2), 2);
+  let target: { x: number; y: number } | null = { x: 100, y: 0 };
+  assert.equal(getVehicleHeading(origin, target, chassisHeading), 0);
+  target = null;
+  assert.equal(getVehicleHeading(origin, target, chassisHeading), chassisHeading, 'losing attack focus returns the turret to the chassis heading');
   assert.equal(getVehicleHeading(origin, origin, 2), 2);
   assert.equal(getVehicleHeading(origin, { x: 100.01, y: 100 }, 2), 2);
 });

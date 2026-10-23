@@ -1378,7 +1378,7 @@ export class GameScene extends Phaser.Scene {
         const sprite = this.tankSprites.get(sessionId);
         if (!sprite?.visible) return;
         const target = tank.targetId ? this.findEntityPosition(tank.targetId) : null;
-        sprite.turret.rotation = getVehicleHeading(sprite, target, sprite.turret.rotation);
+        sprite.turret.rotation = getVehicleHeading(sprite, target, sprite.chassis.rotation);
       });
     }
     this.attackMarkers.forEach(({ graphics, targetId }) => {
