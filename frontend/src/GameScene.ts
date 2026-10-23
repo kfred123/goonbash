@@ -22,11 +22,15 @@ import {
   Role,
   isRole
 } from 'shared';
-import type { AbilityId, Base, Minion, VisionEntity, InvalidTargetMessage } from 'shared';
+import type { AbilityId, AbilityActivationRequest, Base, Minion, VisionEntity, InvalidTargetMessage, MortarImpactMessage, Projectile } from 'shared';
+import { MORTAR_IMPACT_MESSAGE, mortarPointRejection } from 'shared';
 import { FogPresentation } from './FogPresentation.js';
 import { isEntityPresented, isProjectilePresented } from './visionPresentation.js';
 import { formatPlayerNameTag } from './nameFormatter.js';
-import { getAbilityHudStatus, getRoleAbilityAtIndex, resolveArenaClick, shouldCancelRocketTargetSelection, shouldHandleAbilityKeydown } from './abilityControls.js';
+import { ABILITY_KEYS, getAbilitySlotDesignX, getAbilityHudStatus, getRoleAbilityAtIndex, nextWeaponSelection, resolveArenaClick, shouldCancelRocketTargetSelection, shouldHandleAbilityKeydown } from './abilityControls.js';
+import type { WeaponSelection } from './abilityControls.js';
+import { applyWeaponCursor, mortarShellHeight, MORTAR_REJECTION_TEXT } from './weaponTargeting.js';
+import './weaponTargeting.css';
 import { getBaseCannonRotation, getBaseCannonShotFeedback } from './baseCannonVisuals.js';
 import { getTowerCannonRotation, getTowerCannonShotFeedback } from './towerCannonVisuals.js';
 import { getMatchResultsPage, MatchResultsSort, nextMatchResultsSort, sortMatchResults, SortableMatchStat } from './matchResults.js';
@@ -55,6 +59,10 @@ export class GameScene extends Phaser.Scene {
   private towerMuzzleFlashes: Map<string, Phaser.GameObjects.Arc> = new Map();
   private towerShotCounts: Map<string, number> = new Map();
   private projectileSprites: Map<string, Phaser.GameObjects.Arc> = new Map();
+  private mortarShadows = new Map<string, Phaser.GameObjects.Ellipse>();
+  private mortarLandingMarkers = new Map<string, Phaser.GameObjects.Arc>();
+  private mortarImpacts = new Map<string, Phaser.GameObjects.Arc>();
+  private seenMortarImpacts = new Set<string>();
   private healthBars: Map<string, { bg: Phaser.GameObjects.Rectangle; fill: Phaser.GameObjects.Rectangle; width: number }> = new Map();
   private attackMarkers: Array<{ graphics: Phaser.GameObjects.Graphics; targetId: string }> = [];
   private statusText!: Phaser.GameObjects.Text;
@@ -112,7 +120,8 @@ export class GameScene extends Phaser.Scene {
     skillPoints: number;
     abilities: Map<AbilityId, { level: number; cooldownEndsAt: number; cooldownMax: number; activeUntil: number }>;
   } | null = null;
-  private rocketTargetSelection = false;
+  private weaponSelection: WeaponSelection = null;
+  private mortarPreview?: Phaser.GameObjects.Graphics;
   private rocketTargetHint?: Phaser.GameObjects.Text;
   private healEffectIcons: Map<string, Phaser.GameObjects.Graphics> = new Map();
   private static readonly NAME_STORAGE_KEY = 'goonbash_player_name';
@@ -165,6 +174,10 @@ export class GameScene extends Phaser.Scene {
     this.input.keyboard?.on('keydown-E', (event: KeyboardEvent) => {
       if (shouldHandleAbilityKeydown(event)) this.activateRoleAbility(1);
     });
+    this.input.keyboard?.on('keydown-R', (event: KeyboardEvent) => {
+      if (shouldHandleAbilityKeydown(event)) this.activateRoleAbility(2);
+    });
+    this.input.mouse?.disableContextMenu();
     this.input.keyboard?.on('keydown-ESC', (event: KeyboardEvent) => {
       if (shouldCancelRocketTargetSelection(-1, event.key)) this.cancelRocketTargetSelection();
     });
@@ -342,7 +355,11 @@ export class GameScene extends Phaser.Scene {
       if (this.room === connectedRoom && !this.leavingRoom && this.sys.isActive()) this.backToMainMenu();
     });
     this.room.onMessage(INVALID_TARGET_MESSAGE, (message: InvalidTargetMessage) => {
-      if (this.room !== connectedRoom || message.reason !== 'invalid_target') return;
+      if (this.room !== connectedRoom) return;
+      if (message.action === 'mortar') {
+        this.statusText.setText(MORTAR_REJECTION_TEXT[message.reason]).setColor('#ffbb88');
+        return;
+      }
       this.attackMarkers.forEach(({ graphics }) => {
         this.tweens.killTweensOf(graphics);
         graphics.destroy();
@@ -350,6 +367,9 @@ export class GameScene extends Phaser.Scene {
       this.attackMarkers = [];
       this.cancelRocketTargetSelection();
       this.statusText.setText('Target is no longer visible or valid.').setColor('#ffbb88');
+    });
+    this.room.onMessage(MORTAR_IMPACT_MESSAGE, (message: MortarImpactMessage) => {
+      if (this.room === connectedRoom && this.arenaStarted && !this.resultsShown) this.showMortarImpact(message);
     });
     this.statusText.setText(`Connected | ${this.room.sessionId}`);
     this.statusText.setColor('#44ff88');
@@ -549,6 +569,7 @@ export class GameScene extends Phaser.Scene {
     this.towerShotCounts.clear();
     this.projectileSprites.forEach((sprite) => sprite.destroy());
     this.projectileSprites.clear();
+    this.clearMortarPresentation();
     this.healthBars.forEach(({ bg, fill }) => {
       bg.destroy();
       fill.destroy();
@@ -567,6 +588,7 @@ export class GameScene extends Phaser.Scene {
     this.arenaStarted = true;
     this.resetCamera();
     this.destroyAbilityHud();
+    this.clearMortarPresentation();
     this.fog?.destroy();
     this.fog = undefined;
     this.destroyMenuElements();
@@ -821,6 +843,8 @@ export class GameScene extends Phaser.Scene {
       resizeElement(slot.abilityLevelText, deltaY);
       resizeElement(slot.upgradeButtonBg, deltaY);
       resizeElement(slot.upgradeButtonText, deltaY);
+      slot.slotTop = slot.slotBg.y - slot.slotSize * this.viewportScale() / 2;
+      slot.cooldownOverlay.setY(slot.slotTop);
     });
     this.rocketTargetHint?.setX(width / 2).setScale(this.viewportScale());
   }
@@ -867,6 +891,7 @@ export class GameScene extends Phaser.Scene {
     this.updateHealthBar(sessionId, x, y - GameScene.TANK_HEALTH_OFFSET, tank.hp, tank.maxHp, !isDead);
 
     if (sessionId === this.room.sessionId) {
+      if (isDead) this.cancelRocketTargetSelection();
       const abilities = new Map<AbilityId, { level: number; cooldownEndsAt: number; cooldownMax: number; activeUntil: number }>();
       tank.abilities?.forEach((ability: any, abilityId: AbilityId) => {
         abilities.set(abilityId, {
@@ -890,7 +915,10 @@ export class GameScene extends Phaser.Scene {
   private removeTank(sessionId: string) {
     this.visibleEntities.delete(sessionId);
     this.removeTargetFeedback(sessionId);
-    if (sessionId === this.room?.sessionId) this.cameras.main.stopFollow();
+    if (sessionId === this.room?.sessionId) {
+      this.cancelRocketTargetSelection();
+      this.cameras.main.stopFollow();
+    }
     this.tankSprites.get(sessionId)?.destroy();
     this.tankSprites.delete(sessionId);
     this.tankTargets.delete(sessionId);
@@ -1157,18 +1185,31 @@ export class GameScene extends Phaser.Scene {
     });
   }
 
-  private upsertProjectile(projectile: any, id: string) {
+  private upsertProjectile(projectile: Projectile, id: string) {
     if (!projectile) return;
     const x = projectile.x ?? 0;
     const y = projectile.y ?? 0;
     const sprite = this.projectileSprites.get(id) ?? this.add.circle(
       x,
       y,
-      4,
-      projectile.team === 'blue' ? 0x99ccff : 0xffcc99
-    ).setDepth(2);
+      projectile.isMortar ? 12 : 4,
+      projectile.isMortar ? 0x202632 : projectile.team === 'blue' ? 0x99ccff : 0xffcc99
+    ).setDepth(projectile.isMortar ? 910 : 2);
+    if (projectile.isMortar) {
+      sprite.setStrokeStyle(2, 0xffdd88);
+      const shadow = this.mortarShadows.get(id) ?? this.add.ellipse(x, y, 22, 10, 0x000000, 0.5).setDepth(901);
+      shadow.setPosition(x, y).setVisible(isProjectilePresented(projectile, this.vision));
+      this.mortarShadows.set(id, shadow);
+      if (projectile.team === this.vision.team) {
+        const marker = this.mortarLandingMarkers.get(id) ?? this.add.circle(
+          projectile.landingX, projectile.landingY, projectile.blastRadius, 0xff7744, 0.04
+        ).setStrokeStyle(2, 0xffaa66, 0.6).setDepth(902);
+        marker.setPosition(projectile.landingX, projectile.landingY);
+        this.mortarLandingMarkers.set(id, marker);
+      }
+    }
     sprite.x = x;
-    sprite.y = y;
+    sprite.y = y - (projectile.isMortar ? mortarShellHeight(projectile.flightProgress) : 0);
     this.projectileSprites.set(id, sprite);
     sprite.setVisible(isProjectilePresented(projectile, this.vision));
   }
@@ -1176,6 +1217,37 @@ export class GameScene extends Phaser.Scene {
   private removeProjectile(id: string) {
     this.projectileSprites.get(id)?.destroy();
     this.projectileSprites.delete(id);
+    this.mortarShadows.get(id)?.destroy();
+    this.mortarShadows.delete(id);
+    this.mortarLandingMarkers.get(id)?.destroy();
+    this.mortarLandingMarkers.delete(id);
+  }
+
+  private showMortarImpact(impact: MortarImpactMessage) {
+    if (this.seenMortarImpacts.has(impact.shotId)) return;
+    this.seenMortarImpacts.add(impact.shotId);
+    const blast = this.add.circle(impact.x, impact.y, impact.radius, 0xffa23a, 0.35)
+      .setStrokeStyle(4, 0xffe6a0).setDepth(920);
+    this.mortarImpacts.set(impact.shotId, blast);
+    this.tweens.add({
+      targets: blast, alpha: 0, duration: 450,
+      onComplete: () => {
+        blast.destroy();
+        this.mortarImpacts.delete(impact.shotId);
+      }
+    });
+  }
+
+  private clearMortarPresentation() {
+    for (const id of [...this.mortarShadows.keys()]) this.removeProjectile(id);
+    this.mortarLandingMarkers.forEach((marker) => marker.destroy());
+    this.mortarLandingMarkers.clear();
+    this.mortarImpacts.forEach((blast) => {
+      this.tweens.killTweensOf(blast);
+      blast.destroy();
+    });
+    this.mortarImpacts.clear();
+    this.seenMortarImpacts.clear();
   }
 
   private hpRatio(hp: number, maxHp: number): number {
@@ -1305,27 +1377,31 @@ export class GameScene extends Phaser.Scene {
   }
 
   private handlePointerClick(pointer: Phaser.Input.Pointer) {
-    if (this.fog?.contains(pointer)) return;
-    if (this.rocketTargetSelection && shouldCancelRocketTargetSelection(pointer.button)) {
+    if (this.weaponSelection && shouldCancelRocketTargetSelection(pointer.button)) {
       this.cancelRocketTargetSelection();
       return;
     }
+    if (this.fog?.contains(pointer)) return;
     if (pointer.button !== 0 || !this.arenaStarted || !this.room || this.room.state.phase !== 'started') return;
     if (pointer.y >= this.scale.height - GameScene.HUD_BAR_HEIGHT) return; // clicks on the HUD bar are not movement/attack commands
     const myTank = this.room.state.tanks.get(this.room.sessionId) as any;
     if (!myTank || myTank.state === 'dead') return;
+    pointer.updateWorldPoint?.(this.cameras.main);
     const worldX = pointer.worldX;
     const worldY = pointer.worldY;
-    const hit = this.hitTestClick(worldX, worldY);
+    const hit = this.weaponSelection === 'mortar' ? null : this.hitTestClick(worldX, worldY);
     const action = resolveArenaClick(
-      this.rocketTargetSelection,
+      this.weaponSelection,
       { team: myTank.team, x: myTank.x, y: myTank.y },
       hit,
       { x: worldX, y: worldY },
       getAbilityDefinition('damagedealer-homing-rocket').config.range ?? 0
     );
     if (action.type === 'rocket') {
-      this.room.send('activate_ability', { abilityId: 'damagedealer-homing-rocket', targetId: action.targetId });
+      this.sendAbilityActivation({ abilityId: 'damagedealer-homing-rocket', targetId: action.targetId });
+      this.cancelRocketTargetSelection();
+    } else if (action.type === 'mortar') {
+      this.sendAbilityActivation({ abilityId: 'damagedealer-mortar', targetX: action.x, targetY: action.y });
       this.cancelRocketTargetSelection();
     } else if (action.type === 'attack') {
       this.room.send('command', { targetId: action.targetId });
@@ -1333,6 +1409,8 @@ export class GameScene extends Phaser.Scene {
     } else if (action.type === 'move') {
       this.room.send('command', { x: action.x, y: action.y });
       this.showClickMarker(action.x, action.y, 0x33ff55);
+    } else if (this.weaponSelection === 'mortar') {
+      this.statusText.setText('Choose an arena point within 900 range.').setColor('#ffbb88');
     }
   }
 
@@ -1376,6 +1454,7 @@ export class GameScene extends Phaser.Scene {
     });
     this.attackMarkers = this.attackMarkers.filter(({ graphics }) => graphics.active);
     this.refreshAbilityHud();
+    this.refreshWeaponTargeting();
     this.applyRoleAbilityVisuals();
     this.applyVisibility();
   }
@@ -1433,7 +1512,11 @@ export class GameScene extends Phaser.Scene {
     state.minions.forEach((minion, id) => this.setEntityVisibility(id, this.canPresent(minion, this.minionSprites.get(id))));
     state.bases.forEach((base, id) => this.setEntityVisibility(id, this.canPresent(base)));
     state.towers.forEach((tower, id) => this.setEntityVisibility(id, this.canPresent(tower, undefined, tower.hp <= 0)));
-    state.projectiles.forEach((projectile, id) => this.projectileSprites.get(id)?.setVisible(isProjectilePresented(projectile, this.vision)));
+    state.projectiles.forEach((projectile, id) => {
+      const visible = isProjectilePresented(projectile, this.vision);
+      this.projectileSprites.get(id)?.setVisible(visible);
+      this.mortarShadows.get(id)?.setVisible(visible);
+    });
   }
 
   /** Updates healer service marks, exhaust and the repair tool over healed allies without surrounding rings. */
@@ -1497,7 +1580,7 @@ export class GameScene extends Phaser.Scene {
     this.room.send('upgrade_ability', { abilityId });
   }
 
-  /** Creates the progression panel and two independent role-ability controls. */
+  /** Creates the progression panel and each independent role-ability control. */
   private createAbilityHud() {
     const gameWidth = this.scale.width;
     const gameHeight = this.scale.height;
@@ -1533,7 +1616,7 @@ export class GameScene extends Phaser.Scene {
       .setScrollFactor(0)
       .setScale(uiScale);
 
-    const xpText = this.add.text(xpBarX + xpBarWidth + 6, xpBarY - 1, '0 / 100 XP', {
+    const xpText = this.add.text(this.viewportX(176), xpBarY - 1, '0 / 100 XP', {
       color: '#cfe8ff',
       fontSize: '12px',
       fontStyle: 'bold'
@@ -1545,14 +1628,17 @@ export class GameScene extends Phaser.Scene {
       fontStyle: 'bold'
     }).setOrigin(0, 0).setDepth(2001).setScrollFactor(0).setScale(uiScale);
 
+    const role = this.room?.state.tanks.get(this.room.sessionId)?.role;
+    const abilityIds = ROLE_ABILITY_IDS[isRole(role) ? role : 'healer'];
     const createSlot = (index: number, abilityId: AbilityId) => {
-      const slotCenterX = this.viewportX(index === 0 ? 390 : 620);
+      const designX = getAbilitySlotDesignX(index, abilityIds.length);
+      const slotCenterX = this.viewportX(designX);
       const slotSize = 42;
-      const slotTop = barCenterY - slotSize / 2;
-      const slotBg = this.add.rectangle(slotCenterX - 72, barCenterY, slotSize, slotSize, 0x1c2430, 0.9)
+      const slotTop = barCenterY - slotSize * uiScale / 2;
+      const slotBg = this.add.rectangle(this.viewportX(designX - 50), barCenterY, slotSize, slotSize, 0x1c2430, 0.9)
         .setStrokeStyle(2, 0xffffff).setDepth(2001).setScrollFactor(0).setScale(uiScale).setInteractive({ useHandCursor: true });
       const icon = this.add.graphics().setDepth(2002).setScrollFactor(0);
-      const cooldownOverlay = this.add.rectangle(slotCenterX - 72, slotTop, slotSize, 0, 0x000000, 0.65)
+      const cooldownOverlay = this.add.rectangle(this.viewportX(designX - 50), slotTop, slotSize, 0, 0x000000, 0.65)
         .setOrigin(0.5, 0).setDepth(2003).setScrollFactor(0).setScale(uiScale);
       const titleText = this.add.text(slotCenterX, barTop + 4, '', {
         color: '#ffffff', fontSize: '11px', fontStyle: 'bold'
@@ -1563,17 +1649,21 @@ export class GameScene extends Phaser.Scene {
       const statusText = this.add.text(slotCenterX, barTop + 40, '', {
         color: '#cfe8ff', fontSize: '10px'
       }).setOrigin(0.5, 0).setDepth(2001).setScrollFactor(0).setScale(uiScale);
-      const upgradeButtonBg = this.add.rectangle(slotCenterX + 35, barTop + 71, 104, 22, 0x225533, 0.9)
+      const upgradeButtonBg = this.add.rectangle(this.viewportX(designX + 15), barTop + 71, 104, 22, 0x225533, 0.9)
         .setStrokeStyle(1, 0x44bb66).setDepth(2001).setScrollFactor(0).setScale(uiScale).setInteractive({ useHandCursor: true });
-      const upgradeButtonText = this.add.text(slotCenterX + 35, barTop + 71, 'Learn (1 SP)', {
+      const upgradeButtonText = this.add.text(this.viewportX(designX + 15), barTop + 71, 'Learn (1 SP)', {
         color: '#ffffff', fontSize: '11px', fontStyle: 'bold'
       }).setOrigin(0.5).setDepth(2002).setScrollFactor(0).setScale(uiScale);
       const slot = {
         abilityId, slotBg, icon, cooldownOverlay, titleText, statusText, abilityLevelText,
         upgradeButtonBg, upgradeButtonText, slotSize, slotTop, slotCenterX, abilityLearned: null as boolean | null
       };
-      slotBg.on('pointerdown', () => this.activateAbility(slot.abilityId));
-      upgradeButtonBg.on('pointerdown', () => this.upgradeAbility(slot.abilityId));
+      slotBg.on('pointerdown', (pointer?: Phaser.Input.Pointer) => {
+        if (!pointer || pointer.button === 0) this.activateAbility(slot.abilityId);
+      });
+      upgradeButtonBg.on('pointerdown', (pointer?: Phaser.Input.Pointer) => {
+        if (!pointer || pointer.button === 0) this.upgradeAbility(slot.abilityId);
+      });
       return slot;
     };
 
@@ -1585,7 +1675,7 @@ export class GameScene extends Phaser.Scene {
       xpBarFill,
       xpText,
       skillPointsText,
-      slots: [createSlot(0, 'healer-aura'), createSlot(1, 'healer-speed')]
+      slots: abilityIds.map((abilityId, index) => createSlot(index, abilityId))
     };
     this.rocketTargetHint = this.add.text(gameWidth / 2, 26, 'Select a rocket target (Esc/right-click to cancel)', {
       color: '#ffffff', fontSize: '14px', fontStyle: 'bold', backgroundColor: '#7a251dcc', padding: { x: 8, y: 5 }
@@ -1595,7 +1685,9 @@ export class GameScene extends Phaser.Scene {
   private destroyAbilityHud() {
     this.healEffectIcons.forEach((icon) => icon.destroy());
     this.healEffectIcons.clear();
-    this.rocketTargetSelection = false;
+    this.cancelRocketTargetSelection();
+    this.mortarPreview?.destroy();
+    this.mortarPreview = undefined;
     this.rocketTargetHint?.destroy();
     this.rocketTargetHint = undefined;
     if (!this.abilityHud) return;
@@ -1672,6 +1764,12 @@ export class GameScene extends Phaser.Scene {
         g.lineStyle(3, 0xffffff, 1);
         g.lineBetween(cx - size * 0.25, cy + size * 0.25, cx + size * 0.25, cy + size * 0.25);
       }
+    } else if (abilityId === 'damagedealer-mortar') {
+      const scale = size / 42;
+      g.fillStyle(0x202632).fillCircle(cx, cy + 2 * scale, size * 0.3);
+      g.lineStyle(2 * scale, 0xffdd88).strokeCircle(cx, cy + 2 * scale, size * 0.3);
+      g.lineStyle(3 * scale, 0xffaa33).lineBetween(cx + 5 * scale, cy - 8 * scale, cx + 9 * scale, cy - 14 * scale);
+      g.lineBetween(cx + 9 * scale, cy - 14 * scale, cx + 15 * scale, cy - 12 * scale);
     } else if (abilityId === 'damagedealer-rapidfire') this.drawRapidFireIcon(g, cx, cy, size);
     else {
       g.fillStyle(0xffffff, 1);
@@ -1694,24 +1792,58 @@ export class GameScene extends Phaser.Scene {
     if (abilityId) this.activateAbility(abilityId);
   }
 
-  /** Starts a target-selection mode for rockets; directly requests other learned abilities. */
+  private sendAbilityActivation(request: AbilityActivationRequest) {
+    this.room.send('activate_ability', request);
+  }
+
+  /** Targeted weapons select first; other learned abilities activate immediately. */
   private activateAbility(abilityId: AbilityId) {
     if (!this.arenaStarted || !this.room || this.room.state.phase !== 'started') return;
     const myTank = this.room.state.tanks.get(this.room.sessionId) as any;
     if (!myTank || myTank.state === 'dead') return;
     const ability = myTank.abilities?.get(abilityId);
     if (!ability || ability.level <= 0 || Date.now() < ability.cooldownEndsAt) return;
-    if (abilityId === 'damagedealer-homing-rocket') {
-      this.rocketTargetSelection = !this.rocketTargetSelection;
-      this.rocketTargetHint?.setVisible(this.rocketTargetSelection);
+    if (abilityId === 'damagedealer-homing-rocket' || abilityId === 'damagedealer-mortar') {
+      this.weaponSelection = nextWeaponSelection(this.weaponSelection, abilityId === 'damagedealer-mortar' ? 'mortar' : 'rocket');
+      if (this.weaponSelection) this.refreshWeaponTargeting();
+      else this.cancelRocketTargetSelection();
       return;
     }
-    this.room.send('activate_ability', { abilityId });
+    this.cancelRocketTargetSelection();
+    this.sendAbilityActivation({ abilityId });
   }
 
   private cancelRocketTargetSelection() {
-    this.rocketTargetSelection = false;
+    this.weaponSelection = null;
     this.rocketTargetHint?.setVisible(false);
+    this.mortarPreview?.clear();
+    applyWeaponCursor(this.game.canvas, null);
+  }
+
+  private refreshWeaponTargeting() {
+    if (!this.weaponSelection) return;
+    const tank = this.room?.state.tanks.get(this.room.sessionId);
+    if (!this.arenaStarted || this.room?.state.phase !== 'started' || !tank || tank.state === 'dead') {
+      this.cancelRocketTargetSelection();
+      return;
+    }
+    applyWeaponCursor(this.game.canvas, this.weaponSelection);
+    this.rocketTargetHint?.setVisible(true).setText(this.weaponSelection === 'mortar'
+      ? 'Select Mortar ground point (Esc/right-click to cancel)'
+      : 'Select a rocket target (Esc/right-click to cancel)');
+    this.mortarPreview?.clear();
+    if (this.weaponSelection !== 'mortar') return;
+    const pointer = this.input.activePointer;
+    const point = pointer.updateWorldPoint(this.cameras.main);
+    const config = getAbilityDefinition('damagedealer-mortar').config;
+    const preview = this.mortarPreview ?? this.add.graphics().setDepth(950);
+    this.mortarPreview = preview;
+    preview.lineStyle(2, 0xffdd88, 0.5).strokeCircle(tank.x, tank.y, config.range!);
+    if (!this.input.manager.isOver || this.fog?.contains(pointer) || pointer.y >= this.scale.height - GameScene.HUD_BAR_HEIGHT) return;
+    const valid = mortarPointRejection(tank, point.worldX, point.worldY, config.range!) === null;
+    const color = valid ? 0xffaa44 : 0xff3344;
+    preview.fillStyle(color, 0.12).fillCircle(point.worldX, point.worldY, config.radius!);
+    preview.lineStyle(2, color).strokeCircle(point.worldX, point.worldY, config.radius!);
   }
 
   /** Redraws each role ability's independent level, cooldown, and activation state. */
@@ -1720,6 +1852,12 @@ export class GameScene extends Phaser.Scene {
     const { role, level, xp, skillPoints, abilities } = this.myAbilityState;
     const roleAbilityIds = ROLE_ABILITY_IDS[role as Role];
     if (!roleAbilityIds) return;
+    if (this.abilityHud.slots.length !== roleAbilityIds.length) {
+      const currentState = this.myAbilityState;
+      this.destroyAbilityHud();
+      this.myAbilityState = currentState;
+      this.createAbilityHud();
+    }
     this.abilityHud.slots.forEach((slot, index) => {
       const abilityId = roleAbilityIds[index];
       if (abilityId) slot.abilityId = abilityId;
@@ -1737,10 +1875,10 @@ export class GameScene extends Phaser.Scene {
       const abilityId = slot.abilityId;
       const definition = getAbilityDefinition(abilityId);
       const ability = abilities.get(abilityId) ?? { level: 0, cooldownEndsAt: 0, cooldownMax: 0, activeUntil: 0 };
-      const keyLabel = index === 0 ? 'SPACE' : 'E';
+      const keyLabel = ABILITY_KEYS[index];
       slot.titleText.setText(`${definition.name.toUpperCase()} (${keyLabel})`);
       slot.slotBg.setStrokeStyle(2, this.resolveRoleVisual(role).color);
-      this.drawAbilityIcon(slot.icon, abilityId, slot.slotBg.x, slot.slotBg.y, slot.slotSize);
+      this.drawAbilityIcon(slot.icon, abilityId, slot.slotBg.x, slot.slotBg.y, slot.slotSize * this.viewportScale());
 
       const abilityStatus = getAbilityHudStatus(ability, now);
       const remainingMs = abilityStatus.remainingMs;

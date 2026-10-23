@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>Mortar and weapon cursor acceptance</title>
+<style>body { background: #151c28; color: white; font: 14px system-ui; margin: 8px; } canvas { display: block; } pre { white-space: pre-wrap; }</style>
+<h1>Mortar and weapon targeting</h1>
+<pre id="result">Running...</pre>
+<div id="preview"></div>
+<script type="module">
+  import Phaser from 'phaser';
+  import { GameState, Tank, Projectile, Tower, INVALID_TARGET_MESSAGE, MORTAR_IMPACT_MESSAGE } from 'shared';
+  import { Client } from 'colyseus.js';
+  import { GameScene } from '../src/GameScene.ts';
+  import { getMinimapBounds } from '../src/visionPresentation.ts';
+  import { getWeaponCursor } from '../src/weaponTargeting.ts';
+
+  const checks = [];
+  function check(condition, label) {
+    if (!condition) throw new Error(label);
+    checks.push(label);
+  }
+  class MortarChecks extends GameScene {
+    showMainMenu() {}
+    showWaitingLobby() {}
+    update() {}
+    async create() {
+      super.create();
+      try {
+        const state = new GameState();
+        state.phase = 'started';
+        const local = Object.assign(new Tank(), { id: 'local', team: 'blue', role: 'damagedealer', x: 1000, y: 600 });
+        const enemy = Object.assign(new Tank(), { id: 'enemy', team: 'red', x: 1500, y: 600 });
+        const tower = Object.assign(new Tower(), { id: 'tower', team: 'red', x: 1500, y: 600 });
+        for (const ability of local.abilities.values()) ability.level = 1;
+        state.tanks.set(local.id, local);
+        state.tanks.set(enemy.id, enemy);
+        state.towers.set(tower.id, tower);
+        const commands = [];
+        const messages = new Map();
+        const fixtureRoom = {
+          sessionId: local.id, state, send: (...args) => commands.push(args), removeAllListeners() {},
+          leave: async () => {}, onLeave() {}, onStateChange() {},
+          onMessage: (name, handler) => messages.set(name, handler)
+        };
+        const join = Client.prototype.joinOrCreate;
+        Client.prototype.joinOrCreate = async () => fixtureRoom;
+        try {
+          await this.connectToLobby({ id: 'fixture' });
+        } finally {
+          Client.prototype.joinOrCreate = join;
+        }
+        check(messages.has(MORTAR_IMPACT_MESSAGE), 'Normal room connection registers impact handling before any rejection');
+        this.createArena('Mortar acceptance');
+        this.arenaStarted = true;
+        state.tanks.forEach((tank, id) => this.upsertTank(tank, id));
+        this.upsertTower(tower, tower.id);
+        this.cameras.main.stopFollow();
+        const key = (name, repeat = false) => this.input.keyboard.emit(`keydown-${name}`, { key: name === 'ESC' ? 'Escape' : name, repeat });
+        const cursor = () => getComputedStyle(this.game.canvas).cursor;
+        const clearCursor = () => !this.game.canvas.classList.contains('goonbash-weapon-targeting');
+        for (const selection of ['rocket', 'mortar']) {
+          const image = new Image();
+          image.src = getWeaponCursor(selection).match(/url\("([^"]+)"\)/)[1];
+          await image.decode();
+          check(image.naturalWidth === 32 && image.naturalHeight === 32, `${selection} cursor artwork decodes as a native cursor-sized image`);
+        }
+        check(this.abilityHud.slots.length === 3, 'Damagedealer has three HUD activation and purchase controls');
+        check(this.abilityHud.slots[2].abilityId === 'damagedealer-mortar', 'Third slot is Mortar');
+        this.abilityHud.slots[1].slotBg.emit('pointerdown');
+        check(this.weaponSelection === 'rocket' && cursor().includes('16 16'), 'HUD Rocket entry replaces pointer with centered red crosshair');
+        this.game.canvas.style.cursor = 'pointer';
+        check(cursor().includes('data:image/svg+xml'), 'Weapon cursor overrides Phaser hand-cursor styling');
+        this.game.canvas.dispatchEvent(new MouseEvent('mouseleave'));
+        check(!getComputedStyle(document.body).cursor.includes('data:image'), 'Outside the canvas the page retains its ordinary pointer');
+        this.game.canvas.dispatchEvent(new MouseEvent('mouseenter'));
+        check(cursor().includes('16 16'), 'Canvas reentry retains the selected weapon cursor');
+        this.handlePointerClick({ x: 50, y: 100, worldX: 1500, worldY: 600, button: 0 });
+        check(commands.length === 0 && this.weaponSelection === 'rocket' && cursor().includes('16 16'),
+          'Hidden Rocket targets retain the red crosshair without ordinary commands');
+        key('R');
+        check(this.weaponSelection === 'mortar' && cursor().includes('15 19'), 'R switches to bomb cursor with exact aiming hotspot');
+        key('R', true);
+        check(this.weaponSelection === 'mortar', 'Held R does not toggle selection');
+        const before = commands.length;
+        this.handlePointerClick({ x: 50, y: 100, worldX: 2300, worldY: 600, button: 0 });
+        check(commands.length === before && this.weaponSelection === 'mortar' && !clearCursor(), 'Invalid ground click keeps bomb cursor without movement or attack');
+        const bounds = getMinimapBounds(800, 600);
+        this.handlePointerClick({ x: bounds.x + 5, y: bounds.y + 5, worldX: 1500, worldY: 600, button: 0 });
+        this.handlePointerClick({ x: 400, y: 580, worldX: 1500, worldY: 600, button: 0 });
+        check(commands.length === before && this.weaponSelection === 'mortar', 'HUD and minimap never confirm a ground shot');
+        this.abilityHud.slots[0].slotBg.emit('pointerdown', { button: 2 });
+        this.abilityHud.slots[2].upgradeButtonBg.emit('pointerdown', { button: 2 });
+        check(commands.length === before, 'Right-click cancellation cannot fire or purchase through a HUD control');
+        this.handlePointerClick({ x: 50, y: 100, worldX: 1500, worldY: 600, button: 0 });
+        check(JSON.stringify(commands.at(-1)) === JSON.stringify(['activate_ability', { abilityId: 'damagedealer-mortar', targetX: 1500, targetY: 600 }]), 'Blind occupied ground emits only Mortar coordinates');
+        check(clearCursor() && this.weaponSelection === null, 'Confirmation immediately restores ordinary cursor');
+        messages.get(INVALID_TARGET_MESSAGE)({ action: 'mortar', reason: 'cooldown' });
+        check(clearCursor() && this.weaponSelection === null && this.statusText.text.includes('cooling down'),
+          'Rejection after confirmation shows actionable feedback without restoring the weapon cursor');
+        this.abilityHud.slots[2].slotBg.emit('pointerdown', { button: 0 });
+        check(this.weaponSelection === 'mortar' && cursor().includes('15 19'), 'HUD Mortar entry also replaces the pointer with a bomb');
+        this.handlePointerClick({ x: 50, y: 100, worldX: 1020, worldY: 600, button: 0 });
+        check(commands.at(-1)[1].targetX === 1020 && clearCursor(), 'HUD-selected Mortar can confirm visible ground without leaking a move command');
+        for (const cancel of [
+          () => key('ESC'),
+          () => this.handlePointerClick({ x: bounds.x + 5, y: bounds.y + 5, button: 2 }),
+          () => key('R'),
+          () => key('SPACE')
+        ]) {
+          key('R');
+          cancel();
+          check(clearCursor() && this.weaponSelection === null, 'Cancel or non-targeting skill restores ordinary pointer');
+        }
+        key('R');
+        local.state = 'dead';
+        this.upsertTank(local, local.id);
+        check(clearCursor() && this.weaponSelection === null, 'Death clears selection and restores cursor');
+        local.state = 'alive';
+        this.upsertTank(local, local.id);
+        for (const [width, height] of [[800, 600], [320, 240], [1200, 800]]) {
+          this.scale.resize(width, height);
+          this.handleResize();
+          const regions = this.abilityHud.slots.map(slot => slot.upgradeButtonBg.getBounds());
+          check(regions.every((region, index) => region.left >= 0 && region.right <= width
+            && (index === 0 || region.left > regions[index - 1].right)), `Three purchase controls remain separate inside ${width}px viewport`);
+          key('E');
+          check(cursor().includes('16 16'), `Rocket cursor survives ${width}px resize`);
+          this.cancelRocketTargetSelection();
+        }
+        this.scale.resize(800, 600);
+        this.handleResize();
+        this.cameras.main.setScroll(900, 400).setZoom(1.5);
+        this.cameras.main.preRender();
+        const pointer = this.input.activePointer;
+        pointer.position.set(200, 200);
+        this.input.manager.isOver = true;
+        key('R');
+        check(this.mortarPreview && this.mortarPreview.depth > 900, 'Mortar preview remains visible over fog');
+        const point = this.cameras.main.getWorldPoint(200, 200);
+        this.handlePointerClick(pointer);
+        // A real pointer uses the current camera transform, not stale world coordinates.
+        check(Math.abs(commands.at(-1)[1].targetX - point.x) < 1e-5 && Math.abs(commands.at(-1)[1].targetY - point.y) < 1e-5,
+          'Camera offset and zoom preserve exact ground click position');
+        this.cameras.main.setZoom(1).setScroll(700, 300);
+        this.cameras.main.preRender();
+        const shell = Object.assign(new Projectile(), {
+          id: 'shell', team: 'blue', isMortar: true, x: 1200, y: 600,
+          landingX: 1500, landingY: 600, blastRadius: 120, flightProgress: 0.5
+        });
+        state.projectiles.set(shell.id, shell);
+        this.upsertProjectile(shell, shell.id);
+        check(this.projectileSprites.get(shell.id).radius === 12 && this.projectileSprites.get(shell.id).y === 500,
+          'Oversized shell uses a visual arc above its physical ground position');
+        check(this.mortarShadows.get(shell.id).y === 600 && this.mortarLandingMarkers.has(shell.id),
+          'Allied shadow and intended point remain visible in fog');
+        const hidden = Object.assign(new Projectile(), { id: 'hidden-shell', isMortar: true, team: 'red', x: 1500, y: 600 });
+        state.projectiles.set(hidden.id, hidden);
+        this.upsertProjectile(hidden, hidden.id);
+        check(!this.projectileSprites.get(hidden.id).visible && !this.mortarShadows.get(hidden.id).visible, 'Hidden opponent shell and shadow are concealed');
+        this.removeProjectile(hidden.id);
+        check(this.mortarImpacts.size === 0, 'Fog removal never creates a false explosion');
+        messages.get(MORTAR_IMPACT_MESSAGE)({ shotId: 'impact', team: 'blue', x: 1500, y: 600, radius: 120 });
+        messages.get(MORTAR_IMPACT_MESSAGE)({ shotId: 'impact', team: 'blue', x: 1500, y: 600, radius: 120 });
+        check(this.mortarImpacts.size === 1 && this.mortarImpacts.get('impact').radius === 120, 'Impact is shown once at the true blast radius');
+        key('R');
+        state.phase = 'ended';
+        this.refreshWeaponTargeting();
+        check(clearCursor(), 'Match completion restores pointer');
+        state.phase = 'started';
+        key('R');
+        this.clearArenaPresentation();
+        check(clearCursor() && this.mortarShadows.size === 0 && this.mortarImpacts.size === 0
+          && this.projectileSprites.size === 0 && !this.mortarPreview, 'Arena teardown removes all owned cursor, shell, shadow, preview and explosion state');
+        this.createArena('Mortar and weapon cursors');
+        this.arenaStarted = true;
+        state.tanks.forEach((tank, id) => this.upsertTank(tank, id));
+        key('R');
+        this.events.emit(Phaser.Scenes.Events.SHUTDOWN);
+        check(clearCursor() && !this.mortarPreview && this.weaponSelection === null, 'Scene shutdown restores the cursor and removes targeting graphics');
+        window.mortarScene = this;
+        window.mortarCheckResult = { ok: true, checks };
+      } catch (error) {
+        window.mortarCheckResult = { ok: false, checks, error: error.stack };
+        console.error(error);
+      }
+      document.getElementById('result').textContent = JSON.stringify(window.mortarCheckResult, null, 2);
+      document.body.dataset.result = window.mortarCheckResult.ok ? 'passed' : 'failed';
+    }
+  }
+  new Phaser.Game({ type: Phaser.CANVAS, width: 800, height: 600, parent: 'preview', audio: { noAudio: true }, scene: [MortarChecks] });
+</script>
+</html>

@@ -19,14 +19,24 @@ test("canUpgradeAbility permits upgrade only when having at least 1 point and be
   assert.equal(canUpgradeAbility(2, 11), false); // exceeds max
 });
 
-test("the ability catalog defines two unique abilities for each role", () => {
-  assert.equal(new Set(ABILITY_IDS).size, 6);
+test("the ability catalog defines independent role abilities including a third Damagedealer skill", () => {
+  assert.equal(new Set(ABILITY_IDS).size, 7);
   assert.deepEqual(ROLE_ABILITY_IDS.healer, ["healer-aura", "healer-speed"]);
   assert.deepEqual(ROLE_ABILITY_IDS.tank, ["tank-shield", "tank-entrench"]);
-  assert.deepEqual(ROLE_ABILITY_IDS.damagedealer, ["damagedealer-rapidfire", "damagedealer-homing-rocket"]);
+  assert.deepEqual(ROLE_ABILITY_IDS.damagedealer, ["damagedealer-rapidfire", "damagedealer-homing-rocket", "damagedealer-mortar"]);
   for (const abilityId of ABILITY_IDS) {
     assert.equal(ABILITY_DEFINITIONS[abilityId].id, abilityId);
   }
+});
+
+test("Mortar rank endpoints preserve range, blast size, flight time and siege bonus", () => {
+  const first = computeAbilityConfigForLevel("damagedealer-mortar", 1);
+  const last = computeAbilityConfigForLevel("damagedealer-mortar", 10);
+  assert.deepEqual(first, {
+    cooldownMs: 24000, durationMs: 0, magnitude: 2, range: 900, radius: 120,
+    flightDurationMs: 1500, buildingMultiplier: 3
+  });
+  assert.deepEqual(last, { ...first, cooldownMs: 17520, magnitude: 3.8 });
 });
 
 test("ability level scales cooldown and ability-specific magnitudes", () => {

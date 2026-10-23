@@ -1,5 +1,16 @@
 import type { AbilityId, Role } from "shared";
-import { ROLE_ABILITY_IDS } from "shared";
+import { ROLE_ABILITY_IDS, mortarPointRejection, getAbilityDefinition } from "shared";
+
+export type WeaponSelection = "rocket" | "mortar" | null;
+export const ABILITY_KEYS = ["SPACE", "E", "R"] as const;
+
+export function getAbilitySlotDesignX(index: number, count: number): number {
+  return 280 + (index + 0.5) * (500 / count);
+}
+
+export function nextWeaponSelection(current: WeaponSelection, requested: Exclude<WeaponSelection, null>): WeaponSelection {
+  return current === requested ? null : requested;
+}
 
 export function getRoleAbilityAtIndex(role: string, index: number): AbilityId | null {
   if (!(role in ROLE_ABILITY_IDS)) return null;
@@ -51,18 +62,24 @@ export function isRocketTargetClickValid(
 
 export type ArenaClickAction =
   | { type: "rocket"; targetId: string }
+  | { type: "mortar"; x: number; y: number }
   | { type: "attack"; targetId: string; x: number; y: number }
   | { type: "move"; x: number; y: number }
   | { type: "ignore" };
 
 export function resolveArenaClick(
-  rocketSelection: boolean,
+  selection: WeaponSelection | boolean,
   shooter: { team: string; x: number; y: number },
   target: RocketClickTarget | null,
   worldPoint: { x: number; y: number },
   rocketRange: number
 ): ArenaClickAction {
-  if (rocketSelection) {
+  if (selection === "mortar") {
+    return mortarPointRejection(shooter, worldPoint.x, worldPoint.y, getAbilityDefinition("damagedealer-mortar").config.range!) === null
+      ? { type: "mortar", x: worldPoint.x, y: worldPoint.y }
+      : { type: "ignore" };
+  }
+  if (selection === "rocket" || selection === true) {
     return target?.id && isRocketTargetClickValid(shooter, target, rocketRange)
       ? { type: "rocket", targetId: target.id }
       : { type: "ignore" };

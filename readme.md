@@ -75,6 +75,38 @@ Clients can retain information they previously observed: this prevents new hidde
 state from being transmitted, not historical knowledge or deductions from visible
 projectile trajectories. In-flight tracking and damage still use canonical state.
 
+### Damagedealer weapon skills
+
+Learn and upgrade each skill separately with skill points (ranks 1-10). Activation
+does not spend skill points, and each skill has its own cooldown.
+
+| Shortcut | Ability | Targeting |
+|---|---|---|
+| SPACE | Rapid Fire | Activate immediately |
+| E | Homing Rocket | Red crosshair replaces the mouse pointer; click a living, team-visible enemy within 900 world units |
+| R | Mortar | Bomb cursor replaces the mouse pointer; click any arena ground point within 900 world units, including fog |
+
+The HUD activation icons provide the same controls. Escape, right-click, or
+selecting the same weapon again cancels targeting without firing. Switching
+weapons changes the cursor immediately. The ordinary pointer returns after
+confirmation, cancellation, death, or leaving the match. Invalid clicks keep the
+selected weapon active; HUD and minimap clicks never confirm a ground shot.
+
+Mortar shows a range ring and a 120-world-unit blast preview. Its oversized shell
+flies for 1.5 seconds and explodes at the fixed chosen point, so enemies can move
+out of the area. It hits enemies only, including hidden enemies, but grants no
+vision or victim-specific hit confirmation. Towers and main bases take triple
+damage. Rank-1 damage is twice the shooter's launch fire damage (six times against
+buildings); each additional rank adds 0.2 to that base multiplier. The 24-second
+base cooldown decreases by 3 percent per rank above 1, reaching 17.52 seconds at
+rank 10. Other abilities and their cooldowns remain independent.
+
+After starting the frontend, `/tests/mortar.html` exercises the three-slot HUD,
+weapon cursors and cancellation, camera-correct ground targeting, shell/impact
+presentation, resize, and teardown in Phaser. Backend acceptance tests also use
+two real Colyseus clients to verify learning, delayed blind damage, the building
+bonus, independent cooldowns, dodging, visibility-safe effects, and match cleanup.
+
 Deploy shared schemas, backend and frontend together, using fresh rooms. Roll
 back all three together rather than mixing versions; no database migration is needed.
 
