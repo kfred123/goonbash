@@ -22,6 +22,14 @@ The goal is simple: **Destroy the Enemy Command Center**.
 - Bases are protected by automated defensive turrets.
 - Players must coordinate their pushes with the spawn waves of minions.
 
+Each of the three lanes has two defensive checkpoints per team, at 20% and 40%
+of the lane's length from that team's base. Each checkpoint has two same-team
+towers opposite each other on the grass verges: four towers per team per lane,
+24 total. The entire tower footprint stays clear of the road and its border,
+including on diagonal approaches. Towers have independent health, targeting,
+cooldowns, and ruins. Individual tower stats and minion routes are unchanged;
+the existing grass vision penalty applies at their new positions.
+
 ### 4. Progression
 - Gain experience and scrap metal (currency) by destroying enemy minions and tanks.
 - Upgrade tank abilities or buy temporary power-ups during the match.

@@ -1,7 +1,7 @@
 import { Room, Client } from "colyseus";
 import { Base, computeAbilityConfigForLevel, GameState, getLaneWaypoints, isAbilityId, MatchPlayerStats, Minion, Projectile, Tank, Tower } from "shared";
 import { isRole, resolveRoleStats } from "shared";
-import { BLUE_BASE_POSITION, RED_BASE_POSITION, WORLD_WIDTH, WORLD_HEIGHT, TeamVision, getVisionEntities, INVALID_TARGET_MESSAGE } from "shared";
+import { BLUE_BASE_POSITION, RED_BASE_POSITION, WORLD_WIDTH, WORLD_HEIGHT, TeamVision, getVisionEntities, INVALID_TARGET_MESSAGE, TOWER_COLLISION_RADIUS } from "shared";
 import { lobbyRegistry } from "../lobbies/LobbyRegistry.js";
 import { canChangeRole, canChangeTeam, canJoinRoom, canManageLobby, canUseGameplayActions, normalizeLobbyName, normalizePlayerName, resolveHostAfterLeave, selectBalancedTeam } from "./lobbyControls.js";
 import { clampToBounds, createShotProjectile, findNearestEnemyInRange, getLivingTowers, hasDied, hasProjectileReachedTarget, isReadyToRespawn, isWithinRange, stepHomingProjectile, stepProjectileTowardTarget, stepToward, applyDamage as computeDamagedHp, nearBasePosition, respawnDelayMs, respawnTank, tickShooter } from "./combat.js";
@@ -619,11 +619,11 @@ export class GameRoom extends Room<GameState> {
     if (!blueBase || !redBase) return;
     for (const placement of getLaneTowerPlacements(blueBase, redBase)) {
       const tower = new Tower();
-      tower.id = `${placement.team}-tower-lane-${placement.laneIndex}-${placement.towerIndex}`;
+      tower.id = `${placement.team}-tower-lane-${placement.laneIndex}-${placement.towerIndex}-${placement.side}`;
       tower.team = placement.team;
       tower.x = placement.x;
       tower.y = placement.y;
-      tower.radius = 24;
+      tower.radius = TOWER_COLLISION_RADIUS;
       this.state.towers.set(tower.id, tower);
     }
   }

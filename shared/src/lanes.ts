@@ -56,28 +56,43 @@ export function getLaneWaypoints(blueBase: LanePoint, redBase: LanePoint): LaneP
 export function pointAlongPath(path: LanePoint[], fraction: number): LanePoint {
   if (path.length === 0) throw new Error("Cannot find a point along an empty path");
   if (path.length === 1) return { ...path[0] };
+  if (path.every((point) => point.x === path[0].x && point.y === path[0].y)) return { ...path[0] };
+  return samplePathWithTangent(path, fraction).point;
+}
 
+/** Samples the incoming non-zero segment at a vertex, including its unit tangent. */
+export function samplePathWithTangent(path: LanePoint[], fraction: number): { point: LanePoint; tangent: LanePoint } {
+  if (!Number.isFinite(fraction) || path.some(({ x, y }) => !Number.isFinite(x) || !Number.isFinite(y))) {
+    throw new Error("Cannot sample non-finite lane geometry");
+  }
   const clampedFraction = Math.max(0, Math.min(1, fraction));
   const lengths: number[] = [];
   let totalLength = 0;
+  let lastSegmentIndex = -1;
   for (let index = 1; index < path.length; index += 1) {
     const length = Math.hypot(path[index].x - path[index - 1].x, path[index].y - path[index - 1].y);
     lengths.push(length);
     totalLength += length;
+    if (length > 0) lastSegmentIndex = index - 1;
   }
+  if (!Number.isFinite(totalLength) || totalLength === 0) throw new Error("Cannot sample a lane without a non-zero segment");
   let remaining = totalLength * clampedFraction;
   for (let index = 0; index < lengths.length; index += 1) {
     const segmentLength = lengths[index];
-    if (remaining <= segmentLength || index === lengths.length - 1) {
+    if (segmentLength === 0) continue;
+    if (remaining <= segmentLength || index === lastSegmentIndex) {
       const from = path[index];
       const to = path[index + 1];
-      const segmentFraction = segmentLength === 0 ? 0 : Math.min(1, remaining / segmentLength);
+      const segmentFraction = Math.min(1, remaining / segmentLength);
       return {
-        x: from.x + (to.x - from.x) * segmentFraction,
-        y: from.y + (to.y - from.y) * segmentFraction
+        point: {
+          x: from.x + (to.x - from.x) * segmentFraction,
+          y: from.y + (to.y - from.y) * segmentFraction
+        },
+        tangent: { x: (to.x - from.x) / segmentLength, y: (to.y - from.y) / segmentLength }
       };
     }
     remaining -= segmentLength;
   }
-  return { ...path[path.length - 1] };
+  throw new Error("Cannot locate a segment in lane geometry");
 }
