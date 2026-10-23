@@ -11,6 +11,17 @@ import { effectiveTerrainMoveSpeed } from "./terrain.js";
 import { applyTankProgressionStats, distributeKillXp, purchaseAbilityUpgrade } from "./progressionService.js";
 import { endMatchAfterBaseDestroyed, recordPlayerDamage, recordPlayerKill, removeLeavingPlayerTank } from "./matchResults.js";
 import { VisibilitySerializer } from "./VisibilitySerializer.js";
+import { MORTAR_IMPACT_MESSAGE, mortarPointRejection } from "shared";
+import type { MortarImpactMessage, MortarRejectionReason } from "shared";
+import { mortarDamage } from "./ability.js";
+
+interface MortarFlight {
+  originX: number;
+  originY: number;
+  elapsedMs: number;
+  durationMs: number;
+  buildingMultiplier: number;
+}
 
 const PROJECTILE_HIT_RADIUS = 12;
 const PROJECTILE_MAX_LIFETIME_MS = 3000;
@@ -29,6 +40,7 @@ export class GameRoom extends Room<GameState> {
   private readonly visibilitySerializer = new VisibilitySerializer();
   private spawnTimer = 0;
   private projectileLifetimes = new Map<string, number>();
+  private mortarFlights = new Map<string, MortarFlight>();
   private minionPaths = new Map<string, Array<{ x: number; y: number }>>();
 
   onCreate (options: any) {
@@ -84,8 +96,12 @@ export class GameRoom extends Room<GameState> {
       const tank = this.state.tanks.get(client.sessionId);
       if (tank) tank.role = role;
     });
-    this.onMessage("activate_ability", (client, payload: { abilityId?: unknown; targetId?: unknown }) => {
+    this.onMessage("activate_ability", (client, payload: { abilityId?: unknown; targetId?: unknown; targetX?: unknown; targetY?: unknown }) => {
       const tank = this.state.tanks.get(client.sessionId);
+      if (payload?.abilityId === "damagedealer-mortar") {
+        this.activateMortar(client, tank, payload.targetX, payload.targetY);
+        return;
+      }
       if (!tank || !canUseGameplayActions(this.state.phase) || tank.state === "dead") return;
       if (!isAbilityId(payload?.abilityId) || !isRole(tank.role)) return;
       const abilityId = payload.abilityId;
@@ -136,7 +152,10 @@ export class GameRoom extends Room<GameState> {
   }
 
   update(deltaTime: number) {
-    if (!canUseGameplayActions(this.state.phase)) return;
+    if (!canUseGameplayActions(this.state.phase)) {
+      this.clearMortarFlights();
+      return;
+    }
     const elapsedSeconds = deltaTime / 1000;
     const now = Date.now();
 
@@ -314,13 +333,113 @@ export class GameRoom extends Room<GameState> {
     this.projectileLifetimes.set(projectile.id, 0);
   }
 
+  private activateMortar(client: Client, tank: Tank | undefined, x: unknown, y: unknown) {
+    const reject = (reason: MortarRejectionReason) => client.send(INVALID_TARGET_MESSAGE, { action: "mortar", reason });
+    if (!tank || !canUseGameplayActions(this.state.phase) || tank.state === "dead" || tank.hp <= 0) {
+      reject("inactive");
+      return;
+    }
+    if (tank.role !== "damagedealer") {
+      reject("unavailable");
+      return;
+    }
+    const ability = tank.abilities.get("damagedealer-mortar");
+    if (!ability || ability.level <= 0) {
+      reject("unlearned");
+      return;
+    }
+    const now = Date.now();
+    if (now < ability.cooldownEndsAt) {
+      reject("cooldown");
+      return;
+    }
+    const config = computeAbilityConfigForLevel("damagedealer-mortar", ability.level);
+    const reason = mortarPointRejection(tank, x, y, config.range!);
+    if (reason) {
+      reject(reason);
+      return;
+    }
+    // The validator above checks unknown transport coordinates before narrowing.
+    if (typeof x !== "number" || typeof y !== "number") throw new Error("Validated Mortar point is not numeric");
+    const projectile = new Projectile();
+    projectile.id = `mortar-${now}-${Math.random()}`;
+    projectile.team = tank.team;
+    projectile.ownerId = tank.id;
+    projectile.x = tank.x;
+    projectile.y = tank.y;
+    projectile.isMortar = true;
+    projectile.landingX = x;
+    projectile.landingY = y;
+    projectile.blastRadius = config.radius!;
+    projectile.damage = mortarDamage(tank.fireDamage, ability.level);
+    this.mortarFlights.set(projectile.id, {
+      originX: tank.x, originY: tank.y, elapsedMs: 0,
+      durationMs: config.flightDurationMs!, buildingMultiplier: config.buildingMultiplier!
+    });
+    this.state.projectiles.set(projectile.id, projectile);
+    Object.assign(ability, activateAbility(now, config));
+  }
+
+  private resolveMortarImpact(projectile: Projectile, flight: MortarFlight) {
+    const impact: MortarImpactMessage = {
+      shotId: projectile.id, team: projectile.team,
+      x: projectile.landingX, y: projectile.landingY, radius: projectile.blastRadius
+    };
+    // Capture authorized recipients before deaths remove their vision observers.
+    for (const client of this.clients) {
+      const team = this.state.tanks.get(client.sessionId)?.team;
+      if (team && (team === projectile.team || this.teamVision(team).canSee(impact))) {
+        client.send(MORTAR_IMPACT_MESSAGE, impact);
+      }
+    }
+    const candidates = [
+      ...this.state.tanks.values(), ...this.state.minions.values(),
+      ...this.state.towers.values(), ...this.state.bases.values()
+    ];
+    for (const entity of candidates) {
+      if (!canUseGameplayActions(this.state.phase)) break;
+      if (entity.team === projectile.team || entity.hp <= 0
+        || (entity instanceof Tank && entity.state === "dead")
+        || !isWithinRange(impact, entity, impact.radius)) continue;
+      const multiplier = entity instanceof Tower || entity instanceof Base ? flight.buildingMultiplier : 1;
+      this.applyDamage(entity, projectile.damage * multiplier, projectile.ownerId);
+    }
+  }
+
+  private clearMortarFlights() {
+    for (const id of this.mortarFlights.keys()) {
+      if (this.state.projectiles.has(id)) this.state.projectiles.delete(id);
+    }
+    this.mortarFlights.clear();
+  }
+
   /** Moves every in-flight projectile toward its target, applies damage on impact, and cleans up. */
   private updateProjectiles(deltaTime: number) {
+    if (!canUseGameplayActions(this.state.phase)) {
+      this.clearMortarFlights();
+      return;
+    }
     const elapsedSeconds = deltaTime / 1000;
     const toRemove: string[] = [];
+    for (const id of this.mortarFlights.keys()) {
+      if (!this.state.projectiles.has(id)) this.mortarFlights.delete(id);
+    }
 
     for (const projectile of [...this.state.projectiles.values()]) {
       if (!canUseGameplayActions(this.state.phase)) break;
+      if (projectile.isMortar) {
+        const flight = this.mortarFlights.get(projectile.id);
+        if (!flight) throw new Error(`Missing Mortar flight metadata for ${projectile.id}`);
+        flight.elapsedMs += deltaTime;
+        projectile.flightProgress = Math.min(1, flight.elapsedMs / flight.durationMs);
+        projectile.x = flight.originX + (projectile.landingX - flight.originX) * projectile.flightProgress;
+        projectile.y = flight.originY + (projectile.landingY - flight.originY) * projectile.flightProgress;
+        if (projectile.flightProgress >= 1) {
+          this.resolveMortarImpact(projectile, flight);
+          toRemove.push(projectile.id);
+        }
+        continue;
+      }
       const target = this.findLivingEntity(projectile.targetId);
       if (projectile.isHomingRocket) {
         if (!target) {
@@ -363,8 +482,9 @@ export class GameRoom extends Room<GameState> {
     }
 
     for (const id of toRemove) {
-      this.state.projectiles.delete(id);
+      if (this.state.projectiles.has(id)) this.state.projectiles.delete(id);
       this.projectileLifetimes.delete(id);
+      this.mortarFlights.delete(id);
     }
   }
 
@@ -414,7 +534,10 @@ export class GameRoom extends Room<GameState> {
     } else if (entity instanceof Tower) {
       entity.targetId = "";
     } else if (entity instanceof Base) {
-      if (endMatchAfterBaseDestroyed(this.state, entity.team)) this.projectileLifetimes.clear();
+      if (endMatchAfterBaseDestroyed(this.state, entity.team)) {
+        this.projectileLifetimes.clear();
+        this.clearMortarFlights();
+      }
     }
   }
 
@@ -566,6 +689,8 @@ export class GameRoom extends Room<GameState> {
   }
 
   onDispose() {
+    this.clearMortarFlights();
+    this.projectileLifetimes.clear();
     this.visibilitySerializer.dispose();
     console.log("room", this.roomId, "disposing...");
   }

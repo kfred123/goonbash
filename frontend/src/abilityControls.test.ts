@@ -2,6 +2,9 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   getAbilityHudStatus,
+  ABILITY_KEYS,
+  getAbilitySlotDesignX,
+  nextWeaponSelection,
   getRoleAbilityAtIndex,
   isRocketTargetClickValid,
   resolveArenaClick,
@@ -22,6 +25,41 @@ test("each role maps Space and E to its independent abilities", () => {
     ]
   );
   assert.equal(getRoleAbilityAtIndex("unknown", 0), null);
+});
+
+test("Damagedealer has a third R slot without changing other roles or crowding layout", () => {
+  assert.deepEqual(ABILITY_KEYS, ["SPACE", "E", "R"]);
+  assert.equal(getRoleAbilityAtIndex("damagedealer", 2), "damagedealer-mortar");
+  assert.equal(getRoleAbilityAtIndex("tank", 2), null);
+  assert.equal(getRoleAbilityAtIndex("healer", 2), null);
+  for (const count of [2, 3]) {
+    const centers = Array.from({ length: count }, (_, index) => getAbilitySlotDesignX(index, count));
+    assert.ok(centers[0] - 71 > 250, "slots do not overlap the progression panel");
+    assert.ok(centers.at(-1)! + 67 < 800);
+    for (let index = 1; index < centers.length; index++) assert.ok(centers[index] - centers[index - 1] > 140);
+  }
+});
+
+test("weapon selection toggles or switches exclusively", () => {
+  assert.equal(nextWeaponSelection(null, "rocket"), "rocket");
+  assert.equal(nextWeaponSelection("rocket", "rocket"), null);
+  assert.equal(nextWeaponSelection("rocket", "mortar"), "mortar");
+  assert.equal(nextWeaponSelection("mortar", "rocket"), "rocket");
+  assert.equal(nextWeaponSelection("mortar", "mortar"), null);
+});
+
+test("Mortar consumes valid ground clicks regardless of occupants but never leaks movement on invalid points", () => {
+  const shooter = { team: "blue", x: 1000, y: 600 };
+  const friendly = { id: "ally", team: "blue", x: 1500, y: 600 };
+  for (const target of [friendly, null, { ...friendly, team: "red" }]) {
+    assert.deepEqual(resolveArenaClick("mortar", shooter, target, { x: 1500, y: 600 }, 900),
+      { type: "mortar", x: 1500, y: 600 });
+  }
+  assert.deepEqual(resolveArenaClick("mortar", shooter, null, { x: 1900, y: 600 }, 900),
+    { type: "mortar", x: 1900, y: 600 });
+  for (const point of [{ x: 1900.01, y: 600 }, { x: -1, y: 600 }, { x: NaN, y: 600 }]) {
+    assert.deepEqual(resolveArenaClick("mortar", shooter, null, point, 900), { type: "ignore" });
+  }
 });
 
 test("rocket selection accepts only valid living enemies within firing range", () => {

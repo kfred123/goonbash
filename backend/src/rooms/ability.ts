@@ -75,6 +75,10 @@ export function homingRocketDamage(fireDamage: number, abilityLevel: number): nu
   return fireDamage * computeAbilityConfigForLevel("damagedealer-homing-rocket", abilityLevel).magnitude;
 }
 
+export function mortarDamage(fireDamage: number, abilityLevel: number): number {
+  return fireDamage * computeAbilityConfigForLevel("damagedealer-mortar", abilityLevel).magnitude;
+}
+
 export interface RocketTarget {
   team: string;
   x: number;

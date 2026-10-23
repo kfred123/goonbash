@@ -132,6 +132,11 @@ export function updateClientView(view: GameState, source: GameState, sessionId: 
       destination.speed = projectile.speed;
       destination.damage = projectile.damage;
       destination.isHomingRocket = projectile.isHomingRocket;
+      destination.isMortar = projectile.isMortar;
+      destination.flightProgress = projectile.flightProgress;
+      destination.blastRadius = projectile.blastRadius;
+      destination.landingX = projectile.team === team ? projectile.landingX : 0;
+      destination.landingY = projectile.team === team ? projectile.landingY : 0;
     });
   syncMap(view.playerStats, source.playerStats, () => new MatchPlayerStats(), () => true,
     (destination, stats) => {

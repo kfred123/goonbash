@@ -9,7 +9,7 @@
     "prebuild": "npm run build --workspace=shared",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "test": "tsx --test src/matchResults.test.ts src/nameFormatter.test.ts src/abilityControls.test.ts src/baseCannonVisuals.test.ts src/towerCannonVisuals.test.ts src/workshopHealerVisuals.test.ts src/roleTankVisuals.test.ts src/minionBeetleVisuals.test.ts src/visionPresentation.test.ts src/respawnPresentation.test.ts"
+    "test": "tsx --test src/matchResults.test.ts src/nameFormatter.test.ts src/abilityControls.test.ts src/weaponTargeting.test.ts src/baseCannonVisuals.test.ts src/towerCannonVisuals.test.ts src/workshopHealerVisuals.test.ts src/roleTankVisuals.test.ts src/minionBeetleVisuals.test.ts src/visionPresentation.test.ts src/respawnPresentation.test.ts"
   },
   "devDependencies": {
     "tsx": "^4.23.15",

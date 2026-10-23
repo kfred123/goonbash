@@ -50,7 +50,7 @@
             tank.x = ally.x = team === 'blue' ? 240 : 2160;
             tank.y = ally.y = 900;
             tank.respawnAt = now + 4200;
-            this.rocketTargetSelection = true;
+            this.weaponSelection = 'rocket';
             this.upsertTank(tank, tank.id);
             this.upsertTank(ally, ally.id);
             this.rebuildVision();
@@ -68,7 +68,7 @@
             check(sprite.effects.commandBuffer.length === 0 && !this.healEffectIcons.has(tank.id), 'Preview has no active ability effects');
             check(!this.visibleEntities.has(tank.id) && this.hitTestClick(tank.x, tank.y) === null, 'Visible preview is not selectable');
             check(getMinimapEntities([tank, ally], this.vision).length === 0, 'Previews do not add minimap dots');
-            check(!this.rocketTargetSelection, 'Death cancels rocket target selection');
+            check(this.weaponSelection === null, 'Death cancels rocket target selection');
             check(this.respawnCountdown.text === '5s', 'Only owner countdown rounds 4.2 seconds up to 5s');
             check(this.respawnCountdown.depth > WORLD_FOG_DEPTH, 'Owner countdown is not darkened by the fog overlay');
             check(this.respawnCountdown.x === sprite.x && this.respawnCountdown.y === sprite.y - 68 * WORLD_SCALE.entity, 'Countdown follows displayed figure above the name');

@@ -154,9 +154,9 @@
           this.refreshFog();
           const bounds = getMinimapBounds(width, height);
           const before = commands.length;
-          this.rocketTargetSelection = true;
+          this.weaponSelection = 'rocket';
           this.handlePointerClick({ x: bounds.x + 2, y: bounds.y + 2, worldX: 1700, worldY: 1100, button: 0 });
-          check(commands.length === before && this.rocketTargetSelection, `Minimap isolates rocket and world input at ${width}px`);
+          check(commands.length === before && this.weaponSelection === 'rocket', `Minimap isolates rocket and world input at ${width}px`);
         }
         const measure = (count) => {
           const observers = Array.from({ length: count }, (_, index) => entity(

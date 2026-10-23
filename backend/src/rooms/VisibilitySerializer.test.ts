@@ -75,6 +75,45 @@ test("initial snapshots exclude concealed spatial entities for both teams and ke
   assert.notDeepEqual(initialBlue, initialRed);
 });
 
+test("Mortar full snapshots and patches keep allied endpoints but redact hostile trajectories and hidden victims", () => {
+  const { source, blue, red, first, second, patch, join } = setup();
+  const shot = Object.assign(new Projectile(), {
+    id: "mortar", team: "blue", ownerId: blue.id, isMortar: true,
+    x: 1100, y: 600, landingX: 1800, landingY: 600, blastRadius: 120, flightProgress: 0.25
+  });
+  source.projectiles.set(shot.id, shot);
+  patch();
+  assert.equal(first.decoded.projectiles.get(shot.id)!.landingX, 1800);
+  const hostile = second.decoded.projectiles.get(shot.id)!;
+  assert.equal(hostile.isMortar, true);
+  assert.equal(hostile.landingX, 0);
+  assert.equal(hostile.landingY, 0);
+  assert.equal(hostile.ownerId, "");
+  assert.equal(hostile.flightProgress, 0.25);
+  assert.equal(hostile.blastRadius, 120);
+  const lateAlly = connection(blue.id);
+  const lateOpponent = connection(red.id);
+  join(lateAlly);
+  join(lateOpponent);
+  assert.equal(lateAlly.decoded.projectiles.get(shot.id)!.landingX, 1800);
+  assert.equal(lateOpponent.decoded.projectiles.get(shot.id)!.landingX, 0);
+  shot.x = 1400;
+  shot.flightProgress = 0.7;
+  red.hp = 76;
+  patch();
+  assert.equal(second.decoded.projectiles.has(shot.id), false);
+  assert.equal(first.decoded.projectiles.get(shot.id)!.x, 1400);
+  assert.equal(first.decoded.tanks.has(red.id), false);
+  assert.equal(first.decoded.minions.has("concealed-initial-minion"), false);
+  assert.equal(first.decoded.towers.has("concealed-initial-tower"), false);
+  assert.equal(first.decoded.bases.has("concealed-initial-base"), false);
+  assert.equal(shot.landingX, 1800);
+  assert.equal(shot.ownerId, blue.id);
+  source.projectiles.delete(shot.id);
+  patch();
+  assert.equal(first.decoded.projectiles.has(shot.id), false);
+});
+
 test("stationary towers, bases, ruins and units are added and removed when only a scout moves", () => {
   const { source, first, patch } = setup();
   const scout = Object.assign(new Minion(), { id: "scout", team: "blue", x: 1000, y: 600 });

@@ -8,7 +8,8 @@ export const ABILITY_IDS = [
   "tank-shield",
   "tank-entrench",
   "damagedealer-rapidfire",
-  "damagedealer-homing-rocket"
+  "damagedealer-homing-rocket",
+  "damagedealer-mortar"
 ] as const;
 
 export type AbilityId = typeof ABILITY_IDS[number];
@@ -20,6 +21,8 @@ export interface AbilityConfig {
   radius?: number;
   range?: number;
   projectileSpeed?: number;
+  flightDurationMs?: number;
+  buildingMultiplier?: number;
 }
 
 export interface AbilityDefinition {
@@ -53,13 +56,17 @@ export const ABILITY_DEFINITIONS: Record<AbilityId, AbilityDefinition> = {
   "damagedealer-homing-rocket": {
     id: "damagedealer-homing-rocket", role: "damagedealer", name: "Homing Rocket",
     config: { cooldownMs: 20000, durationMs: 0, magnitude: 3, range: 900, projectileSpeed: 450 }
+  },
+  "damagedealer-mortar": {
+    id: "damagedealer-mortar", role: "damagedealer", name: "Mortar",
+    config: { cooldownMs: 24000, durationMs: 0, magnitude: 2, range: 900, radius: 120, flightDurationMs: 1500, buildingMultiplier: 3 }
   }
 };
 
 export const ROLE_ABILITY_IDS: Record<Role, readonly AbilityId[]> = {
   healer: ["healer-aura", "healer-speed"],
   tank: ["tank-shield", "tank-entrench"],
-  damagedealer: ["damagedealer-rapidfire", "damagedealer-homing-rocket"]
+  damagedealer: ["damagedealer-rapidfire", "damagedealer-homing-rocket", "damagedealer-mortar"]
 };
 
 export function isAbilityId(value: unknown): value is AbilityId {
@@ -106,6 +113,9 @@ export function computeAbilityConfigForLevel(
       break;
     case "damagedealer-homing-rocket":
       magnitude += rank * 0.25;
+      break;
+    case "damagedealer-mortar":
+      magnitude += rank * 0.2;
       break;
   }
 
