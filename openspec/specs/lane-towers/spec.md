@@ -12,19 +12,23 @@ The system SHALL place exactly 2 towers per team on each of the 3 lanes (12 towe
 - **THEN** the server creates 2 blue towers and 2 red towers on each of the 3 lanes, each positioned along that lane's path, with each team's pair of towers spaced evenly apart rather than clustered together
 
 ### Requirement: Tower Auto-Attack
-A tower SHALL automatically detect and attack the nearest living enemy tank, minion, or opposing tower within its fire range, on a fixed cooldown, the same way bases and minions already engage enemies. The visual redesign SHALL NOT change a tower's existing fire range, cooldown, or damage.
+A tower SHALL automatically detect and attack the nearest living enemy tank, minion, or opposing tower within its fire range that is currently visible to its team, on a fixed cooldown, the same way bases and minions engage visible enemies. It SHALL require current team visibility for each new shot, including vision supplied by another allied observer. Neither the visual redesign nor fog of war SHALL change its existing fire range, cooldown, or damage.
 
 #### Scenario: Enemy minion enters tower range
-- **WHEN** an enemy minion moves within a tower's fire range and the tower is not on cooldown
+- **WHEN** a team-visible enemy minion moves within a tower's fire range and the tower is not on cooldown
 - **THEN** the tower fires at that minion and begins its fire cooldown
 
 #### Scenario: No enemy in range
-- **WHEN** no enemy entity is within a tower's fire range
+- **WHEN** no team-visible enemy entity is within a tower's fire range
 - **THEN** the tower does not fire
 
 #### Scenario: Tower appearance is updated
 - **WHEN** a lane tower uses the outpost visual design
 - **THEN** its existing fire range, cooldown, and damage remain unchanged
+
+#### Scenario: Hidden enemy is inside firing range
+- **WHEN** an enemy inside the tower's fire range is concealed by terrain and no ally reveals it
+- **THEN** the tower does not acquire or fire at that enemy
 
 ### Requirement: Tower Destruction
 A tower SHALL track hit points and take damage from enemy fire. When its hit points reach zero, it SHALL stop attacking, SHALL no longer be a valid attack target, and SHALL remain in the game state as a nonfunctional ruin until the match ends.
