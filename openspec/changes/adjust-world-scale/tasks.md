@@ -2,8 +2,8 @@
 
 ## 1. Shared scale configuration and lane geometry
 
-- [x] 1.1 Add the dependency-free shared scale configuration, immutable pre-change baselines, and exports with defaults entity = 1.20, road width = 1.20, grass gap = 0.90; add focused tests proving independent tuning, baseline restoration at 1.00, and explicit errors for invalid factors or out-of-bounds derived geometry.
-- [x] 1.2 Derive paved width, outer-border width, and outer lane centerlines through the existing shared lane/arena exports; extend lane tests to assert explicit defaults 134.4, 148.8, 187.8/900/1612.2 and both 563.4-unit clear gaps using floating-point tolerances, while preserving base positions, arena bounds, turns, and reverse paths.
+- [x] 1.1 Add the dependency-free shared scale configuration, immutable pre-change baselines, and exports with defaults entity = 1.20, road width = 1.38 (15% wider than the previous 1.20 setting), grass gap = 0.90; add focused tests proving independent tuning, baseline restoration at 1.00, and explicit errors for invalid factors or out-of-bounds derived geometry.
+- [x] 1.2 Derive paved width, outer-border width, and outer lane centerlines through the existing shared lane/arena exports; extend lane tests to assert explicit defaults 154.56, 171.12, 165.48/900/1634.52 and both 563.4-unit clear gaps using floating-point tolerances, while preserving base positions, arena bounds, turns, and reverse paths.
 - [x] 1.3 Verify backend waves, path-relative tower placement, minimap streets, and road-dependent visibility use the derived shared geometry; extend affected lane, tower-placement, and vision tests to cover all 12 distinct on-path towers, both teams' paths, and adjusted border classification without changing vision costs or ranges.
 - [x] 1.4 Document the three adjustment points, original baselines, outer-border grass-gap convention, supported tuning limits, and coordinated rebuild/restart requirement in `readme.md`; verify the documented defaults and computed geometry against the new tests.
 
@@ -21,4 +21,4 @@
 ## 4. Integration verification
 
 - [x] 4.1 Build `shared`, run the affected shared, frontend, and backend test files through their existing `tsx --test` runners, run `npm run build --workspace=frontend`, and run the backend no-emit TypeScript check if configured; verify every selected command succeeds and any new frontend test file is included by the explicit frontend test script.
-- [x] 4.2 Inspect a running arena and minimap at unchanged zoom: verify wider roads, the two reduced parallel grass gaps, all player roles, mobs, bases, lane towers, ruins, labels, health bars, target clicks, firing feedback, and spawn/movement/respawn/conceal-reveal transitions; verify role-menu and HUD dimensions remain unchanged.
+- [x] 4.2 Inspect a running arena and minimap at unchanged zoom: verify roads at factor 1.38 (15% wider than the previous 1.20 setting), the unchanged 563.4-unit clear grass gaps, derived lane positions, all player roles, mobs, bases, lane towers, ruins, labels, health bars, target clicks, firing feedback, and spawn/movement/respawn/conceal-reveal transitions; verify role-menu and HUD dimensions remain unchanged.

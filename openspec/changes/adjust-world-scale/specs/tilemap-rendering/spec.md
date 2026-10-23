@@ -4,19 +4,20 @@
 
 ### Requirement: Configurable road width and clear inter-lane grass spacing
 
-The arena SHALL provide centrally adjustable road-width and clear-grass-gap factors relative to the pre-change geometry. Their defaults SHALL be 1.20 and 0.90 respectively. The road-width factor SHALL apply to both the paved width and the total outer-border width. The grass gap SHALL be measured perpendicular to adjacent parallel lane sections between their facing outer road borders, not between their centerlines. Arena bounds, base positions, the middle lane, horizontal turn coordinates, and the three-lane topology SHALL remain unchanged.
+The arena SHALL provide centrally adjustable road-width and clear-grass-gap factors relative to the pre-change geometry. Their defaults SHALL be 1.38 and 0.90 respectively; the road-width default is 15% greater than the previously configured factor of 1.20. The road-width factor SHALL apply to both the paved width and the total outer-border width. The grass gap SHALL be measured perpendicular to adjacent parallel lane sections between their facing outer road borders, not between their centerlines. Arena bounds, base positions, the middle lane, horizontal turn coordinates, and the three-lane topology SHALL remain unchanged.
 
 #### Scenario: Default dimensions are applied
 - **WHEN** an arena uses the default factors
-- **THEN** the paved road width is 134.4 world units instead of 112 and the total outer-border width is 148.8 instead of 124
+- **THEN** the paved road width is 154.56 world units instead of 112 and the total outer-border width is 171.12 instead of 124
 - **AND** each clear grass gap between the parallel sections is 563.4 world units instead of 626
-- **AND** the upper, middle, and lower parallel lane centerlines are at y = 187.8, 900, and 1612.2 respectively
+- **AND** the upper, middle, and lower parallel lane centerlines are at y = 165.48, 900, and 1634.52 respectively
 - **AND** the arena remains 2400 by 1800 world units with unchanged base positions
 
 #### Scenario: Road width is adjusted independently of the grass gap
 - **WHEN** the road-width factor changes while the grass-gap factor remains 0.90
 - **THEN** road widths change relative to their original dimensions
 - **AND** lane centerlines are recomputed so each clear grass gap remains 563.4 world units
+- **AND** changing road width from 1.20 to 1.38 increases the paved width from 134.4 to 154.56 and the outer-border width from 148.8 to 171.12 world units
 
 #### Scenario: Baseline geometry can be restored
 - **WHEN** both geometry factors are set to 1.00

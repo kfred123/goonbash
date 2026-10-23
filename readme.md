@@ -113,13 +113,13 @@ Originalmasse in `WORLD_BASELINE`, nicht auf das Ergebnis der letzten Anpassung.
 | Faktor | Standard | Wirkung |
 |---|---:|---|
 | `entity` | `1.20` | Spieler 40 -> 48, Mobs 18 -> 21.6; Lane-Tuerme, Ruinen und Hauptbasen proportional 20 % groesser |
-| `roadWidth` | `1.20` | Pflasterbreite 112 -> 134.4, Gesamtbreite inklusive Rand 124 -> 148.8 |
+| `roadWidth` | `1.38` | Weitere 15 % gegenueber 1.20: Pflasterbreite 134.4 -> 154.56, Gesamtbreite inklusive Rand 148.8 -> 171.12 |
 | `grassGap` | `0.90` | Freier Rasen zwischen parallelen Lane-Abschnitten 626 -> 563.4 |
 
 Der Rasenabstand wird zwischen den aeusseren Strassenraendern gemessen, nicht
 zwischen den Mittellinien. Die neue Mittelliniendistanz ist Rasenabstand plus
-Gesamtstrassenbreite, standardmaessig 712.2. Die Lane-Zeilen liegen damit bei
-y = 187.8 / 900 / 1612.2; Weltgrenzen (2400 x 1800), Basen und x-Knickpunkte
+Gesamtstrassenbreite, standardmaessig 734.52. Die Lane-Zeilen liegen damit bei
+y = 165.48 / 900 / 1634.52; Weltgrenzen (2400 x 1800), Basen und x-Knickpunkte
 bleiben gleich. An den diagonalen Zulaeufen laufen die Lanes weiterhin zusammen.
 Strassen, Mob-Pfade, Turmpositionen, Minimap und terrainabhaengige Sicht verwenden
 dieselbe Geometrie. Wird nur die Strassenbreite geaendert, bleibt der konfigurierte

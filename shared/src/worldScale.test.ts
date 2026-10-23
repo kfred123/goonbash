@@ -3,12 +3,12 @@ import { test } from "node:test";
 import { deriveWorldDimensions, WORLD_DIMENSIONS, WORLD_SCALE } from "./worldScale.js";
 
 test("defaults enlarge linear dimensions while reducing the clear border-to-border gap", () => {
-  assert.deepEqual(WORLD_SCALE, { entity: 1.2, roadWidth: 1.2, grassGap: 0.9 });
+  assert.deepEqual(WORLD_SCALE, { entity: 1.2, roadWidth: 1.38, grassGap: 0.9 });
   for (const [actual, expected] of [
-    [WORLD_DIMENSIONS.roadWidth, 134.4], [WORLD_DIMENSIONS.borderWidth, 148.8],
+    [WORLD_DIMENSIONS.roadWidth, 154.56], [WORLD_DIMENSIONS.borderWidth, 171.12],
     [WORLD_DIMENSIONS.playerSize, 48], [WORLD_DIMENSIONS.minionSize, 21.6],
     [WORLD_DIMENSIONS.grassGap, 563.4],
-    ...WORLD_DIMENSIONS.laneRows.map((y, index) => [y, [187.8, 900, 1612.2][index]])
+    ...WORLD_DIMENSIONS.laneRows.map((y, index) => [y, [165.48, 900, 1634.52][index]])
   ]) assert.ok(Math.abs(actual - expected) < 1e-9);
 });
 
@@ -26,7 +26,7 @@ test("entity, road and grass factors can be adjusted independently", () => {
   assert.equal(entity.minionSize, 27);
   assert.equal(entity.roadWidth, WORLD_DIMENSIONS.roadWidth);
   assert.deepEqual(entity.laneRows, WORLD_DIMENSIONS.laneRows);
-  const road = deriveWorldDimensions({ ...WORLD_SCALE, roadWidth: 1.4 });
+  const road = deriveWorldDimensions({ ...WORLD_SCALE, roadWidth: 1.48 });
   assert.equal(road.playerSize, 48);
   assert.equal(road.grassGap, WORLD_DIMENSIONS.grassGap);
   for (let index = 1; index < 3; index += 1) {

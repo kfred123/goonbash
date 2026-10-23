@@ -1,7 +1,7 @@
 // Factors always refer to the original dimensions, not a previously scaled value.
 export const WORLD_SCALE = Object.freeze({
   entity: 1.20,
-  roadWidth: 1.20,
+  roadWidth: 1.38,
   grassGap: 0.90
 });
 

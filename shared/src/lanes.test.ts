@@ -48,8 +48,8 @@ test("classifies points inside the rendered lane width as lane terrain", () => {
   const lanes = getLaneWaypoints(blueBase, redBase);
   assert.equal(isPointOnLane({ x: 1200, y: 900 }, lanes), true);
   assert.equal(isPointOnLane({ x: 1200, y: 955 }, lanes), true);
-  assert.equal(isPointOnLane({ x: 1200, y: 967 }, lanes), true);
-  assert.equal(isPointOnLane({ x: 1200, y: 968 }, lanes), false);
+  assert.equal(isPointOnLane({ x: 1200, y: 977 }, lanes), true);
+  assert.equal(isPointOnLane({ x: 1200, y: 978 }, lanes), false);
   assert.equal(isPointOnLane({ x: 1200, y: 700 }, lanes), false);
 });
 
@@ -58,10 +58,10 @@ test("default lane geometry preserves bounds, anchors, turns, and mirrored trave
   assert.deepEqual(BLUE_BASE_POSITION, blueBase);
   assert.deepEqual(RED_BASE_POSITION, redBase);
   assert.deepEqual(LANE_TURN_X, [750, 1650]);
-  assert.ok(Math.abs(LANE_ROAD_WIDTH - 134.4) < 1e-9);
-  assert.ok(Math.abs(LANE_BORDER_WIDTH - 148.8) < 1e-9);
+  assert.ok(Math.abs(LANE_ROAD_WIDTH - 154.56) < 1e-9);
+  assert.ok(Math.abs(LANE_BORDER_WIDTH - 171.12) < 1e-9);
   for (let index = 0; index < 3; index += 1) {
-    assert.ok(Math.abs(LANE_EDGE_Y[index] - [187.8, 900, 1612.2][index]) < 1e-9);
+    assert.ok(Math.abs(LANE_EDGE_Y[index] - [165.48, 900, 1634.52][index]) < 1e-9);
     assert.deepEqual(getLaneWaypoints(redBase, blueBase)[index], [...ARENA_LANES[index]].reverse());
     if (index > 0) {
       assert.ok(Math.abs(LANE_EDGE_Y[index] - LANE_EDGE_Y[index - 1] - LANE_BORDER_WIDTH - 563.4) < 1e-9);

@@ -25,7 +25,7 @@ Entity presentation is less centralized: arena players use size 40, role-menu pr
 
 ### 1. One shared configuration with three independent factors
 
-Add a small `shared/src/worldScale.ts` module, exported through `shared/src/index.ts`, with named entity, road-width, and grass-gap factors defaulting to 1.20, 1.20, and 0.90. Keep baseline road widths, centerline spacing, and nominal unit sizes alongside the factors, with comments explaining that all factors refer to pre-change dimensions. Derive shared public dimensions from these values.
+Add a small `shared/src/worldScale.ts` module, exported through `shared/src/index.ts`, with named entity, road-width, and grass-gap factors defaulting to 1.20, 1.38, and 0.90. The road factor 1.38 represents a further 15% increase over the previous 1.20 setting; all factors remain relative to original baselines so scaling never compounds. Keep baseline road widths, centerline spacing, and nominal unit sizes alongside the factors. Derive shared public dimensions from these values.
 
 Keep the module dependency-free. `lanes.ts`, `arena.ts`, cannon helpers, and frontend presentation consume it; it must not import them and create cycles. Reuse existing exports such as `LANE_ROAD_WIDTH`, `LANE_BORDER_WIDTH`, and `LANE_EDGE_Y` to minimize consumer changes. A small pure dimension derivation helper is appropriate if needed to exercise alternate factors; no generic configuration registry is required.
 
@@ -33,9 +33,9 @@ Alternative: change individual numeric constants. Rejected because future tuning
 
 ### 2. Measure clear grass between outer road borders
 
-Use the parallel lane sections between the existing x turns as the spacing reference. The original centerline distance is 750; the actual clear grass width is 750 - 124 = 626. The target is 626 * 0.90 = 563.4. With the new outer width 124 * 1.20 = 148.8, the required centerline distance is 563.4 + 148.8 = 712.2.
+Use the parallel lane sections between the existing x turns as the spacing reference. The original centerline distance is 750; the actual clear grass width is 750 - 124 = 626. The target is 626 * 0.90 = 563.4. With the previous outer width 124 * 1.20 = 148.8 and the current width 124 * 1.38 = 171.12, the current centerline distance is 563.4 + 171.12 = 734.52.
 
-Keep the middle lane at y = 900, giving outer centerlines y = 187.8 and 1612.2. Keep turn x coordinates and base positions fixed. Compute lane rows from the baseline grass gap and the newly derived border width, not by scaling existing lane y coordinates. Wider roads apply along the entire polyline, including diagonal approaches and rounded joins.
+Keep the middle lane at y = 900, giving outer centerlines y = 165.48 and 1634.52. Keep turn x coordinates and base positions fixed. Compute lane rows from the baseline grass gap and the newly derived border width, not by scaling existing lane y coordinates. Wider roads apply along the entire polyline, including diagonal approaches and rounded joins.
 
 The percentage is defined on parallel sections: lanes converge at bases, so there is no uniform nonzero gap along every diagonal segment. Reducing centerline distance by 10% would leave the wrong grass width once roads widen; this alternative is rejected.
 

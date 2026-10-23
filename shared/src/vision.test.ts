@@ -22,12 +22,12 @@ test("absolute sight defaults are independent of combat stats", () => {
 });
 
 test("default terrain classifies the enlarged borders and relocated lanes with unchanged costs", () => {
-  for (const y of [187.8, 900, 1612.2]) {
-    assert.equal(ARENA_VISION_TERRAIN.isGrass({ x: 1200, y: y + 74.399 }), false);
-    assert.equal(ARENA_VISION_TERRAIN.isGrass({ x: 1200, y: y + 74.401 }), true);
+  for (const y of [165.48, 900, 1634.52]) {
+    assert.equal(ARENA_VISION_TERRAIN.isGrass({ x: 1200, y: y + 85.559 }), false);
+    assert.equal(ARENA_VISION_TERRAIN.isGrass({ x: 1200, y: y + 85.561 }), true);
     assert.ok(Math.abs(ARENA_VISION_TERRAIN.sightCost({ x: 1100, y }, { x: 1200, y }) - 100) < 1e-9);
   }
-  assert.equal(ARENA_VISION_TERRAIN.isGrass({ x: 1200, y: 112 }), true);
+  assert.equal(ARENA_VISION_TERRAIN.isGrass({ x: 1200, y: 300 }), true);
   assert.equal(ARENA_VISION_TERRAIN.isGrass({ x: 1200, y: 970 }), false);
   assert.ok(Math.abs(ARENA_VISION_TERRAIN.sightCost({ x: 1100, y: 500 }, { x: 1200, y: 500 }) - 200) < 1e-9);
 });
