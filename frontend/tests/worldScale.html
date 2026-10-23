@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>World scale integration checks</title>
+<style>body { background: #151c28; color: white; font: 16px system-ui; } canvas { max-width: 100%; }</style>
+<h1>World scale: arena, entities and interaction</h1>
+<pre id="result">Running renderer checks...</pre>
+<div id="preview"></div>
+<script type="module">
+  import Phaser from 'phaser';
+  import { Base, GameState, Minion, Tank, Tower, WORLD_SCALE, WORLD_DIMENSIONS, ARENA_LANES, LANE_BORDER_WIDTH } from 'shared';
+  import { GameScene } from '../src/GameScene.ts';
+
+  const checks = [];
+  function check(condition, label) {
+    if (!condition) throw new Error(label);
+    checks.push(label);
+  }
+  const close = (a, b) => Math.abs(a - b) < .001;
+  function entity(Type, id, team, x, y) {
+    return Object.assign(new Type(), { id, team, x, y });
+  }
+  const pixel = (context, x, y) => [...context.getImageData(Math.floor(x), Math.floor(y), 1, 1).data];
+
+  class ScaleChecks extends GameScene {
+    update() {}
+
+    create() {
+      try {
+        this.statusText = this.add.text(10, 10, 'World scale').setDepth(2200).setScrollFactor(0);
+        const state = new GameState();
+        state.phase = 'started';
+        const local = entity(Tank, 'local', 'blue', 1100, 900);
+        local.role = 'healer';
+        local.name = 'Healer';
+        state.tanks.set(local.id, local);
+        for (const [index, role] of ['tank', 'damagedealer'].entries()) {
+          const tank = entity(Tank, role, 'blue', 1160 + 65 * index, 900);
+          tank.role = role;
+          tank.name = role;
+          state.tanks.set(tank.id, tank);
+        }
+        const enemy = entity(Tank, 'enemy', 'red', 1200, 1000);
+        state.tanks.set(enemy.id, enemy);
+        const mob = entity(Minion, 'mob', 'red', 1310, 900);
+        const tower = entity(Tower, 'tower', 'red', 1120, 900);
+        const base = entity(Base, 'base', 'red', 1000, 900);
+        state.minions.set(mob.id, mob);
+        state.towers.set(tower.id, tower);
+        state.bases.set(base.id, base);
+        this.room = { sessionId: local.id, state, send() {} };
+        this.createArena('World scale / 1.20 entities and roads / 0.90 grass');
+        this.arenaStarted = true;
+        state.tanks.forEach((tank, id) => this.upsertTank(tank, id));
+        this.upsertMinion(mob, mob.id);
+        this.upsertTower(tower, tower.id);
+        this.upsertBase(base, base.id);
+        GameScene.prototype.update.call(this, 0, 16);
+
+        check(this.cameras.main.zoom === 1, 'Camera zoom stays at 1');
+        check(this.abilityHud.bar.height === 92 && this.abilityHud.levelText.style.fontSize === '18px', 'HUD dimensions and font size stay unchanged');
+        for (const [id, sprite] of this.tankSprites) {
+          check(sprite.width === WORLD_DIMENSIONS.playerSize && sprite.scaleX === 1, `${id}: nominal world size is applied exactly once`);
+          check(close(sprite.chassis.scaleX, 48 / 68) && close(sprite.turret.scaleX, 48 / 68), `${id}: chassis and independent turret are 20 percent larger`);
+          const name = this.tankNameTexts.get(id);
+          const bar = this.healthBars.get(id);
+          check(close(name.y, sprite.y - 45.6) && close(bar.bg.y, sprite.y - 58.8), `${id}: labels and health bars use scaled clearances`);
+          check(name.style.fontSize === '11px' && bar.width === 36 && bar.bg.height === 5, `${id}: font and health-bar sizes stay unchanged`);
+          check(bar.bg.getBounds().bottom < name.getBounds().top, `${id}: name and bar do not overlap`);
+        }
+        const beetle = this.minionSprites.get(mob.id);
+        check(close(beetle.width, 21.6) && beetle.scaleX === 1 && close(beetle.body.scaleX, 21.6 / 82)
+          && close(beetle.cannon.scaleX, 21.6 / 82) && close(beetle.list[0].scaleX, 21.6 / 82),
+          'Minion hull, shadow, legs and cannon scale exactly once');
+        for (const [root, cannon, label] of [
+          [this.baseSprites.get(base.id).fort, this.baseSprites.get(base.id).cannon, 'base'],
+          [this.towerSprites.get(tower.id).outpost, this.towerSprites.get(tower.id).cannon, 'tower']
+        ]) {
+          check(close(root.scaleX, 1.2) && close(root.scaleY, 1.2) && cannon.scaleX === 1, `${label}: root alone scales all stonework and cannon`);
+          check(root.list.every(child => child.scaleX === 1), `${label}: children do not double-scale`);
+        }
+        check(this.baseSprites.get(base.id).fort.getBounds().width > this.towerSprites.get(tower.id).outpost.getBounds().width,
+          'Lane outpost remains smaller than main base');
+        check(close(this.healthBars.get(base.id).bg.y, base.y - 52.8) && close(this.healthBars.get(tower.id).bg.y, tower.y - 26.4),
+          'Structure health-bar clearances follow scale');
+        this.addRoleCard(400, 200, 'healer', true, 0x4d8dff, () => {});
+        const preview = this.menuElements[1];
+        check(preview.width === 32 && close(preview.chassis.scaleX, 32 / 68), 'Role menu preview stays at 32 units');
+        this.destroyMenuElements();
+
+        for (const [id, target, radius] of [
+          ['enemy', enemy, 24], ['mob', mob, 14], ['tower', tower, 20], ['base', base, 40]
+        ]) {
+          check(this.hitTestClick(target.x, target.y + radius * 1.1)?.id === id, `${id}: enlarged selection ring is clickable`);
+          check(this.hitTestClick(target.x, target.y + radius * 1.21)?.id !== id, `${id}: selection stops outside scaled radius`);
+        }
+        this.showAttackMarker(mob.id, mob.x, mob.y, 0xff3333);
+        check(close(this.attackMarkers[0].graphics.scaleX, 1.2), 'Target marker scales with world entities');
+        mob.x += 20;
+        this.upsertMinion(mob, mob.id);
+        enemy.x += 20;
+        this.upsertTank(enemy, enemy.id);
+        GameScene.prototype.update.call(this, 16, 16);
+        check(close(this.healthBars.get(mob.id).bg.y, beetle.y - 19.2), 'Interpolated minion retains scaled health clearance');
+        check(close(this.attackMarkers[0].graphics.x, beetle.x), 'Target marker follows interpolated minion');
+        const enemySprite = this.tankSprites.get(enemy.id);
+        check(close(this.tankNameTexts.get(enemy.id).y, enemySprite.y - 45.6), 'Interpolated tank retains scaled name clearance');
+        enemy.state = 'dead';
+        this.upsertTank(enemy, enemy.id);
+        check(!enemySprite.visible && this.hitTestClick(enemy.x, enemy.y) === null, 'Dead player is hidden and not selectable');
+        enemy.state = 'alive';
+        this.upsertTank(enemy, enemy.id);
+        GameScene.prototype.update.call(this);
+        check(enemySprite.visible && enemySprite.width === 48, 'Respawn preserves size without cumulative scaling');
+        enemy.x = 2000;
+        this.upsertTank(enemy, enemy.id);
+        this.rebuildVision();
+        this.applyVisibility();
+        check(!enemySprite.visible && this.hitTestClick(enemy.x, enemy.y) === null, 'Concealed enemy keeps no enlarged hit region');
+
+        for (const [unit, upsert, visuals, flashes, distance, radius] of [
+          [base, this.upsertBase, this.baseSprites, this.baseMuzzleFlashes, 43.2, 12],
+          [tower, this.upsertTower, this.towerSprites, this.towerMuzzleFlashes, 25.2, 7.2]
+        ]) {
+          for (const angle of [0, Math.PI / 2, Math.PI, -Math.PI / 2, Math.PI / 4]) {
+            unit.shotAngle = angle;
+            unit.shotCount += 1;
+            upsert.call(this, unit, unit.id);
+            const flash = flashes.get(unit.id);
+            check(flash && close(flash.x, unit.x + Math.cos(angle) * distance)
+              && close(flash.y, unit.y + Math.sin(angle) * distance) && close(flash.radius, radius),
+              `${unit.id}: scaled flash matches muzzle at angle ${angle}`);
+            const rotationError = visuals.get(unit.id).cannon.rotation - angle;
+            check(close(Math.sin(rotationError), 0) && close(Math.cos(rotationError), 1),
+              `${unit.id}: cannon follows recorded shot even without projectile or target`);
+          }
+          this.setEntityVisibility(unit.id, false);
+          check(!flashes.has(unit.id), `${unit.id}: concealment removes scaled flash`);
+          this.removeTargetFeedback(unit.id);
+          unit.shotCount += 1;
+          upsert.call(this, unit, unit.id);
+          check(!flashes.has(unit.id), `${unit.id}: reveal does not replay concealed shot`);
+          upsert.call(this, unit, unit.id);
+          check(close((visuals.get(unit.id).fort ?? visuals.get(unit.id).outpost).scaleX, 1.2),
+            `${unit.id}: updates do not compound root scale`);
+        }
+        tower.hp = 0;
+        this.upsertTower(tower, tower.id);
+        check(close(this.towerSprites.get(tower.id).ruin.scaleX, 1.2) && !this.healthBars.has(tower.id)
+          && this.hitTestClick(tower.x, tower.y)?.id !== tower.id, 'Ruin keeps scale without health bar or hit region');
+
+        const context = this.textures.get('lane-roads').context;
+        for (const lane of ARENA_LANES) {
+          const y = lane[1].y;
+          check(pixel(context, 1200, y)[3] === 255 && pixel(context, 1200, y + 73)[3] > 0
+            && pixel(context, 1200, y + 76)[3] === 0, 'Arena road texture follows scaled width and lane row');
+        }
+        for (let index = 1; index < 3; index++) {
+          check(close(ARENA_LANES[index][1].y - ARENA_LANES[index - 1][1].y - LANE_BORDER_WIDTH, 563.4),
+            'Clear grass is 10 percent narrower between facing outer borders');
+        }
+        const miniContext = this.fog.terrainTexture.context;
+        const grass = pixel(miniContext, 150, 65).join();
+        for (const y of WORLD_DIMENSIONS.laneRows) {
+          check(pixel(miniContext, 150, y / 8).join() !== grass
+            && pixel(miniContext, 150, (y + 85) / 8).join() === grass, 'Minimap terrain follows the same scaled road geometry');
+        }
+        this.refreshFog();
+        const dots = this.fog.dots.commandBuffer.slice();
+        this.refreshFog();
+        check(JSON.stringify(dots) === JSON.stringify(this.fog.dots.commandBuffer), 'Minimap markers remain stable across refresh');
+        this.cameras.main.stopFollow();
+        this.cameras.main.setScroll(750, 600);
+        window.worldScaleScene = this;
+        window.worldScaleCheckResult = { ok: true, checks, factors: WORLD_SCALE };
+        document.getElementById('result').textContent = `${checks.length} renderer checks passed. Factors: ${JSON.stringify(WORLD_SCALE)}`;
+      } catch (error) {
+        window.worldScaleCheckResult = { ok: false, error: error.stack, checks };
+        document.getElementById('result').textContent = JSON.stringify(window.worldScaleCheckResult, null, 2);
+        console.error(error);
+      }
+    }
+  }
+  new Phaser.Game({
+    type: new URLSearchParams(location.search).has('webgl') ? Phaser.WEBGL : Phaser.CANVAS,
+    width: 1000, height: 750, parent: 'preview', backgroundColor: '#151c28',
+    audio: { noAudio: true }, scene: [ScaleChecks]
+  });
+</script>
+</html>

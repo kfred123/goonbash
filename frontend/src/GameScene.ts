@@ -6,6 +6,8 @@ import {
   LANE_BORDER_WIDTH,
   WORLD_WIDTH,
   WORLD_HEIGHT,
+  WORLD_SCALE,
+  WORLD_DIMENSIONS,
   TeamVision,
   getVisionEntities,
   INVALID_TARGET_MESSAGE,
@@ -115,10 +117,15 @@ export class GameScene extends Phaser.Scene {
   private healEffectIcons: Map<string, Phaser.GameObjects.Graphics> = new Map();
   private static readonly NAME_STORAGE_KEY = 'goonbash_player_name';
   private static readonly MAX_NAME_LENGTH = 20;
-  private static readonly CLICK_HIT_RADIUS_TANK = 24;
-  private static readonly CLICK_HIT_RADIUS_MINION = 14;
-  private static readonly CLICK_HIT_RADIUS_BASE = 40;
-  private static readonly CLICK_HIT_RADIUS_TOWER = 20;
+  private static readonly CLICK_HIT_RADIUS_TANK = 24 * WORLD_SCALE.entity;
+  private static readonly CLICK_HIT_RADIUS_MINION = 14 * WORLD_SCALE.entity;
+  private static readonly CLICK_HIT_RADIUS_BASE = 40 * WORLD_SCALE.entity;
+  private static readonly CLICK_HIT_RADIUS_TOWER = 20 * WORLD_SCALE.entity;
+  private static readonly TANK_NAME_OFFSET = 38 * WORLD_SCALE.entity;
+  private static readonly TANK_HEALTH_OFFSET = 49 * WORLD_SCALE.entity;
+  private static readonly MINION_HEALTH_OFFSET = 16 * WORLD_SCALE.entity;
+  private static readonly BASE_HEALTH_OFFSET = 44 * WORLD_SCALE.entity;
+  private static readonly TOWER_HEALTH_OFFSET = 22 * WORLD_SCALE.entity;
   private static readonly CLICK_MARKER_DURATION_MS = 1000;
   private static readonly HUD_BAR_HEIGHT = 92;
   // World is 3x the 800x600 viewport (matching backend GameRoom's WORLD_WIDTH/WORLD_HEIGHT)
@@ -841,9 +848,9 @@ export class GameScene extends Phaser.Scene {
       }
     } else {
       // Spawn new
-      const sprite = this.createRoleShape(x, y, role, 40, teamColor);
+      const sprite = this.createRoleShape(x, y, role, WORLD_DIMENSIONS.playerSize, teamColor);
       sprite.chassis.rotation = sprite.turret.rotation = tank.team === 'blue' ? Math.PI / 2 : -Math.PI / 2;
-      const nameText = this.add.text(x, y - 38, fullDisplayName, {
+      const nameText = this.add.text(x, y - GameScene.TANK_NAME_OFFSET, fullDisplayName, {
         color: tank.team === 'blue' ? '#4d8dff' : '#ff4444',
         fontSize: '11px'
       }).setOrigin(0.5);
@@ -857,7 +864,7 @@ export class GameScene extends Phaser.Scene {
       }
     }
 
-    this.updateHealthBar(sessionId, x, y - 49, tank.hp, tank.maxHp, !isDead);
+    this.updateHealthBar(sessionId, x, y - GameScene.TANK_HEALTH_OFFSET, tank.hp, tank.maxHp, !isDead);
 
     if (sessionId === this.room.sessionId) {
       const abilities = new Map<AbilityId, { level: number; cooldownEndsAt: number; cooldownMax: number; activeUntil: number }>();
@@ -907,7 +914,7 @@ export class GameScene extends Phaser.Scene {
     );
     sprite.setDestination(x, y);
     this.minionSprites.set(id, sprite);
-    this.updateHealthBar(id, sprite.x, sprite.y - 16, minion.hp, minion.maxHp, true);
+    this.updateHealthBar(id, sprite.x, sprite.y - GameScene.MINION_HEALTH_OFFSET, minion.hp, minion.maxHp, true);
     this.setEntityVisibility(id, this.canPresent(minion, sprite));
   }
 
@@ -920,7 +927,7 @@ export class GameScene extends Phaser.Scene {
     const target = base.targetId ? this.findEntityPosition(base.targetId) : null;
     sprite.cannon.rotation = getBaseCannonRotation(base.team, base, target);
     this.baseSprites.set(id, sprite);
-    this.updateHealthBar(id, x, y - 44, base.hp, base.maxHp, true);
+    this.updateHealthBar(id, x, y - GameScene.BASE_HEALTH_OFFSET, base.hp, base.maxHp, true);
     const shot = getBaseCannonShotFeedback(base, this.baseShotCounts.get(id));
     this.baseShotCounts.set(id, base.shotCount);
     if (shot && this.visibleEntities.has(id) && this.canPresent(base)) {
@@ -936,7 +943,7 @@ export class GameScene extends Phaser.Scene {
       this.tweens.killTweensOf(previous);
       previous.destroy();
     }
-    const flash = this.add.circle(muzzle.x, muzzle.y, 10, 0xffe38a, 0.9).setDepth(3);
+    const flash = this.add.circle(muzzle.x, muzzle.y, 10 * WORLD_SCALE.entity, 0xffe38a, 0.9).setDepth(3);
     this.baseMuzzleFlashes.set(id, flash);
     this.tweens.add({
       targets: flash,
@@ -971,7 +978,7 @@ export class GameScene extends Phaser.Scene {
     team: string
   ): { fort: Phaser.GameObjects.Container; cannon: Phaser.GameObjects.Container } {
     const teamColor = team === 'blue' ? 0x4d8dff : 0xff554d;
-    const fort = this.add.container(x, y);
+    const fort = this.add.container(x, y).setScale(WORLD_SCALE.entity);
     const stonePieces = [
       this.add.rectangle(0, 3, 76, 70, 0x292720).setStrokeStyle(3, 0x171613),
       this.add.rectangle(0, 0, 68, 62, 0x625b50).setStrokeStyle(2, 0x302c27),
@@ -1034,7 +1041,7 @@ export class GameScene extends Phaser.Scene {
     const target = tower.targetId ? this.findEntityPosition(tower.targetId) : null;
     visual.cannon.rotation = getTowerCannonRotation(tower.team, tower, target);
     this.towerSprites.set(id, visual);
-    this.updateHealthBar(id, x, y - 22, tower.hp, tower.maxHp, true);
+    this.updateHealthBar(id, x, y - GameScene.TOWER_HEALTH_OFFSET, tower.hp, tower.maxHp, true);
     const shot = getTowerCannonShotFeedback(tower, this.towerShotCounts.get(id));
     this.towerShotCounts.set(id, tower.shotCount ?? 0);
     if (shot && this.visibleEntities.has(id) && this.canPresent(tower)) {
@@ -1050,7 +1057,7 @@ export class GameScene extends Phaser.Scene {
     team: string
   ): { outpost: Phaser.GameObjects.Container; cannon: Phaser.GameObjects.Container } {
     const teamColor = team === 'blue' ? 0x4d8dff : 0xff554d;
-    const outpost = this.add.container(x, y);
+    const outpost = this.add.container(x, y).setScale(WORLD_SCALE.entity);
     const stonePieces = [
       this.add.rectangle(0, 2, 42, 38, 0x292720).setStrokeStyle(2, 0x171613),
       this.add.rectangle(0, 0, 36, 32, 0x625b50).setStrokeStyle(1, 0x302c27),
@@ -1077,7 +1084,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private createTowerRuin(x: number, y: number): Phaser.GameObjects.Graphics {
-    const ruin = this.add.graphics().setPosition(x, y).setDepth(-0.25);
+    const ruin = this.add.graphics().setPosition(x, y).setDepth(-0.25).setScale(WORLD_SCALE.entity);
     ruin.fillStyle(0x35332f, 0.95);
     ruin.fillRect(-19, -8, 38, 18);
     ruin.fillStyle(0x625b50, 1);
@@ -1102,7 +1109,7 @@ export class GameScene extends Phaser.Scene {
       this.tweens.killTweensOf(previous);
       previous.destroy();
     }
-    const flash = this.add.circle(muzzle.x, muzzle.y, 6, 0xffe38a, 0.9).setDepth(3);
+    const flash = this.add.circle(muzzle.x, muzzle.y, 6 * WORLD_SCALE.entity, 0xffe38a, 0.9).setDepth(3);
     this.towerMuzzleFlashes.set(id, flash);
     this.tweens.add({
       targets: flash,
@@ -1283,7 +1290,7 @@ export class GameScene extends Phaser.Scene {
 
   /** Draws a short-lived cross centered on an attack target, that re-centers on the target's live position every frame until it fades out after ~1 second. */
   private showAttackMarker(targetId: string, x: number, y: number, color: number) {
-    const marker = this.createCrossGraphics(color).setPosition(x, y);
+    const marker = this.createCrossGraphics(color).setPosition(x, y).setScale(WORLD_SCALE.entity);
     const entry = { graphics: marker, targetId };
     this.attackMarkers.push(entry);
     this.tweens.add({
@@ -1332,7 +1339,7 @@ export class GameScene extends Phaser.Scene {
   update(_time: number = 0, delta: number = 1000 / 60) {
     this.minionSprites.forEach((sprite, id) => {
       sprite.updateMotion(delta);
-      this.updateHealthBarPosition(id, sprite.x, sprite.y - 16);
+      this.updateHealthBarPosition(id, sprite.x, sprite.y - GameScene.MINION_HEALTH_OFFSET);
     });
     this.tankTargets.forEach((target, sessionId) => {
       const sprite = this.tankSprites.get(sessionId);
@@ -1342,8 +1349,8 @@ export class GameScene extends Phaser.Scene {
         }
         sprite.x = Phaser.Math.Linear(sprite.x, target.x, 0.25);
         sprite.y = Phaser.Math.Linear(sprite.y, target.y, 0.25);
-        this.tankNameTexts.get(sessionId)?.setPosition(sprite.x, sprite.y - 38);
-        this.updateHealthBarPosition(sessionId, sprite.x, sprite.y - 49);
+        this.tankNameTexts.get(sessionId)?.setPosition(sprite.x, sprite.y - GameScene.TANK_NAME_OFFSET);
+        this.updateHealthBarPosition(sessionId, sprite.x, sprite.y - GameScene.TANK_HEALTH_OFFSET);
       }
     });
     this.applyVisibility();
@@ -1461,7 +1468,7 @@ export class GameScene extends Phaser.Scene {
 
     healedSessionIds.forEach((sessionId) => {
       if (this.healEffectIcons.has(sessionId)) return;
-      const icon = this.add.graphics().setDepth(500);
+      const icon = this.add.graphics().setDepth(500).setScale(WORLD_SCALE.entity);
       drawWrench(icon, 0, 0, 22);
       this.healEffectIcons.set(sessionId, icon);
     });
@@ -1474,8 +1481,8 @@ export class GameScene extends Phaser.Scene {
     this.healEffectIcons.forEach((icon, sessionId) => {
       const sprite = this.tankSprites.get(sessionId);
       if (!sprite) return;
-      const bob = Math.sin((t + sessionId.length * 137) / 260) * 5;
-      icon.setPosition(sprite.x, sprite.y - 68 + bob);
+      const bob = Math.sin((t + sessionId.length * 137) / 260) * 5 * WORLD_SCALE.entity;
+      icon.setPosition(sprite.x, sprite.y - 68 * WORLD_SCALE.entity + bob);
     });
   }
 

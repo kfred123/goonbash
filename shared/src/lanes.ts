@@ -1,11 +1,13 @@
+import { WORLD_DIMENSIONS } from "./worldScale";
+
 export interface LanePoint {
   x: number;
   y: number;
 }
 
-export const LANE_EDGE_Y = [150, 900, 1650] as const;
+export const LANE_EDGE_Y = WORLD_DIMENSIONS.laneRows;
 export const LANE_TURN_X = [750, 1650] as const;
-export const LANE_ROAD_WIDTH = 112;
+export const LANE_ROAD_WIDTH = WORLD_DIMENSIONS.roadWidth;
 
 /** Returns whether a point falls within the rendered stone width of any lane path. */
 export function isPointOnLane(point: LanePoint, lanes: LanePoint[][], roadWidth = LANE_ROAD_WIDTH): boolean {

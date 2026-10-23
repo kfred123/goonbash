@@ -9,6 +9,15 @@ test('base cannon rotation faces its replicated target position', () => {
   assert.equal(getBaseCannonRotation('red', origin, { x: 100, y: 0 }), -Math.PI / 2);
 });
 
+test('base feedback follows the enlarged muzzle in every direction', () => {
+  for (const angle of [0, Math.PI / 2, Math.PI, -Math.PI / 2, Math.PI / 4]) {
+    const feedback = getBaseCannonShotFeedback({ x: 240, y: 900, shotCount: 2, shotAngle: angle }, 1);
+    assert.ok(feedback);
+    assert.ok(Math.abs(feedback.muzzle.x - 240 - Math.cos(angle) * 43.2) < 1e-9);
+    assert.ok(Math.abs(feedback.muzzle.y - 900 - Math.sin(angle) * 43.2) < 1e-9);
+  }
+});
+
 test('base cannon defaults to facing outward from its own base', () => {
   const origin = { x: 100, y: 100 };
 
@@ -20,7 +29,7 @@ test('shot feedback uses the recorded firing direction without a projectile or s
   const base = { x: 100, y: 100, shotCount: 1, shotAngle: Math.PI / 2 };
   assert.deepEqual(getBaseCannonShotFeedback(base, 0), {
     angle: Math.PI / 2,
-    muzzle: { x: 100, y: 136 }
+    muzzle: { x: 100, y: 143.2 }
   });
 });
 

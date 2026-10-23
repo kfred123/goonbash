@@ -1,4 +1,5 @@
 import type Phaser from 'phaser';
+import { WORLD_DIMENSIONS } from 'shared';
 import { getVehicleHeading } from './roleTankVisuals.js';
 import { advanceBeetleMotion, drawBeetleCannon, drawBeetleHull, drawBeetleLegs } from './minionBeetleVisuals.js';
 import type { BeetleMotion } from './minionBeetleVisuals.js';
@@ -6,8 +7,9 @@ import type { BeetleMotion } from './minionBeetleVisuals.js';
 export function createMinionBeetle(
   scene: Phaser.Scene, x: number, y: number, teamColor: number, heading: number
 ) {
-  const root = scene.add.container(x, y).setSize(18, 18);
-  const scale = 18 / 82;
+  const size = WORLD_DIMENSIONS.minionSize;
+  const root = scene.add.container(x, y).setSize(size, size);
+  const scale = size / 82;
   const shadow = scene.add.graphics().setScale(scale);
   shadow.fillStyle(0x000000, 0.25);
   shadow.fillRoundedRect(-34, -25, 76, 64, 18);

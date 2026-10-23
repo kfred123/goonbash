@@ -11,6 +11,7 @@
 <div id="preview"></div>
 <script type="module">
   import Phaser from 'phaser';
+  import { WORLD_DIMENSIONS, WORLD_SCALE } from 'shared';
   import { GameScene } from '../src/GameScene.ts';
   import { drawWrench } from '../src/wrenchVisuals.ts';
   import { getVehicleHeading } from '../src/roleTankVisuals.ts';
@@ -53,7 +54,8 @@
         const sprite = this.tankSprites.get('local');
         const { effects, chassis, turret } = sprite;
         check(sprite instanceof Phaser.GameObjects.Container, 'Healer verwendet einen Container');
-        check(sprite.x === 100 && sprite.y === 100 && sprite.width === 40, 'Weltposition und Groesse erhalten');
+        check(sprite.x === 100 && sprite.y === 100 && sprite.width === WORLD_DIMENSIONS.playerSize, 'Weltposition erhalten und Groesse zentral skaliert');
+        check(sprite.scaleX === 1 && chassis.scaleX === WORLD_DIMENSIONS.playerSize / 68 && effects.scaleX === WORLD_SCALE.entity, 'Panzer und Effekte genau einmal skaliert');
         check(sprite.list.length === 3 && sprite.list.every(child => child instanceof Phaser.GameObjects.Graphics), 'Eigener Spieler hat keine Kreisobjekte');
         check(this.tankNameTexts.get('local').text.includes('(You)'), 'Eigener Spieler bleibt am Namen erkennbar');
         check(this.cameras.main._follow === sprite, 'Kamera folgt der Container-Wurzel');
@@ -62,10 +64,13 @@
         check(sprite.x === 110 && sprite.y === 100, 'Positionsinterpolation bewegt die Figur');
         check(this.tankNameTexts.get('local').x === sprite.x, 'Name folgt der Wurzelposition');
         check(this.healthBars.get('local').bg.x === sprite.x, 'Lebensbalken folgt der Wurzelposition');
+        check(Math.abs(this.tankNameTexts.get('local').y - (sprite.y - 38 * WORLD_SCALE.entity)) < .001, 'Name behaelt skalierten Abstand bei Bewegung');
+        check(Math.abs(this.healthBars.get('local').bg.y - (sprite.y - 49 * WORLD_SCALE.entity)) < .001, 'Lebensbalken behaelt skalierten Abstand bei Bewegung');
         check(this.healthBars.get('local').bg.getBounds().bottom < this.tankNameTexts.get('local').getBounds().top, 'Lebensbalken und Name ueberlappen nicht');
         check(effects.commandBuffer.length > 0, 'Gleichzeitige Effekte werden gezeichnet');
         check(this.healEffectIcons.has('local'), 'Bisheriger Heilungs-Schraubenschluessel bleibt erhalten');
         const effect = this.healEffectIcons.get('local');
+        check(effect.scaleX === WORLD_SCALE.entity, 'Heilungswerkzeug skaliert mit Weltpanzer statt HUD');
         const expectedWrench = this.add.graphics();
         drawWrench(expectedWrench, 0, 0, 22);
         check(JSON.stringify(effect.commandBuffer) === JSON.stringify(expectedWrench.commandBuffer), 'Heilung verwendet dieselbe Werkzeuggeometrie');
@@ -121,7 +126,7 @@
         for (const [width, height] of [[1000, 810], [640, 480]]) {
           this.scale.resize(width, height);
           for (const [index, role] of ['healer', 'tank', 'damagedealer'].entries()) {
-            const model = this.createRoleShape(0, 0, role, 40, 0x4d8dff);
+            const model = this.createRoleShape(0, 0, role, WORLD_DIMENSIONS.playerSize, 0x4d8dff);
             check(model instanceof Phaser.GameObjects.Container && model.chassis !== model.turret, `${role}: Wanne und Turm getrennt (${width}px)`);
             check(model.list.length === 3 && model.list.every(child => child instanceof Phaser.GameObjects.Graphics), `${role}: keine umlaufenden Kreisobjekte (${width}px)`);
             model.destroy();
@@ -184,10 +189,10 @@
         this.add.text(24, y - 74, label, { color: '#ffffff', fontSize: '18px' });
         [0x4d8dff, 0xff4444].forEach((color, teamIndex) => {
           const x = 210 + teamIndex * 280;
-          const model = this.createRoleShape(x, y + 10, role, 40, color).setScale(2.5);
+          const model = this.createRoleShape(x, y + 10, role, WORLD_DIMENSIONS.playerSize, color).setScale(2.5);
           model.role = role;
           this.models.push(model);
-          const world = this.createRoleShape(720 + teamIndex * 100, y - 15, role, 40, color);
+          const world = this.createRoleShape(720 + teamIndex * 100, y - 15, role, WORLD_DIMENSIONS.playerSize, color);
           world.role = role;
           this.models.push(world);
           this.createRoleShape(720 + teamIndex * 100, y + 45, role, 32, color);

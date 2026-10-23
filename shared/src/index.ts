@@ -13,6 +13,8 @@ export { AbilityState } from "./state/AbilityState";
 export { LANE_EDGE_Y, LANE_ROAD_WIDTH, LANE_TURN_X, buildLanePath, getLaneWaypoints, isPointOnLane, pointAlongPath } from "./lanes";
 export type { LanePoint } from "./lanes";
 export { WORLD_WIDTH, WORLD_HEIGHT, BLUE_BASE_POSITION, RED_BASE_POSITION, LANE_BORDER_WIDTH, ARENA_LANES } from "./arena";
+export { WORLD_SCALE, WORLD_BASELINE, WORLD_DIMENSIONS, deriveWorldDimensions } from "./worldScale";
+export type { WorldScaleFactors } from "./worldScale";
 export { VisionTerrain, ARENA_VISION_TERRAIN, TeamVision, getVisionEntities, INVALID_TARGET_MESSAGE } from "./vision";
 export type { VisionEntity, VisionWorld, VisionObserver, InvalidTargetMessage } from "./vision";
 export type { Role, RoleStats, RoleAbilityConfig, RoleVisual } from "./roles";
