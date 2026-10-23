@@ -276,6 +276,44 @@ test("own dead tank remains available; scouts reveal, cease revealing on death a
   assert.equal(first.decoded.tanks.has("red"), true);
 });
 
+test("respawn snapshots and patches keep previews allied-only and deadlines owner-only", () => {
+  const { source, blue, red, first, second, connections, patch, join } = setup();
+  const teammate = Object.assign(new Tank(), { id: "teammate", team: "blue", x: 1000, y: 600 });
+  source.tanks.set(teammate.id, teammate);
+  const third = connection(teammate.id);
+  connections.push(third);
+  join(third);
+  // Keep enemy vision on the preview position even when the owner is dead.
+  red.x = blue.x;
+  patch();
+  assert.equal(second.decoded.tanks.has(blue.id), true);
+  Object.assign(blue, { state: "dead", hp: 0, respawnAt: 123456789, x: 1020.125 });
+  patch();
+  for (const observer of [first, third]) {
+    assert.equal(observer.decoded.tanks.get(blue.id)!.state, "dead");
+    assert.equal(observer.decoded.tanks.get(blue.id)!.x, blue.x);
+  }
+  assert.equal(first.decoded.tanks.get(blue.id)!.respawnAt, blue.respawnAt);
+  assert.equal(third.decoded.tanks.get(blue.id)!.respawnAt, 0);
+  assert.equal(second.decoded.tanks.has(blue.id), false);
+  const hiddenFloat = Buffer.alloc(8);
+  hiddenFloat.writeDoubleLE(blue.x);
+  assert.equal(Buffer.from(second.packets.at(-1)!).includes(hiddenFloat), false);
+  for (const id of [blue.id, red.id, teammate.id]) {
+    const snapshot = connection(id);
+    join(snapshot);
+    assert.equal(snapshot.decoded.tanks.has(blue.id), id !== red.id);
+    if (id !== red.id) {
+      assert.equal(snapshot.decoded.tanks.get(blue.id)!.respawnAt, id === blue.id ? blue.respawnAt : 0);
+    }
+  }
+  Object.assign(blue, { state: "alive", hp: blue.maxHp, respawnAt: 0 });
+  patch();
+  assert.equal(second.decoded.tanks.get(blue.id)!.x, blue.x);
+  assert.equal(first.decoded.tanks.get(blue.id)!.respawnAt, 0);
+  assert.equal(third.decoded.tanks.get(blue.id)!.state, "alive");
+});
+
 test("team changes and unknown or removed memberships fail closed in snapshots and patches", () => {
   const { blue, source, first, connections, serializer, patch, join } = setup();
   blue.team = "red";

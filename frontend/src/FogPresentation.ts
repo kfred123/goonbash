@@ -1,7 +1,7 @@
 import type Phaser from 'phaser';
 import { ARENA_LANES, LANE_BORDER_WIDTH, LANE_ROAD_WIDTH, TeamVision, WORLD_HEIGHT, WORLD_WIDTH } from 'shared';
 import {
-  FOG_ALPHA, FOG_CELL_SIZE, getMinimapBounds, getMinimapEntities, isInsideMinimap,
+  FOG_ALPHA, FOG_CELL_SIZE, WORLD_FOG_DEPTH, getMinimapBounds, getMinimapEntities, isInsideMinimap,
   projectToMinimap, sampleFog
 } from './visionPresentation.js';
 import type { MinimapBounds, MinimapEntity } from './visionPresentation.js';
@@ -45,7 +45,7 @@ export class FogPresentation {
       context.stroke();
     }
     terrainTexture.refresh();
-    this.worldFog = scene.add.image(0, 0, this.fogKey).setOrigin(0).setDisplaySize(WORLD_WIDTH, WORLD_HEIGHT).setDepth(900);
+    this.worldFog = scene.add.image(0, 0, this.fogKey).setOrigin(0).setDisplaySize(WORLD_WIDTH, WORLD_HEIGHT).setDepth(WORLD_FOG_DEPTH);
     this.terrain = scene.add.image(0, 0, this.terrainKey).setOrigin(0);
     this.miniFog = scene.add.image(0, 0, this.fogKey).setOrigin(0);
     this.dots = scene.add.graphics();

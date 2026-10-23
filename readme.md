@@ -90,6 +90,30 @@ stationary tower/base revelation and removal callbacks. It reuses the existing
 client SDK as a backend test-only dependency. For the live check, start the backend with
 `$env:PORT='2578'; npm run dev --workspace=backend` in PowerShell.
 
+### Respawn
+
+On death, your tank immediately appears near your own main tower as a stationary
+50%-opaque preview, visible only to you and your teammates. Only you see the
+countdown above it; the exact deadline is not sent to other players. The wait is
+your level at death multiplied by 2 seconds (level 1: 2s, level 5: 10s).
+The preview cannot move, attack, activate abilities, be targeted, take damage,
+receive healing, or grant vision. It has no health bar or minimap dot.
+The camera continues following your relocated figure.
+
+When the server confirms the respawn, the figure becomes fully opaque and
+controllable at that same position with full current maximum HP; role, level,
+experience and learned abilities are retained. The countdown rounds remaining
+seconds up and never goes below zero; displaying `0s` does not enable control
+before server confirmation. Countdown labels are removed on respawn, leaving
+the room, and match results. An ended match never respawns waiting players.
+
+With the frontend running, `/tests/respawn.html` checks all three role renderers
+for both teams, camera follow, immediate relocation, combat exclusion, countdown
+rounding and cleanup, including preview/name/countdown layering above the real
+fog overlay without revealing terrain. Append `?webgl` to exercise the WebGL
+renderer instead of Canvas. Backend tests exercise level 1/5/10 timing and three real
+WebSocket clients for both teams at levels 1 and 5.
+
 ### Rollen-Grafik: Sanitaetspanzer, Bastion und Jaeger
 
 Alle drei Rollen erscheinen als Comic-Kettenpanzer in ihrer Teamfarbe. Der **Healer (H1 Sanitaetspanzer)** besitzt einen hellen Werkzeugturm und Heckboxen, der **Tank (T2 Bastion)** breite Ketten und schwere Keilpanzerung, der **Damagedealer (D1 Jaeger)** eine schmale Wanne und lange Kanone. Die Lobby zeigt dieselben Fahrzeuge mit 32 statt bisher 20 Einheiten nominaler Breite (60 % groesser) in hoeheren Rollenkarten. Im Spiel dreht sich die Wanne in Fahrtrichtung, der Turm unabhaengig davon zum aktuellen Kampfziel; ohne Ziel behaelt er seine letzte Ausrichtung.

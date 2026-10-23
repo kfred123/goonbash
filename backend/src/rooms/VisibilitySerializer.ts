@@ -86,7 +86,7 @@ export function updateClientView(view: GameState, source: GameState, sessionId: 
       const own = id === sessionId;
       destination.rotation = tank.rotation;
       destination.state = tank.state;
-      destination.respawnAt = tank.team === team ? tank.respawnAt : 0;
+      destination.respawnAt = own ? tank.respawnAt : 0;
       destination.level = tank.level;
       destination.moveSpeed = tank.moveSpeed;
       destination.targetId = visibleReference(tank.targetId);

@@ -3,6 +3,7 @@ import type { LanePoint, VisionEntity } from 'shared';
 
 export const FOG_CELL_SIZE = 8;
 export const FOG_ALPHA = 0.6;
+export const WORLD_FOG_DEPTH = 900;
 
 export function isEntityPresented(
   entity: Pick<VisionEntity, 'x' | 'y' | 'team' | 'hp' | 'state'>,

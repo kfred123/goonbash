@@ -108,7 +108,7 @@
         tank.state = 'dead';
         this.upsertTank(tank, 'local');
         this.applyRoleAbilityVisuals();
-        check(!sprite.visible && effects.commandBuffer.length === 0, 'Tod blendet Figur und Effekte aus');
+        check(sprite.visible && sprite.alpha === 0.5 && effects.commandBuffer.length === 0, 'Tod zeigt halbtransparente Teamfigur ohne Effekte');
         check(!this.healEffectIcons.has('local'), 'Tod entfernt Heilungssymbol');
         tank.state = 'alive';
         this.upsertTank(tank, 'local');
