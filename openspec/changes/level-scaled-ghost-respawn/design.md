@@ -53,6 +53,8 @@ This keeps the countdown private at the replication boundary rather than merely 
 
 Give allied dead tank figures an explicit presentation path in `GameScene`, including both initial upsert and per-frame visibility. Apply alpha `0.5` to the complete role-specific figure and restore `1` on alive state. Keep health bars, active ability decorations, firing effects, and attack selection disabled. Existing allied name labels can remain above the figure; place the countdown above them to avoid overlap.
 
+Render preview figures, their names, and the owner countdown above the world fog overlay, so fog does not further dim the half-opaque preview or obscure the timer. The terrain underneath remains concealed and the preview grants no vision. Restore ordinary entity/name depths on revival. Renderer regression checks must include the actual fog overlay in Canvas and WebGL, not just assert the sprite's visibility flag.
+
 Keep generic living-unit, targeting, vision, and minimap predicates unchanged wherever possible. Do not broadly redefine dead units as visible combat entities. If a shared presentation helper is changed, audit its consumers so it cannot create minimap markers or selectable targets.
 
 Snap the rendered figure and interpolation target to the new authoritative position on an alive-to-dead transition and preserve camera follow. Camera easing may retain its normal behavior, but the figure must not interpolate across the battlefield. On respawn, keep the same position.

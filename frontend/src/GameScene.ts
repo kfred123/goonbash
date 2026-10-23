@@ -24,7 +24,7 @@ import {
 } from 'shared';
 import type { AbilityId, Base, Minion, Tank, VisionEntity, InvalidTargetMessage } from 'shared';
 import { FogPresentation } from './FogPresentation.js';
-import { isEntityPresented, isProjectilePresented } from './visionPresentation.js';
+import { isEntityPresented, isProjectilePresented, WORLD_FOG_DEPTH } from './visionPresentation.js';
 import { formatPlayerNameTag } from './nameFormatter.js';
 import { getAbilityHudStatus, getRoleAbilityAtIndex, resolveArenaClick, shouldCancelRocketTargetSelection, shouldHandleAbilityKeydown } from './abilityControls.js';
 import { getBaseCannonRotation, getBaseCannonShotFeedback } from './baseCannonVisuals.js';
@@ -1413,7 +1413,7 @@ export class GameScene extends Phaser.Scene {
       this.respawnCountdown = this.add.text(0, 0, '', {
         color: '#ffffff', fontSize: '16px', fontStyle: 'bold',
         backgroundColor: '#000000aa', padding: { x: 4, y: 2 }
-      }).setOrigin(0.5).setDepth(501);
+      }).setOrigin(0.5).setDepth(WORLD_FOG_DEPTH + 3);
     }
     this.respawnCountdown.setText(text).setPosition(sprite.x, sprite.y - 68 * WORLD_SCALE.entity);
   }
@@ -1477,9 +1477,10 @@ export class GameScene extends Phaser.Scene {
   private applyTankVisibility(tank: Tank, id: string) {
     const sprite = this.tankSprites.get(id);
     const presentation = getTankPresentation(tank, this.vision, sprite);
+    const preview = presentation.visible && tank.state === 'dead';
     this.setEntityVisibility(id, presentation.combatVisible);
-    sprite?.setVisible(presentation.visible).setAlpha(presentation.alpha);
-    this.tankNameTexts.get(id)?.setVisible(presentation.visible);
+    sprite?.setVisible(presentation.visible).setAlpha(presentation.alpha).setDepth(preview ? WORLD_FOG_DEPTH + 1 : 0);
+    this.tankNameTexts.get(id)?.setVisible(presentation.visible).setDepth(preview ? WORLD_FOG_DEPTH + 2 : 0);
   }
 
   /** Updates healer service marks, exhaust and the repair tool over healed allies without surrounding rings. */

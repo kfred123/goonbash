@@ -109,7 +109,9 @@ the room, and match results. An ended match never respawns waiting players.
 
 With the frontend running, `/tests/respawn.html` checks all three role renderers
 for both teams, camera follow, immediate relocation, combat exclusion, countdown
-rounding and cleanup. Backend tests exercise level 1/5/10 timing and three real
+rounding and cleanup, including preview/name/countdown layering above the real
+fog overlay without revealing terrain. Append `?webgl` to exercise the WebGL
+renderer instead of Canvas. Backend tests exercise level 1/5/10 timing and three real
 WebSocket clients for both teams at levels 1 and 5.
 
 ### Rollen-Grafik: Sanitaetspanzer, Bastion und Jaeger
