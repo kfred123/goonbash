@@ -31,7 +31,7 @@ import { getBaseCannonRotation, getBaseCannonShotFeedback } from './baseCannonVi
 import { getTowerCannonRotation, getTowerCannonShotFeedback } from './towerCannonVisuals.js';
 import { getMatchResultsPage, MatchResultsSort, nextMatchResultsSort, sortMatchResults, SortableMatchStat } from './matchResults.js';
 import { createRoleTank, RoleTank } from './roleTank.js';
-import { getVehicleHeading } from './roleTankVisuals.js';
+import { getSmoothedHeading, getVehicleHeading } from './roleTankVisuals.js';
 import { drawWrench } from './wrenchVisuals.js';
 import { createMinionBeetle, MinionBeetle } from './minionBeetle.js';
 import { getRespawnCountdown, getTankPresentation } from './respawnPresentation.js';
@@ -1378,7 +1378,8 @@ export class GameScene extends Phaser.Scene {
         const sprite = this.tankSprites.get(sessionId);
         if (!sprite?.visible) return;
         const target = tank.targetId ? this.findEntityPosition(tank.targetId) : null;
-        sprite.turret.rotation = getVehicleHeading(sprite, target, sprite.chassis.rotation);
+        const heading = getVehicleHeading(sprite, target, sprite.chassis.rotation);
+        sprite.turret.rotation = getSmoothedHeading(sprite.turret.rotation, heading, delta);
       });
     }
     this.attackMarkers.forEach(({ graphics, targetId }) => {

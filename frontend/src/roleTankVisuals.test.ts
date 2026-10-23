@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { Role } from 'shared';
-import { drawRoleChassis, drawRoleTurret, getVehicleHeading } from './roleTankVisuals.js';
+import { drawRoleChassis, drawRoleTurret, getSmoothedHeading, getVehicleHeading } from './roleTankVisuals.js';
 import { drawWrench } from './wrenchVisuals.js';
 import type { Drawing } from './wrenchVisuals.js';
 
@@ -73,6 +73,18 @@ test('north-facing artwork aims at targets and falls back to the chassis heading
   assert.equal(getVehicleHeading(origin, target, chassisHeading), chassisHeading, 'losing attack focus returns the turret to the chassis heading');
   assert.equal(getVehicleHeading(origin, origin, 2), 2);
   assert.equal(getVehicleHeading(origin, { x: 100.01, y: 100 }, 2), 2);
+});
+
+test('cannon heading turns smoothly using the shortest angular path', () => {
+  const current = Math.PI * 0.95;
+  const target = -Math.PI * 0.95;
+  const next = getSmoothedHeading(current, target, 100);
+
+  assert.ok(next > current, 'crossing the angle boundary should take the short positive turn');
+  assert.ok(next < Math.PI, 'the cannon should not jump across the long rotation path');
+  assert.equal(getSmoothedHeading(current, target, 0), current, 'zero elapsed time should not rotate');
+  const angularDistance = (from: number, to: number) => Math.abs(Math.atan2(Math.sin(to - from), Math.cos(to - from)));
+  assert.ok(angularDistance(getSmoothedHeading(next, target, 100), target) < angularDistance(next, target), 'the cannon should continue converging smoothly');
 });
 
 for (const size of [12, 22, 30]) {

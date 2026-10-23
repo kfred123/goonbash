@@ -131,3 +131,9 @@ export function getVehicleHeading(origin: { x: number; y: number }, target: { x:
   // Artwork points north; atan2's zero points east.
   return Math.atan2(target.y - origin.y, target.x - origin.x) + Math.PI / 2;
 }
+
+export function getSmoothedHeading(current: number, target: number, deltaMs: number, responsiveness = 5) {
+  const difference = Math.atan2(Math.sin(target - current), Math.cos(target - current));
+  const progress = 1 - Math.exp(-responsiveness * Math.max(deltaMs, 0) / 1000);
+  return current + difference * progress;
+}
