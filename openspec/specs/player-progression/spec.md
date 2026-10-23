@@ -48,22 +48,28 @@ Each level above level 1 SHALL add 5 to the player's role-based maximum HP and 0
 - **THEN** the player returns with full current maximum HP and retains the role-based level bonuses to maximum HP and fire damage
 
 ### Requirement: Spend Skill Points to Learn and Upgrade Abilities
-The system SHALL allow a player to spend one skill point to learn an available ability or raise a learned ability by one level. Ability level SHALL be an integer from 1 through 10; the system SHALL reject purchases that exceed level 10, target an unavailable ability, or lack a skill point without changing player progression. Ability availability and effects SHALL be authoritative on the server.
+The system SHALL allow a player to spend one skill point to learn an available role ability or raise that ability by one level. Each ability SHALL have an independent level from 0 through 10; level 0 means unlearned. The system SHALL reject purchases that exceed level 10, target an ability unavailable to the player's role, use an invalid ability identifier, or lack a skill point without changing player progression. Ability availability and effects SHALL be authoritative on the server.
 
 #### Scenario: Player learns an available ability
-- **WHEN** a player with at least one skill point purchases an available unlearned ability
-- **THEN** the ability becomes learned at level 1 and the player loses exactly one skill point
+- **WHEN** a player with at least one skill point purchases an unlearned ability available to their role
+- **THEN** that ability becomes learned at level 1
+- **AND** the player loses exactly one skill point
 
 #### Scenario: Player upgrades a learned ability
-- **WHEN** a player with at least one skill point purchases an upgrade for a learned ability below level 10
-- **THEN** the ability level increases by one and the player loses exactly one skill point
+- **WHEN** a player with at least one skill point purchases an ability below level 10
+- **THEN** that ability's level increases by one
+- **AND** the player loses exactly one skill point
+
+#### Scenario: Ability levels are independent
+- **WHEN** a player upgrades one role ability
+- **THEN** the levels of all other abilities remain unchanged
 
 #### Scenario: Invalid ability purchase is rejected
-- **WHEN** a player attempts a purchase without a skill point, for an unavailable ability, or above ability level 10
-- **THEN** the server leaves the player's skill points and abilities unchanged
+- **WHEN** a player attempts a purchase without a skill point, for an unavailable or invalid ability, or above ability level 10
+- **THEN** the server leaves the player's skill points and all ability levels unchanged
 
 ### Requirement: Show and Operate Progression in the Match HUD
-The in-match HUD SHALL show the local player's level, experience progress toward the next level, and an explicitly labeled count of unspent skill points currently available to allocate, including zero. It SHALL present available abilities with their learned or locked state and current level, and allow the player to request a learn or upgrade purchase using a skill point. Activation and learning/upgrading SHALL use separate, clearly labeled and visually distinguishable controls.
+The in-match HUD SHALL show the local player's level, experience progress toward the next level, and an explicitly labeled count of unspent skill points currently available to allocate, including zero. It SHALL present every ability available to the player's role with that ability's learned or locked state and current level, and allow the player to request a learn or upgrade purchase for an individual ability using a skill point. Activation and learning/upgrading SHALL use separate, clearly labeled and visually distinguishable controls.
 
 #### Scenario: Player checks progression
 - **WHEN** the local player's progression changes
@@ -82,8 +88,9 @@ The in-match HUD SHALL show the local player's level, experience progress toward
 - **THEN** the player advances to level 2 and the HUD displays a 20-percent-filled progress bar followed by `40 / 200 XP`
 
 #### Scenario: Player chooses an ability purchase
-- **WHEN** the local player has an available skill point and selects an eligible learn or upgrade action in the HUD
-- **THEN** the HUD sends the purchase request and reflects the resulting server-authoritative ability state
+- **WHEN** the local player has an available skill point and selects an eligible learn or upgrade action for one ability in the HUD
+- **THEN** the HUD sends a purchase request identifying that ability
+- **AND** the HUD reflects the resulting server-authoritative ability state
 
 #### Scenario: Activation and upgrade are separate actions
 - **WHEN** the player selects an ability's activation control
