@@ -20,7 +20,7 @@ import {
   Role,
   isRole
 } from 'shared';
-import type { AbilityId, Base, VisionEntity, InvalidTargetMessage } from 'shared';
+import type { AbilityId, Base, Minion, VisionEntity, InvalidTargetMessage } from 'shared';
 import { FogPresentation } from './FogPresentation.js';
 import { isEntityPresented, isProjectilePresented } from './visionPresentation.js';
 import { formatPlayerNameTag } from './nameFormatter.js';
@@ -31,6 +31,7 @@ import { getMatchResultsPage, MatchResultsSort, nextMatchResultsSort, sortMatchR
 import { createRoleTank, RoleTank } from './roleTank.js';
 import { getVehicleHeading } from './roleTankVisuals.js';
 import { drawWrench } from './wrenchVisuals.js';
+import { createMinionBeetle, MinionBeetle } from './minionBeetle.js';
 
 const ROLE_ORDER: Role[] = ['healer', 'tank', 'damagedealer'];
 
@@ -40,7 +41,7 @@ export class GameScene extends Phaser.Scene {
   private tankSprites: Map<string, RoleTank> = new Map();
   private tankTargets: Map<string, { x: number; y: number }> = new Map();
   private tankNameTexts: Map<string, Phaser.GameObjects.Text> = new Map();
-  private minionSprites: Map<string, Phaser.GameObjects.Rectangle> = new Map();
+  private minionSprites: Map<string, MinionBeetle> = new Map();
   private baseSprites: Map<string, { fort: Phaser.GameObjects.Container; cannon: Phaser.GameObjects.Container }> = new Map();
   private baseMuzzleFlashes: Map<string, Phaser.GameObjects.Arc> = new Map();
   private baseShotCounts: Map<string, number> = new Map();
@@ -896,22 +897,18 @@ export class GameScene extends Phaser.Scene {
     this.healEffectIcons.delete(sessionId);
   }
 
-  private upsertMinion(minion: any, id: string) {
+  private upsertMinion(minion: Minion, id: string) {
     if (!minion) return;
     const x = minion.x ?? 0;
     const y = minion.y ?? 0;
-    const sprite = this.minionSprites.get(id) ?? this.add.rectangle(
-      x,
-      y,
-      18,
-      18,
-      minion.team === 'blue' ? 0x4d8dff : 0xff884d
+    const sprite = this.minionSprites.get(id) ?? createMinionBeetle(
+      this, x, y, minion.team === 'blue' ? 0x4d8dff : 0xff4444,
+      getVehicleHeading({ x, y }, { x: minion.waypointX, y: minion.waypointY }, 0)
     );
-    sprite.x = x;
-    sprite.y = y;
+    sprite.setDestination(x, y);
     this.minionSprites.set(id, sprite);
-    this.updateHealthBar(id, x, y - 16, minion.hp, minion.maxHp, true);
-    this.setEntityVisibility(id, this.canPresent(minion));
+    this.updateHealthBar(id, sprite.x, sprite.y - 16, minion.hp, minion.maxHp, true);
+    this.setEntityVisibility(id, this.canPresent(minion, sprite));
   }
 
   private upsertBase(base: Base, id: string) {
@@ -1249,7 +1246,10 @@ export class GameScene extends Phaser.Scene {
       return sprite ? { x: sprite.x, y: sprite.y } : { x: tank.x, y: tank.y };
     }
     const minion = this.room.state.minions.get(id) as any;
-    if (minion) return { x: minion.x, y: minion.y };
+    if (minion) {
+      const sprite = this.minionSprites.get(id);
+      return sprite ? { x: sprite.x, y: sprite.y } : { x: minion.x, y: minion.y };
+    }
     const base = this.room.state.bases.get(id) as any;
     if (base && base.hp > 0) return { x: base.x, y: base.y };
     const tower = this.room.state.towers.get(id) as any;
@@ -1329,7 +1329,11 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  update() {
+  update(_time: number = 0, delta: number = 1000 / 60) {
+    this.minionSprites.forEach((sprite, id) => {
+      sprite.updateMotion(delta);
+      this.updateHealthBarPosition(id, sprite.x, sprite.y - 16);
+    });
     this.tankTargets.forEach((target, sessionId) => {
       const sprite = this.tankSprites.get(sessionId);
       if (sprite) {
@@ -1344,6 +1348,10 @@ export class GameScene extends Phaser.Scene {
     });
     this.applyVisibility();
     if (this.arenaStarted && this.room) {
+      this.room.state.minions.forEach((minion, id) => {
+        const target = minion.targetId ? this.findEntityPosition(minion.targetId) : null;
+        this.minionSprites.get(id)?.aimAt(target);
+      });
       this.room.state.tanks.forEach((tank, sessionId) => {
         const sprite = this.tankSprites.get(sessionId);
         if (!sprite?.visible) return;
@@ -1415,7 +1423,7 @@ export class GameScene extends Phaser.Scene {
     if (!this.room || !this.arenaStarted || this.resultsShown) return;
     const state = this.room.state;
     state.tanks.forEach((tank, id) => this.setEntityVisibility(id, this.canPresent(tank, this.tankSprites.get(id))));
-    state.minions.forEach((minion, id) => this.setEntityVisibility(id, this.canPresent(minion)));
+    state.minions.forEach((minion, id) => this.setEntityVisibility(id, this.canPresent(minion, this.minionSprites.get(id))));
     state.bases.forEach((base, id) => this.setEntityVisibility(id, this.canPresent(base)));
     state.towers.forEach((tower, id) => this.setEntityVisibility(id, this.canPresent(tower, undefined, tower.hp <= 0)));
     state.projectiles.forEach((projectile, id) => this.projectileSprites.get(id)?.setVisible(isProjectilePresented(projectile, this.vision)));

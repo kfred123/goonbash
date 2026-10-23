@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="de">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GoonBash: Nietenkaefer</title>
+<style>
+  body { margin: 24px; background: #151c28; color: #f3f0dc; font: 16px system-ui; }
+  canvas { display: block; max-width: 100%; }
+  #result { color: #b2efcf; }
+</style>
+<h1>Nietenkaefer / animierte Mob-Vorschau</h1>
+<p>Links 5-fach vergroessert, rechts in Spielgroesse (18 Einheiten). Beide Teams laufen, halten an und kehren um.</p>
+<p id="result">Renderer-Integration wird geprueft ...</p>
+<div id="preview"></div>
+<script type="module">
+  import Phaser from 'phaser';
+  import { GameScene } from '../src/GameScene.ts';
+  import { createMinionBeetle } from '../src/minionBeetle.ts';
+  import { getVehicleHeading } from '../src/roleTankVisuals.ts';
+
+  const checks = [];
+  function check(condition, message) {
+    if (!condition) throw new Error(message);
+    checks.push(message);
+  }
+  const close = (a, b) => Math.abs(a - b) < 0.001;
+  const commands = (graphics) => JSON.stringify(graphics.commandBuffer);
+
+  class BeetleCheck extends GameScene {
+    preload() {
+      this.load.image('grass', '/assets/textures/grass_texture.jpg');
+      this.load.image('stone', '/assets/textures/cobblestone_texture.jpg');
+    }
+    create() {
+      window.beetlePreviewScene = this;
+      try {
+        const blue = {
+          x: 100, y: 100, team: 'blue', hp: 50, maxHp: 50,
+          waypointX: 200, waypointY: 100, targetId: ''
+        };
+        const red = { ...blue, x: 240, team: 'red', waypointX: 100 };
+        this.room = { state: {
+          minions: new Map([['blue', blue], ['red', red]]),
+          tanks: new Map(), bases: new Map(), towers: new Map()
+        } };
+        this.arenaStarted = true;
+        this.upsertMinion(blue, 'blue');
+        this.upsertMinion(red, 'red');
+        const sprite = this.minionSprites.get('blue');
+        const enemy = this.minionSprites.get('red');
+        check(sprite instanceof Phaser.GameObjects.Container, 'Mob verwendet Container statt Quadrat');
+        check(sprite.width === 18 && sprite.height === 18, 'Nominale Mob-Groesse bleibt 18 x 18');
+        check(sprite.list.length === 3 && sprite.body.list.length === 2, 'Schatten, Beine, Wanne und Kanone haben gemeinsame Wurzel');
+        check(close(sprite.body.rotation, Math.PI / 2) && close(enemy.body.rotation, -Math.PI / 2), 'Spawn richtet Wanne zum Wegpunkt aus');
+        check(commands(sprite.hull) !== commands(enemy.hull), 'Teamfarben Blau und Rot unterscheiden sich');
+        const idle = commands(sprite.legs);
+        GameScene.prototype.update.call(this, 0, 16);
+        check(commands(sprite.legs) === idle, 'Stillstehende Beine bleiben in Ruhepose');
+        blue.x = 140;
+        blue.hp = 25;
+        this.upsertMinion(blue, 'blue');
+        check(sprite.x === 100 && this.minionSprites.get('blue') === sprite, 'State-Update setzt Bewegungsziel ohne Sprung oder neue Figur');
+        GameScene.prototype.update.call(this, 16, 16);
+        check(sprite.x > 100 && sprite.x < 140, 'Mob bewegt sich interpoliert');
+        const walking = commands(sprite.legs);
+        check(walking !== idle, 'Beine bewegen sich bei Fortbewegung');
+        GameScene.prototype.update.call(this, 32, 16);
+        check(commands(sprite.legs) !== walking, 'Beine bewegen sich auch zwischen Netzwerkupdates');
+        const bar = this.healthBars.get('blue');
+        check(close(bar.bg.x, sprite.x) && close(bar.bg.y, sprite.y - 16), 'Lebensbalken folgt dargestellter Position');
+        check(bar.fill.width === 18, 'Schaden aktualisiert unveraenderten 36-Einheiten-Lebensbalken');
+        check(bar.bg.getBounds().bottom < sprite.y - 13, 'Lebensbalken bleibt oberhalb der maximalen 13-Einheiten-Grafikhuelle');
+        check(this.findEntityPosition('blue').x === sprite.x, 'Zielanzeige verwendet dargestellte Mob-Position');
+        for (let i = 0; i < 80; i++) GameScene.prototype.update.call(this, 48 + i * 16, 16);
+        check(sprite.x === 140 && commands(sprite.legs) === idle, 'Ankunft stoppt Beine vollstaendig');
+        GameScene.prototype.update.call(this, 1400, 200);
+        check(commands(sprite.legs) === idle, 'Kein Weiterlaufen im Stand');
+        red.y = 20;
+        blue.targetId = 'red';
+        this.upsertMinion(red, 'red');
+        GameScene.prototype.update.call(this, 1600, 16);
+        check(close(sprite.cannon.rotation, getVehicleHeading(sprite, enemy, 0)), 'Kanone zielt auf dargestellten Gegner');
+        check(sprite.body.rotation === Math.PI / 2 && commands(sprite.legs) === idle, 'Zielen dreht weder Wanne noch ruhende Beine');
+        const aim = sprite.cannon.rotation;
+        blue.targetId = '';
+        GameScene.prototype.update.call(this, 1616, 16);
+        check(sprite.cannon.rotation === aim, 'Kanone behaelt Richtung ohne Ziel');
+        blue.y = 60;
+        this.upsertMinion(blue, 'blue');
+        GameScene.prototype.update.call(this, 1632, 16);
+        check(sprite.body.rotation === 0 && commands(sprite.legs) !== idle, 'Wiederanlaufen dreht Koerper und bewegt Beine');
+        const owned = [sprite, ...sprite.list, ...sprite.body.list];
+        this.removeMinion('blue');
+        this.room.state.minions.delete('blue');
+        check(owned.every(child => !child.scene), 'Entfernung zerstoert alle Kindobjekte');
+        check(!this.healthBars.has('blue') && !this.minionSprites.has('blue'), 'Entfernung raeumt Maps und Lebensbalken auf');
+        const enemyOwned = [enemy, ...enemy.list, ...enemy.body.list];
+        this.clearArenaPresentation();
+        check(enemyOwned.every(child => !child.scene), 'Arena-Aufraeumen zerstoert verbleibende Kaefer');
+        check(this.minionSprites.size === 0 && this.healthBars.size === 0, 'Arena-Aufraeumen leert Mob- und Lebensbalken-Maps');
+        this.arenaStarted = false;
+        this.drawPreview();
+        window.beetleCheckResult = { ok: true, checks };
+        document.getElementById('result').textContent = `${checks.length} Renderer-Pruefungen erfolgreich. Schrittfolge folgt der Strecke; im Stand ruhen die Beine.`;
+      } catch (error) {
+        window.beetleCheckResult = { ok: false, error: error.stack, checks };
+        document.getElementById('result').textContent = error.message;
+        console.error(error);
+      }
+    }
+    drawPreview() {
+      this.models = [];
+      for (const [index, color] of [0x4d8dff, 0xff4444].entries()) {
+        const y = 165 + index * 270;
+        this.add.tileSprite(480, y, 960, 248, index ? 'grass' : 'stone').setTileScale(.35);
+        this.add.rectangle(480, y - 102, 960, 42, 0x172330, .9);
+        this.add.text(22, y - 115, index ? 'TEAM ROT / GRAS' : 'TEAM BLAU / PFLASTER', { fontSize: '20px' });
+        const large = createMinionBeetle(this, 130, y + 15, color, Math.PI / 2).setScale(5);
+        this.models.push({ sprite: large, originX: 130, originY: y + 15, travel: 220 });
+        for (let i = 0; i < 3; i++) {
+          const x = 610 + (i % 2) * 36;
+          const world = createMinionBeetle(this, x, y - 20 + i * 32, color, Math.PI / 2);
+          this.models.push({ sprite: world, originX: x, originY: world.y, travel: 160 });
+        }
+        this.add.text(140, y + 100, '5x Detailansicht', { fontSize: '15px', backgroundColor: '#172330' });
+        this.add.text(595, y + 100, 'Originalgroesse / Mob-Welle', { fontSize: '15px', backgroundColor: '#172330' });
+      }
+      this.status = this.add.text(22, 580, '', { color: '#f3f0dc', fontSize: '16px' });
+      window.beetlePreviewScene = this;
+    }
+    update(time, delta) {
+      if (!this.models) return;
+      const phase = (time % 10000) / 1000;
+      const progress = phase < 3 ? phase / 3 : phase < 5 ? 1 : phase < 8 ? 1 - (phase - 5) / 3 : 0;
+      this.models.forEach(({ sprite, originX, originY, travel }) => {
+        sprite.setDestination(originX + progress * travel, originY);
+        sprite.updateMotion(delta);
+        sprite.aimAt({ x: 480, y: originY - 50 });
+      });
+      this.status.setText(phase < 3 || phase >= 5 && phase < 8 ? 'LAUFEN / diagonale Beinpaare im Wechsel' : 'HALT / Beine in Ruhe, Kanone zielt weiter');
+    }
+  }
+  new Phaser.Game({
+    type: Phaser.CANVAS, width: 960, height: 610, parent: 'preview',
+    backgroundColor: '#151c28', audio: { noAudio: true }, scene: [BeetleCheck]
+  });
+</script>
+</html>
