@@ -123,6 +123,10 @@
           const regions = this.abilityHud.slots.map(slot => slot.upgradeButtonBg.getBounds());
           check(regions.every((region, index) => region.left >= 0 && region.right <= width
             && (index === 0 || region.left > regions[index - 1].right)), `Three purchase controls remain separate inside ${width}px viewport`);
+          const activationRegions = this.abilityHud.slots.map(slot => slot.slotBg.getBounds());
+          check(activationRegions.every(activation => regions.every(purchase =>
+            !Phaser.Geom.Intersects.RectangleToRectangle(activation, purchase))),
+            `Activation icons do not overlap any purchase control inside ${width}px viewport`);
           key('E');
           check(cursor().includes('16 16'), `Rocket cursor survives ${width}px resize`);
           this.cancelRocketTargetSelection();

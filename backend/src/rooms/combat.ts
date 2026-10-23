@@ -189,9 +189,12 @@ export function nearBasePosition(baseX: number, baseY: number, bounds: WorldBoun
   return clampToBounds(point, bounds.minX, bounds.maxX, bounds.minY, bounds.maxY);
 }
 
-/** Computes the reset state a tank should have when it respawns near its team's base. */
-export function respawnTank(maxHp: number, baseX: number, baseY: number, bounds: WorldBounds): RespawnedTankState {
-  const { x, y } = nearBasePosition(baseX, baseY, bounds);
+export function respawnDelayMs(level: number): number {
+  return level * 2_000;
+}
+
+/** Restores a tank at the position selected when it died. */
+export function respawnTank(maxHp: number, x: number, y: number): RespawnedTankState {
   return { hp: maxHp, x, y, state: "alive", respawnAt: 0 };
 }
 
