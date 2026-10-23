@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { WORLD_DIMENSIONS, WORLD_SCALE } from 'shared';
 import { test } from 'node:test';
 import { advanceBeetleMotion, drawBeetleCannon, drawBeetleHull, drawBeetleLegs, getBeetleLegs } from './minionBeetleVisuals.js';
 import type { BeetleMotion } from './minionBeetleVisuals.js';
@@ -112,7 +113,7 @@ test('walking limbs fit below the health bar at every heading and gait phase', (
   for (let step = 0; step < 100; step++) {
     for (const leg of getBeetleLegs(step / 100 * Math.PI * 2, true)) {
       for (const point of [leg.hip, leg.knee, leg.foot]) {
-        assert.ok((Math.hypot(point.x, point.y) + 5) * 18 / 82 < 13);
+        assert.ok((Math.hypot(point.x, point.y) + 5) * WORLD_DIMENSIONS.minionSize / 82 < 16 * WORLD_SCALE.entity - 2.5);
       }
     }
   }

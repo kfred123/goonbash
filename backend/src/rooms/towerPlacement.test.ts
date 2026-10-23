@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { getLaneWaypoints, pointAlongPath } from "shared";
+import { ARENA_LANES, getLaneWaypoints, pointAlongPath } from "shared";
 import { getLaneTowerPlacements } from "./towerPlacement.js";
 
 const blueBase = { x: 240, y: 900 };
@@ -9,8 +9,12 @@ const redBase = { x: 2160, y: 900 };
 test("places two towers for each team on all three lane paths", () => {
   const placements = getLaneTowerPlacements(blueBase, redBase);
   assert.equal(placements.length, 12);
+  assert.equal(new Set(placements.map(({ x, y }) => `${x},${y}`)).size, 12);
 
   const lanes = getLaneWaypoints(blueBase, redBase);
+  assert.deepEqual(lanes, ARENA_LANES);
+  assert.ok(Math.abs(lanes[0][1].y - 165.48) < 1e-9);
+  assert.ok(Math.abs(lanes[2][1].y - 1634.52) < 1e-9);
   for (let laneIndex = 0; laneIndex < lanes.length; laneIndex += 1) {
     for (const team of ["blue", "red"] as const) {
       const pair = placements

@@ -9,11 +9,12 @@
   #result { color: #b2efcf; }
 </style>
 <h1>Nietenkaefer / animierte Mob-Vorschau</h1>
-<p>Links 5-fach vergroessert, rechts in Spielgroesse (18 Einheiten). Beide Teams laufen, halten an und kehren um.</p>
+<p>Links 5-fach vergroessert, rechts in konfigurierter Spielgroesse. Beide Teams laufen, halten an und kehren um.</p>
 <p id="result">Renderer-Integration wird geprueft ...</p>
 <div id="preview"></div>
 <script type="module">
   import Phaser from 'phaser';
+  import { WORLD_DIMENSIONS, WORLD_SCALE, TeamVision } from 'shared';
   import { GameScene } from '../src/GameScene.ts';
   import { createMinionBeetle } from '../src/minionBeetle.ts';
   import { getVehicleHeading } from '../src/roleTankVisuals.ts';
@@ -41,15 +42,17 @@
         const red = { ...blue, x: 240, team: 'red', waypointX: 100 };
         this.room = { state: {
           minions: new Map([['blue', blue], ['red', red]]),
-          tanks: new Map(), bases: new Map(), towers: new Map()
+          tanks: new Map(), bases: new Map(), towers: new Map(), projectiles: new Map()
         } };
         this.arenaStarted = true;
+        this.vision = new TeamVision('blue', [{ ...blue, sightRange: 2000 }]);
         this.upsertMinion(blue, 'blue');
         this.upsertMinion(red, 'red');
         const sprite = this.minionSprites.get('blue');
         const enemy = this.minionSprites.get('red');
         check(sprite instanceof Phaser.GameObjects.Container, 'Mob verwendet Container statt Quadrat');
-        check(sprite.width === 18 && sprite.height === 18, 'Nominale Mob-Groesse bleibt 18 x 18');
+        check(close(sprite.width, WORLD_DIMENSIONS.minionSize) && close(sprite.height, WORLD_DIMENSIONS.minionSize), 'Nominale Mob-Groesse folgt der zentralen Skalierung');
+        check(close(sprite.body.scaleX, WORLD_DIMENSIONS.minionSize / 82) && sprite.scaleX === 1, 'Wurzel skaliert Mob nicht doppelt');
         check(sprite.list.length === 3 && sprite.body.list.length === 2, 'Schatten, Beine, Wanne und Kanone haben gemeinsame Wurzel');
         check(close(sprite.body.rotation, Math.PI / 2) && close(enemy.body.rotation, -Math.PI / 2), 'Spawn richtet Wanne zum Wegpunkt aus');
         check(commands(sprite.hull) !== commands(enemy.hull), 'Teamfarben Blau und Rot unterscheiden sich');
@@ -67,9 +70,9 @@
         GameScene.prototype.update.call(this, 32, 16);
         check(commands(sprite.legs) !== walking, 'Beine bewegen sich auch zwischen Netzwerkupdates');
         const bar = this.healthBars.get('blue');
-        check(close(bar.bg.x, sprite.x) && close(bar.bg.y, sprite.y - 16), 'Lebensbalken folgt dargestellter Position');
+        check(close(bar.bg.x, sprite.x) && close(bar.bg.y, sprite.y - 16 * WORLD_SCALE.entity), 'Lebensbalken folgt dargestellter Position');
         check(bar.fill.width === 18, 'Schaden aktualisiert unveraenderten 36-Einheiten-Lebensbalken');
-        check(bar.bg.getBounds().bottom < sprite.y - 13, 'Lebensbalken bleibt oberhalb der maximalen 13-Einheiten-Grafikhuelle');
+        check(bar.bg.getBounds().bottom < sprite.y - 13 * WORLD_SCALE.entity, 'Lebensbalken bleibt oberhalb der skalierten Grafikhuelle');
         check(this.findEntityPosition('blue').x === sprite.x, 'Zielanzeige verwendet dargestellte Mob-Position');
         for (let i = 0; i < 80; i++) GameScene.prototype.update.call(this, 48 + i * 16, 16);
         check(sprite.x === 140 && commands(sprite.legs) === idle, 'Ankunft stoppt Beine vollstaendig');

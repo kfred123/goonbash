@@ -192,9 +192,32 @@ test("lane tower shots preserve tower damage and replicate the firing direction"
 
   assert.equal(projectile.damage, 12);
   assert.ok(Math.abs(projectile.x) < 1e-9);
-  assert.equal(projectile.y, 31);
+  assert.equal(projectile.y, 35.2);
   assert.equal(tower.shotCount, 1);
   assert.equal(tower.shotAngle, Math.PI / 2);
+});
+
+test("scaled structure shots start at their cannon muzzles without changing combat parameters", () => {
+  for (const [shooter, distance, damage, range, cooldown] of [
+    [new Base(), 43.2, 24, 250, 1200],
+    [new Tower(), 25.2, 12, 250, 1200]
+  ] as const) {
+    shooter.id = "structure";
+    shooter.team = "blue";
+    shooter.x = 240;
+    shooter.y = 900;
+    for (const angle of [0, Math.PI / 2, Math.PI, -Math.PI / 2, Math.PI / 4]) {
+      const target = { id: "enemy", team: "red", x: shooter.x + 100 * Math.cos(angle), y: shooter.y + 100 * Math.sin(angle) };
+      const shot = createShotProjectile(shooter, target, "shot");
+      assert.ok(Math.abs(shot.x - shooter.x - distance * Math.cos(angle)) < 1e-9);
+      assert.ok(Math.abs(shot.y - shooter.y - distance * Math.sin(angle)) < 1e-9);
+      assert.equal(shot.damage, damage);
+      assert.equal(shot.speed, 400);
+      assert.equal(shooter.fireRange, range);
+      assert.equal(shooter.fireCooldownMax, cooldown);
+      assert.equal(shooter.sightRange, 325);
+    }
+  }
 });
 
 test("a main base fires at the nearest enemy within range using its stronger shot and cooldown", () => {

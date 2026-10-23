@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { VisionEntity, VisionTerrain, TeamVision } from "./vision.js";
+import { VisionEntity, VisionTerrain, TeamVision, ARENA_VISION_TERRAIN } from "./vision.js";
 import { Base } from "./state/Base.js";
 import { Tower } from "./state/Tower.js";
 import { Tank } from "./state/Tank.js";
@@ -19,6 +19,17 @@ test("absolute sight defaults are independent of combat stats", () => {
     unit.fireRange *= 2;
     assert.equal(unit.sightRange, sight);
   }
+});
+
+test("default terrain classifies the enlarged borders and relocated lanes with unchanged costs", () => {
+  for (const y of [165.48, 900, 1634.52]) {
+    assert.equal(ARENA_VISION_TERRAIN.isGrass({ x: 1200, y: y + 85.559 }), false);
+    assert.equal(ARENA_VISION_TERRAIN.isGrass({ x: 1200, y: y + 85.561 }), true);
+    assert.ok(Math.abs(ARENA_VISION_TERRAIN.sightCost({ x: 1100, y }, { x: 1200, y }) - 100) < 1e-9);
+  }
+  assert.equal(ARENA_VISION_TERRAIN.isGrass({ x: 1200, y: 300 }), true);
+  assert.equal(ARENA_VISION_TERRAIN.isGrass({ x: 1200, y: 970 }), false);
+  assert.ok(Math.abs(ARENA_VISION_TERRAIN.sightCost({ x: 1100, y: 500 }, { x: 1200, y: 500 }) - 200) < 1e-9);
 });
 
 test("every player role matches tower sight on roads and with the unchanged grass penalties", () => {

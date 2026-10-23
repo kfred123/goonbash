@@ -40,9 +40,9 @@
         state.phase = 'started';
         const local = entity(Tank, 'local', 'blue', 1100, 900);
         const enemy = entity(Tank, 'enemy', 'red', 1200, 900);
-        const tower = entity(Tower, 'tower', 'red', 1100, 1100);
+        const tower = entity(Tower, 'tower', 'red', 1100, 1120);
         const base = entity(Base, 'base', 'red', 1600, 600);
-        const minion = entity(Minion, 'minion', 'red', 1100, 1100);
+        const minion = entity(Minion, 'minion', 'red', 1100, 1120);
         state.tanks.set(local.id, local);
         state.tanks.set(enemy.id, enemy);
         state.towers.set(tower.id, tower);
@@ -70,13 +70,13 @@
         GameScene.prototype.update.call(this);
         check(!this.tankSprites.get('enemy').visible && !this.tankNameTexts.get('enemy').visible && !this.healthBars.get('enemy').fill.visible, 'State update hides interpolated enemy and complete labels');
         check(this.attackMarkers.length === 0, 'Target marker stops following concealed enemy');
-        const scout = entity(Minion, 'scout', 'blue', 1100, 1100);
+        const scout = entity(Minion, 'scout', 'blue', 1100, 1120);
         state.minions.set(scout.id, scout);
         this.rebuildVision();
         this.applyVisibility();
         this.refreshFog();
         const fogContext = this.fog.fogTexture.context;
-        check(fogContext.getImageData(Math.floor(1100 / 8), Math.floor(1100 / 8), 1, 1).data[3] === 0, 'Revealed terrain has no fog alpha');
+        check(fogContext.getImageData(Math.floor(1100 / 8), Math.floor(1140 / 8), 1, 1).data[3] === 0, 'Revealed terrain has no fog alpha');
         check(fogContext.getImageData(Math.floor(2300 / 8), Math.floor(1700 / 8), 1, 1).data[3] === 153, 'Concealed terrain uses 60 percent black overlay');
         check(this.towerSprites.get('tower').outpost.visible && this.minionSprites.get('minion').visible, 'Allied scout reveals enemies in grass');
         tower.shotCount = 1;
@@ -87,7 +87,7 @@
         this.applyVisibility();
         check(!this.towerMuzzleFlashes.has('tower'), 'Vision loss destroys active muzzle feedback');
         this.refreshFog();
-        check(fogContext.getImageData(Math.floor(1100 / 8), Math.floor(1100 / 8), 1, 1).data[3] === 153, 'Losing a scout darkens its old revealed area again');
+        check(fogContext.getImageData(Math.floor(1100 / 8), Math.floor(1140 / 8), 1, 1).data[3] === 153, 'Losing a scout darkens its old revealed area again');
         tower.shotCount = 2;
         this.upsertTower(tower, tower.id);
         scout.hp = 50;

@@ -1,9 +1,11 @@
+import { WORLD_SCALE } from "./worldScale";
+
 export interface BaseCannonPoint {
   x: number;
   y: number;
 }
 
-export const BASE_CANNON_MUZZLE_DISTANCE = 36;
+export const BASE_CANNON_MUZZLE_DISTANCE = 36 * WORLD_SCALE.entity;
 
 export function getBaseCannonAimAngle(origin: BaseCannonPoint, target: BaseCannonPoint): number {
   return Math.atan2(target.y - origin.y, target.x - origin.x);

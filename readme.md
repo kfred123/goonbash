@@ -102,7 +102,46 @@ Eine lokale Phaser-Pruefseite laesst sich nach `npm run dev --workspace=frontend
 
 Die automatisch spawnenden Mobs erscheinen als kleine mechanische Nietenkaefer mit sechseckiger teamfarbener Panzerung, hellem Sichtschlitz, Nieten, kurzer Kanone und vier beweglichen Beinen. Diagonal gegenueberliegende Beinpaare laufen im Wechsel; die Schrittfolge folgt der tatsaechlich dargestellten Wegstrecke und wird bei langsamer Bewegung entsprechend langsamer. Im Stand ruhen die Beine. Der Koerper folgt der Fahrtrichtung, die Kanone zielt unabhaengig auf das aktuelle Kampfziel.
 
-Die nominale Mob-Groesse bleibt bei 18 Einheiten; Trefferflaechen, Spielwerte und Lebensbalken bleiben unveraendert. Blau und Rot entsprechen den Spieler-Teamfarben, umlaufende Kreise gibt es nicht. Nach `npm run dev --workspace=frontend` zeigt `/tests/minionBeetle.html` beide Teams vergroessert und in Spielgroesse beim Laufen, Anhalten und Umkehren, einschliesslich Renderer-Pruefungen ohne Backend.
+Die nominale Mob-Groesse ist standardmaessig 21.6 statt 18 Einheiten; Trefferflaechen, Spielwerte und Lebensbalkenbreiten bleiben unveraendert. Blau und Rot entsprechen den Spieler-Teamfarben, umlaufende Kreise gibt es nicht. Nach `npm run dev --workspace=frontend` zeigt `/tests/minionBeetle.html` beide Teams vergroessert und in Spielgroesse beim Laufen, Anhalten und Umkehren, einschliesslich Renderer-Pruefungen ohne Backend.
+
+### Weltgroessen anpassen
+
+Die drei Faktoren in `shared/src/worldScale.ts` unter `WORLD_SCALE` sind die
+zentralen Stellschrauben. Sie beziehen sich immer auf die unveraenderten
+Originalmasse in `WORLD_BASELINE`, nicht auf das Ergebnis der letzten Anpassung.
+
+| Faktor | Standard | Wirkung |
+|---|---:|---|
+| `entity` | `1.20` | Spieler 40 -> 48, Mobs 18 -> 21.6; Lane-Tuerme, Ruinen und Hauptbasen proportional 20 % groesser |
+| `roadWidth` | `1.38` | Weitere 15 % gegenueber 1.20: Pflasterbreite 134.4 -> 154.56, Gesamtbreite inklusive Rand 148.8 -> 171.12 |
+| `grassGap` | `0.90` | Freier Rasen zwischen parallelen Lane-Abschnitten 626 -> 563.4 |
+
+Der Rasenabstand wird zwischen den aeusseren Strassenraendern gemessen, nicht
+zwischen den Mittellinien. Die neue Mittelliniendistanz ist Rasenabstand plus
+Gesamtstrassenbreite, standardmaessig 734.52. Die Lane-Zeilen liegen damit bei
+y = 165.48 / 900 / 1634.52; Weltgrenzen (2400 x 1800), Basen und x-Knickpunkte
+bleiben gleich. An den diagonalen Zulaeufen laufen die Lanes weiterhin zusammen.
+Strassen, Mob-Pfade, Turmpositionen, Minimap und terrainabhaengige Sicht verwenden
+dieselbe Geometrie. Wird nur die Strassenbreite geaendert, bleibt der konfigurierte
+freie Rasenabstand durch Neuberechnung der Lane-Zeilen erhalten.
+
+Alle Faktoren muessen endlich und positiv sein; die abgeleiteten Strassen
+einschliesslich Rand muessen innerhalb der Arena liegen. Unzulaessige Werte
+brechen mit einem expliziten Konfigurationsfehler ab, statt still geklemmt zu
+werden. Fuer Originalgroessen alle drei Faktoren auf `1.00` setzen.
+
+Die Objekt-Skalierung passt auch Auswahlradien, Abstaende der Namen/Lebensbalken,
+Zielmarkierungen und Kanonenmuendungen an. Schadenswerte, HP, Reichweiten,
+Bewegungstempo, Cooldowns und serverseitige Treffer-/Kollisionsradien bleiben
+unveraendert. Nur die Projektil-Startpunkte der Strukturkanonen folgen den
+groesseren Muendungen. Lobbyvorschauen (32 Einheiten), HUD, Schriftgroessen,
+Lebensbalkenbreiten, Minimap-Punkte und Kamera-Zoom werden nicht vergroessert.
+
+Nach einer Aenderung `npm run build --workspace=shared` ausfuehren und Backend
+und Frontend gemeinsam neu starten bzw. aus derselben Revision neu bauen und
+deployen; frische Spielraeume verwenden. Es gibt keinen Laufzeitregler und keine
+Datenmigration. `/tests/worldScale.html` prueft die Skalierung in einem echten
+Phaser-Arenarenderer nach `npm run dev --workspace=frontend`.
 
 ## Technical Goals
 
