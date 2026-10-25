@@ -34,6 +34,39 @@ the existing grass vision penalty applies at their new positions.
 - Gain experience and scrap metal (currency) by destroying enemy minions and tanks.
 - Upgrade tank abilities or buy temporary power-ups during the match.
 
+### Movement collisions
+
+The server resolves body collisions independently of team, fog visibility,
+sprite scale, click-selection bounds, and projectile impact rules:
+
+| Moving unit | Living players | Living minions | Living lane towers / main bases |
+|---|---|---|---|
+| Player | Block | Pass through | Block |
+| Minion | Pass through | Avoid / block | Avoid / block |
+
+Fixed body radii are 24 world units for players, 11 for minions, 24 for lane
+towers, and 48 for main bases. Dead players (including respawn previews) and
+destroyed structures/ruins never block. Collision does not block projectiles.
+
+Player movement and attack pursuit stop or slide at contact without pushing
+other players. Blocked destinations and valid target locks remain pending and
+resume when space clears; players do not automatically plan routes around
+obstacles. Minions take local detours around other minions and structures,
+then return to their original lane objective. They hold position while fighting
+and wait/retry if crowded; lane geometry, tower positions, and target priorities
+are unchanged.
+
+If repeated detours stop making progress, minions try a bounded local escape
+route around the nearby cluster, including backing out of pockets before
+continuing. Every escape segment uses the same collision and speed constraints.
+
+Players spawn at clear positions 80-140 units from their own base; minion waves
+start outside the base in distinct, lane-associated positions. If local space is
+full, activation waits and retries instead of creating overlapping units. A
+respawn preview keeps its position when clear, but an occupied preview position
+is replaced by another clear position near the same base at activation. Preview
+visibility, countdowns, and the level-based respawn deadline remain unchanged.
+
 ### 5. Team vision and fog of war
 
 Living allied tanks, minions, lane towers and the main base share current vision.

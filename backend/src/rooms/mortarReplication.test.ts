@@ -6,7 +6,7 @@ import { Server } from "colyseus";
 import type { Client as ServerClient } from "colyseus";
 import { Client } from "colyseus.js";
 import type { Room } from "colyseus.js";
-import { GameState, INVALID_TARGET_MESSAGE, MORTAR_IMPACT_MESSAGE, Tower } from "shared";
+import { BLUE_BASE_POSITION, GameState, INVALID_TARGET_MESSAGE, MORTAR_IMPACT_MESSAGE, RED_BASE_POSITION, Tower } from "shared";
 import type { InvalidTargetMessage, MortarImpactMessage } from "shared";
 import { GameRoom } from "./GameRoom.js";
 import { lobbyRegistry } from "../lobbies/LobbyRegistry.js";
@@ -42,7 +42,10 @@ class MortarFixtureRoom extends GameRoom {
   }
 
   onJoin(client: ServerClient, options: { lobbyId: string }) {
+    this["createBase"]("blue", BLUE_BASE_POSITION.x, BLUE_BASE_POSITION.y);
+    this["createBase"]("red", RED_BASE_POSITION.x, RED_BASE_POSITION.y);
     super.onJoin(client, options);
+    this.state.bases.clear();
     const tank = this.state.tanks.get(client.sessionId)!;
     const team = this.clients.length === 1 ? "blue" : "red";
     tank.team = team;

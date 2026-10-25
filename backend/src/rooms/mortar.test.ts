@@ -237,6 +237,7 @@ test("late-arriving enemies are hit, shields mitigate and multi-kills award once
   assert.equal(stats.damageDealt, 12 + 24 + 24 + 72);
   room["updateProjectiles"](1500);
   assert.equal(blue.xp, 60);
+  room["createBase"]("red", 2160, 900);
   room["resolveRespawns"](Date.now() + 4000);
   assert.equal(red.state, "alive");
   assert.equal(red.hp, red.maxHp);

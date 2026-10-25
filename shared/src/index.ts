@@ -1,4 +1,5 @@
 export { Entity } from "./state/Entity";
+export { PLAYER_COLLISION_RADIUS, MINION_COLLISION_RADIUS, BASE_COLLISION_RADIUS } from "./collision";
 export { Tank } from "./state/Tank";
 export { Minion } from "./state/Minion";
 export { Base } from "./state/Base";
