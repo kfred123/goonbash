@@ -14,6 +14,8 @@ import { VisibilitySerializer } from "./VisibilitySerializer.js";
 import { MORTAR_IMPACT_MESSAGE, mortarPointRejection } from "shared";
 import type { MortarImpactMessage, MortarRejectionReason } from "shared";
 import { mortarDamage } from "./ability.js";
+import { byId, COLLISION_TOLERANCE, findClearNearBase, findLaneSpawn, movementBlockers, resolveMovement } from "./collision.js";
+import { moveMinion, type MinionDetour } from "./minionMovement.js";
 
 interface MortarFlight {
   originX: number;
@@ -21,6 +23,13 @@ interface MortarFlight {
   elapsedMs: number;
   durationMs: number;
   buildingMultiplier: number;
+}
+
+interface PendingMinion {
+  minion: Minion;
+  base: Base;
+  path: Array<{ x: number; y: number }>;
+  logged: boolean;
 }
 
 const PROJECTILE_HIT_RADIUS = 12;
@@ -42,6 +51,10 @@ export class GameRoom extends Room<GameState> {
   private projectileLifetimes = new Map<string, number>();
   private mortarFlights = new Map<string, MortarFlight>();
   private minionPaths = new Map<string, Array<{ x: number; y: number }>>();
+  private minionDetours = new Map<string, MinionDetour>();
+  private pendingMinions = new Map<string, PendingMinion>();
+  private deferredTanks = new Set<string>();
+  private nextMinionId = 0;
 
   onCreate (options: any) {
     console.log("GameRoom created!", options);
@@ -76,7 +89,7 @@ export class GameRoom extends Room<GameState> {
       const x = typeof command?.x === "number" ? command.x : NaN;
       const y = typeof command?.y === "number" ? command.y : NaN
       if (!Number.isFinite(x) || !Number.isFinite(y)) return;
-      const clamped = clampToBounds({ x, y }, MIN_X, MAX_X, MIN_Y, MAX_Y);
+      const clamped = clampToBounds({ x, y }, MIN_X + tank.radius, MAX_X - tank.radius, MIN_Y + tank.radius, MAX_Y - tank.radius);
       tank.moveTargetX = clamped.x;
       tank.moveTargetY = clamped.y;
       tank.hasMoveTarget = true;
@@ -144,6 +157,9 @@ export class GameRoom extends Room<GameState> {
       if (!canManageLobby(this.state.phase, client.sessionId, this.state.hostSessionId)) return;
       this.state.tanks.forEach((tank) => this.applyRoleStats(tank));
       this.createLaneTowers();
+      const tanks = [...this.state.tanks.values()].sort(byId);
+      for (const tank of tanks) tank.state = "dead";
+      for (const tank of tanks) this.activateTank(tank);
       this.state.phase = "started";
     });
 
@@ -154,6 +170,7 @@ export class GameRoom extends Room<GameState> {
   update(deltaTime: number) {
     if (!canUseGameplayActions(this.state.phase)) {
       this.clearMortarFlights();
+      if (this.state.phase === "ended") this.clearMovementState();
       return;
     }
     const elapsedSeconds = deltaTime / 1000;
@@ -167,24 +184,8 @@ export class GameRoom extends Room<GameState> {
     this.updateTankMovement(elapsedSeconds);
     this.resolveHealerAuras(elapsedSeconds, now);
 
-    this.state.minions.forEach((minion) => {
-      if (minion.targetId) return;
-      const dx = minion.waypointX - minion.x;
-      const dy = minion.waypointY - minion.y;
-      const distance = Math.hypot(dx, dy);
-      if (distance > 1) {
-        const speed = effectiveTerrainMoveSpeed(minion.speed, minion) * elapsedSeconds;
-        minion.x += dx / distance * speed;
-        minion.y += dy / distance * speed;
-      } else {
-        const remainingPath = this.minionPaths.get(minion.id);
-        const next = remainingPath?.shift();
-        if (next) {
-          minion.waypointX = next.x;
-          minion.waypointY = next.y;
-        }
-      }
-    });
+    this.updateMinionMovement(elapsedSeconds);
+    this.resolvePendingMinions();
 
     this.spawnTimer -= deltaTime;
     if (this.spawnTimer <= 0) {
@@ -200,7 +201,7 @@ export class GameRoom extends Room<GameState> {
    * `updateLockedShooter` handles firing instead).
    */
   private updateTankMovement(elapsedSeconds: number) {
-    this.state.tanks.forEach((tank) => {
+    [...this.state.tanks.values()].sort(byId).forEach((tank) => {
       if (tank.state === "dead") return;
       const now = Date.now();
       if (this.isEntrenched(tank, now)) return;
@@ -220,19 +221,40 @@ export class GameRoom extends Room<GameState> {
           return;
         }
         if (isWithinRange(tank, target, tank.fireRange)) return;
-        const next = stepToward(tank, target, speed);
-        const clamped = clampToBounds(next, MIN_X, MAX_X, MIN_Y, MAX_Y);
-        tank.x = clamped.x;
-        tank.y = clamped.y;
+        const next = stepToward(tank, target, speed, 0);
+        this.moveTank(tank, next);
         return;
       }
       if (!tank.hasMoveTarget) return;
-      const next = stepToward(tank, { x: tank.moveTargetX, y: tank.moveTargetY }, speed);
-      const clamped = clampToBounds(next, MIN_X, MAX_X, MIN_Y, MAX_Y);
-      tank.x = clamped.x;
-      tank.y = clamped.y;
-      if (next.arrived) tank.hasMoveTarget = false;
+      const next = stepToward(tank, { x: tank.moveTargetX, y: tank.moveTargetY }, speed, 0);
+      this.moveTank(tank, next);
+      if (Math.hypot(tank.x - tank.moveTargetX, tank.y - tank.moveTargetY) <= COLLISION_TOLERANCE) tank.hasMoveTarget = false;
     });
+  }
+
+  private moveTank(tank: Tank, destination: { x: number; y: number }) {
+    const position = resolveMovement(tank, { x: destination.x - tank.x, y: destination.y - tank.y },
+      tank.radius, movementBlockers(tank, this.state), WORLD_BOUNDS);
+    tank.x = position.x;
+    tank.y = position.y;
+  }
+
+  private updateMinionMovement(elapsedSeconds: number) {
+    for (const minion of [...this.state.minions.values()].sort(byId)) {
+      if (minion.targetId || minion.hp <= 0) continue;
+      const speed = effectiveTerrainMoveSpeed(minion.speed, minion) * elapsedSeconds;
+      const position = moveMinion(minion, speed, movementBlockers(minion, this.state), WORLD_BOUNDS, this.minionDetours);
+      minion.x = position.x;
+      minion.y = position.y;
+      if (Math.hypot(minion.waypointX - minion.x, minion.waypointY - minion.y) <= 1) {
+        const next = this.minionPaths.get(minion.id)?.shift();
+        if (next) {
+          minion.waypointX = next.x;
+          minion.waypointY = next.y;
+          this.minionDetours.delete(minion.id);
+        }
+      }
+    }
   }
 
   /** Assigns automatic targets, fires cooled-down units, and advances/resolves projectiles. */
@@ -530,6 +552,7 @@ export class GameRoom extends Room<GameState> {
       const victimPos = { x: entity.x, y: entity.y };
       this.state.minions.delete(entity.id);
       this.minionPaths.delete(entity.id);
+      this.minionDetours.delete(entity.id);
       distributeKillXp(victimPos, false, this.state.tanks.values());
     } else if (entity instanceof Tower) {
       entity.targetId = "";
@@ -537,6 +560,7 @@ export class GameRoom extends Room<GameState> {
       if (endMatchAfterBaseDestroyed(this.state, entity.team)) {
         this.projectileLifetimes.clear();
         this.clearMortarFlights();
+        this.clearMovementState();
       }
     }
   }
@@ -593,15 +617,26 @@ export class GameRoom extends Room<GameState> {
 
   /** Restores a dead tank to full HP at its team's base once its respawn delay has elapsed. */
   private resolveRespawns(now: number) {
-    this.state.tanks.forEach((tank) => {
+    [...this.state.tanks.values()].sort(byId).forEach((tank) => {
       if (!isReadyToRespawn(tank, now)) return;
-      const respawned = respawnTank(tank.maxHp, tank.x, tank.y);
-      tank.hp = respawned.hp;
-      tank.x = respawned.x;
-      tank.y = respawned.y;
-      tank.state = respawned.state;
-      tank.respawnAt = respawned.respawnAt;
+      this.activateTank(tank);
     });
+  }
+
+  private activateTank(tank: Tank) {
+    const base = this.state.bases.get(`${tank.team}-base`);
+    if (!base) throw new Error(`Missing base for tank ${tank.id}`);
+    const position = findClearNearBase(base, tank.radius, movementBlockers(tank, this.state), WORLD_BOUNDS, tank);
+    if (position) {
+      const respawned = respawnTank(tank.maxHp, position.x, position.y);
+      Object.assign(tank, respawned);
+      this.deferredTanks.delete(tank.id);
+    } else {
+      tank.state = "dead";
+      tank.hp = 0;
+      if (!this.deferredTanks.has(tank.id)) console.warn(`Tank activation deferred: ${tank.id}`);
+      this.deferredTanks.add(tank.id);
+    }
   }
 
   private createBase(team: string, x: number, y: number) {
@@ -636,7 +671,7 @@ export class GameRoom extends Room<GameState> {
     for (const base of [blueBase, redBase]) {
       for (const lanePath of lanePaths) {
         const minion = new Minion();
-        minion.id = `${base.team}-minion-${Date.now()}-${Math.random()}`;
+        minion.id = `${base.team}-minion-${this.nextMinionId++}`;
         minion.team = base.team;
         minion.x = base.x;
         minion.y = base.y;
@@ -646,10 +681,43 @@ export class GameRoom extends Room<GameState> {
         minion.y = start.y;
         minion.waypointX = firstWaypoint.x;
         minion.waypointY = firstWaypoint.y;
-        this.minionPaths.set(minion.id, restOfPath);
-        this.state.minions.set(minion.id, minion);
+        this.pendingMinions.set(minion.id, { minion, base, path: restOfPath, logged: false });
       }
     }
+    this.resolvePendingMinions();
+  }
+
+  private resolvePendingMinions() {
+    // Rotate failed entries to the back so a saturated spawn area cannot starve others.
+    const candidates: Array<[string, PendingMinion]> = [];
+    for (const entry of this.pendingMinions) {
+      candidates.push(entry);
+      if (candidates.length === 12) break;
+    }
+    for (const [id, pending] of candidates) {
+      const { minion, base, path } = pending;
+      const position = findLaneSpawn(base, { x: minion.waypointX, y: minion.waypointY }, minion.radius,
+        movementBlockers(minion, this.state), WORLD_BOUNDS);
+      if (!position) {
+        if (!pending.logged) console.warn(`Minion spawn deferred: ${id}`);
+        pending.logged = true;
+        this.pendingMinions.delete(id);
+        this.pendingMinions.set(id, pending);
+        continue;
+      }
+      minion.x = position.x;
+      minion.y = position.y;
+      this.minionPaths.set(id, path);
+      this.state.minions.set(id, minion);
+      this.pendingMinions.delete(id);
+    }
+  }
+
+  private clearMovementState() {
+    this.pendingMinions.clear();
+    this.deferredTanks.clear();
+    this.minionDetours.clear();
+    this.minionPaths.clear();
   }
 
   onJoin (client: Client, options: any) {
@@ -663,12 +731,12 @@ export class GameRoom extends Room<GameState> {
     const team = this.nextTeam();
     tank.team = team;
     const ownBase = this.state.bases.get(`${tank.team}-base`);
-    const spawnPoint = ownBase
-      ? nearBasePosition(ownBase.x, ownBase.y, WORLD_BOUNDS)
-      : { x: Math.random() * 1500, y: Math.random() * 1500 };
+    if (!ownBase) throw new Error(`Missing base for team ${tank.team}`);
+    const spawnPoint = nearBasePosition(ownBase.x, ownBase.y, WORLD_BOUNDS);
     tank.x = spawnPoint.x;
     tank.y = spawnPoint.y;
     this.applyRoleStats(tank);
+    this.activateTank(tank);
     this.state.tanks.set(client.sessionId, tank);
     const playerStats = new MatchPlayerStats();
     playerStats.name = tank.name;
@@ -680,6 +748,7 @@ export class GameRoom extends Room<GameState> {
     this.visibilitySerializer.removeClient(client);
     console.log(client.sessionId, "left!");
     removeLeavingPlayerTank(this.state, client.sessionId);
+    this.deferredTanks.delete(client.sessionId);
     this.state.hostSessionId = resolveHostAfterLeave(
       client.sessionId,
       this.state.hostSessionId,
@@ -689,6 +758,7 @@ export class GameRoom extends Room<GameState> {
   }
 
   onDispose() {
+    this.clearMovementState();
     this.clearMortarFlights();
     this.projectileLifetimes.clear();
     this.visibilitySerializer.dispose();

@@ -44,6 +44,7 @@ function setup(t: TestContext) {
 
 test("role sight initialization survives progression, fire range changes and respawn", (t) => {
   const { room, blue } = setup(t);
+  room["createBase"]("blue", 240, 900);
   for (const role of ["healer", "tank", "damagedealer"]) {
     blue.role = role;
     room["applyRoleStats"](blue);
@@ -196,6 +197,7 @@ test("minions resume lane movement when an enemy in firing range becomes conceal
   const { room, blue, red } = setup(t);
   blue.fireRange = 0;
   blue.state = "dead";
+  blue.respawnAt = Infinity;
   const minion = Object.assign(new Minion(), { id: "minion", team: "blue", x: 1000, y: 600, waypointX: 1500, waypointY: 600 });
   room.state.minions.set(minion.id, minion);
   red.x = 1020;

@@ -40,7 +40,11 @@ class VisibilityFixtureRoom extends GameRoom {
   }
 
   onJoin(client: ServerClient, options: { lobbyId: string }) {
+    this["createBase"]("blue", BLUE_BASE_POSITION.x, BLUE_BASE_POSITION.y);
+    this["createBase"]("red", RED_BASE_POSITION.x, RED_BASE_POSITION.y);
     super.onJoin(client, options);
+    this.state.bases.delete("blue-base");
+    this.state.bases.delete("red-base");
     const tank = this.state.tanks.get(client.sessionId)!;
     const team = this.clients.length === 1 ? "blue" : "red";
     tank.team = team;

@@ -2,6 +2,7 @@ import { MapSchema, type } from "@colyseus/schema";
 import { ABILITY_IDS, AbilityId } from "../abilities";
 import { Entity } from "./Entity";
 import { AbilityState } from "./AbilityState";
+import { PLAYER_COLLISION_RADIUS } from "../collision";
 
 export class Tank extends Entity {
   @type("string") name: string = "Player";
@@ -29,6 +30,7 @@ export class Tank extends Entity {
 
   constructor() {
     super();
+    this.radius = PLAYER_COLLISION_RADIUS;
     for (const abilityId of ABILITY_IDS) {
       this.abilities.set(abilityId satisfies AbilityId, new AbilityState());
     }

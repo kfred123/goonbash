@@ -1,5 +1,6 @@
 import { type } from "@colyseus/schema";
 import { Entity } from "./Entity";
+import { BASE_COLLISION_RADIUS } from "../collision";
 
 export class Base extends Entity {
   @type("number") hp: number = 1000;
@@ -12,4 +13,9 @@ export class Base extends Entity {
   @type("string") targetId: string = "";
   @type("number") shotCount: number = 0;
   @type("number") shotAngle: number = 0;
+
+  constructor() {
+    super();
+    this.radius = BASE_COLLISION_RADIUS;
+  }
 }
