@@ -52,6 +52,8 @@ Return to the original waypoint direction after clearing the obstacle, with wayp
 
 Alternatives: separation forces alone cannot guarantee non-overlap or reliable progress past a tower centered on the lane; stopping at every obstacle permanently stalls allied waves; a navigation mesh is unnecessary for the current sparse, circular structures.
 
+Track attempted travel without a body-radius improvement toward the lane goal across obstacle changes and temporary direct steps. After eight body radii without progress, search a bounded local visibility graph around at most 32 nearby blockers: eight perimeter candidates plus the current position and goal. Collision-check every edge, retain the escape waypoints across ticks, and allow backing out of concave pockets. Return to direct movement as soon as the goal route clears. This handles clustered blockers without accepting tiny oscillating movements as successful avoidance or introducing global pathfinding.
+
 ### 4. Validate placement at every activation boundary
 
 Reuse collision predicates for placement. For tanks, try randomized positions in the existing near-base 80-140-unit annulus, then a bounded deterministic candidate scan there. Recheck the preselected position when respawning and keep it if valid. If occupied, choose another clear local position before restoring alive state and HP. Dead previews are never physical reservations.

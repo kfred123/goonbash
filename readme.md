@@ -56,6 +56,10 @@ then return to their original lane objective. They hold position while fighting
 and wait/retry if crowded; lane geometry, tower positions, and target priorities
 are unchanged.
 
+If repeated detours stop making progress, minions try a bounded local escape
+route around the nearby cluster, including backing out of pockets before
+continuing. Every escape segment uses the same collision and speed constraints.
+
 Players spawn at clear positions 80-140 units from their own base; minion waves
 start outside the base in distinct, lane-associated positions. If local space is
 full, activation waits and retries instead of creating overlapping units. A

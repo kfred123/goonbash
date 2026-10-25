@@ -322,6 +322,46 @@ for (const obstacle of [
   });
 }
 
+for (const direction of [1, -1]) {
+  test(`minions escape a clustered blocker pocket in direction ${direction} instead of oscillating indefinitely`, () => {
+    const blockers = [[1000, 900], [1000, 878], [1000, 922], [978, 878], [978, 922]]
+      .map(([x, y], index) => ({ id: `stationary-${index}`, x: 1000 + (x - 1000) * direction, y, radius: 11 }));
+    const simulate = (obstacles: CollisionBody[]) => {
+      const goalX = 1000 + 200 * direction;
+      const unit = Object.assign(new Minion(), { id: "moving", x: 1000 - 200 * direction, y: 900, waypointX: goalX, waypointY: 900 });
+      const detours = new Map<string, MinionDetour>();
+      for (let tick = 0; tick < 12000; tick++) {
+        const next = moveMinion(unit, 50 / 60, obstacles, bounds, detours);
+        assert.ok(next.pathDistance <= 50 / 60 + COLLISION_TOLERANCE);
+        for (const obstacle of obstacles) {
+          assert.ok(Math.hypot(next.x - obstacle.x, next.y - obstacle.y) >= 22 - COLLISION_TOLERANCE);
+        }
+        unit.x = next.x;
+        unit.y = next.y;
+        if (Math.hypot(unit.x - goalX, unit.y - 900) < COLLISION_TOLERANCE) {
+          assert.ok(tick < 1500, `Cluster took ${tick} ticks to clear`);
+          return { x: unit.x, y: unit.y };
+        }
+      }
+      assert.fail(`Minion stuck at (${unit.x}, ${unit.y})`);
+    };
+    assert.deepEqual(simulate(blockers), simulate([...blockers].reverse()));
+  });
+}
+
+test("removing a cluster cancels its escape route and immediately restores direct movement", () => {
+  const unit = Object.assign(new Minion(), { id: "escaping", x: 975, y: 900, waypointX: 1200, waypointY: 900 });
+  const detours = new Map<string, MinionDetour>([[unit.id, {
+    obstacleId: "removed", side: 1,
+    progress: { bestDistance: 225, attemptedDistance: 10 },
+    escape: [{ x: 952, y: 900 }, { x: 952, y: 852 }]
+  }]]);
+  const next = moveMinion(unit, 1, [], bounds, detours);
+  close(next.x, 976);
+  close(next.y, 900);
+  assert.equal(detours.size, 0);
+});
+
 test("minions hold in combat, resume their path, avoid overshoot and clear dead-obstacle detours", (t) => {
   const { room } = setup(t);
   const unit = Object.assign(new Minion(), { id: "minion", x: 800, y: 900, waypointX: 801, waypointY: 900, targetId: "enemy" });
