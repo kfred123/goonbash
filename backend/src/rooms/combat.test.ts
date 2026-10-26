@@ -217,7 +217,7 @@ test("scaled structure shots start at their cannon muzzles without changing comb
       assert.equal(shot.speed, 400);
       assert.equal(shooter.fireRange, range);
       assert.equal(shooter.fireCooldownMax, cooldown);
-      assert.equal(shooter.sightRange, 325);
+      assert.equal(shooter.sightRange, 390);
     }
   }
 });

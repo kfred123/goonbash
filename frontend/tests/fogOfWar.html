@@ -38,7 +38,7 @@
         this.statusText = this.add.text(10, 10, 'Fog checks').setDepth(2200).setScrollFactor(0);
         const state = new GameState();
         state.phase = 'started';
-        const local = entity(Tank, 'local', 'blue', 1100, 900);
+        const local = Object.assign(entity(Tank, 'local', 'blue', 1100, 900), { sightRange: 200 });
         const enemy = entity(Tank, 'enemy', 'red', 1200, 900);
         const tower = entity(Tower, 'tower', 'red', 1100, 1120);
         const base = entity(Base, 'base', 'red', 1600, 600);
@@ -241,7 +241,7 @@
         check(blueRoom.state.tanks.get(blueRoom.sessionId).team !== blueRoom.state.tanks.get(redRoom.sessionId).team, 'Live lobby balances opposing teams');
         blueRoom.send('start_game');
         await until(() => this.arenaStarted && this.fog && redRoom.state.phase === 'started', 'started arena');
-        check(blueRoom.state.tanks.get(blueRoom.sessionId).sightRange === 325, 'Live client receives the same absolute sight as towers');
+        check(blueRoom.state.tanks.get(blueRoom.sessionId).sightRange === 390, 'Live client receives the same absolute sight as towers');
         check(!blueRoom.state.tanks.has(redRoom.sessionId) && !this.tankSprites.has(redRoom.sessionId), 'Live initial arena removes opposing spawn from state and presentation');
         const firstTeam = blueRoom.state.tanks.get(blueRoom.sessionId).team;
         const secondTeam = redRoom.state.tanks.get(redRoom.sessionId).team;

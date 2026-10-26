@@ -18,7 +18,7 @@ function setup(t: TestContext) {
   room.state.phase = "started";
   room.state.bases.clear();
   const blue = Object.assign(new Tank(), { id: "blue", team: "blue", x: 1000, y: 600 });
-  const red = Object.assign(new Tank(), { id: "red", team: "red", x: 1090, y: 600, fireRange: 0 });
+  const red = Object.assign(new Tank(), { id: "red", team: "red", x: 1100, y: 600, fireRange: 0 });
   room.state.tanks.set(blue.id, blue);
   room.state.tanks.set(red.id, red);
   const replies: Array<{ type: string | number; message: unknown }> = [];
@@ -52,12 +52,12 @@ test("role sight initialization survives progression, fire range changes and res
     blue.level = 5;
     blue.fireRange = 500;
     applyTankProgressionStats(blue);
-    assert.equal(blue.sightRange, 325);
+    assert.equal(blue.sightRange, 390);
     blue.state = "dead";
     blue.respawnAt = 0;
     room["resolveRespawns"](Date.now());
     assert.equal(blue.state, "alive");
-    assert.equal(blue.sightRange, 325);
+    assert.equal(blue.sightRange, 390);
   }
 });
 
@@ -112,7 +112,7 @@ test("concealed attack IDs are rejected; movement into dark terrain is still acc
   red.x = 1020;
   room["onMessageHandlers"].command(client, { targetId: red.id });
   assert.equal(blue.lockedTargetId, red.id);
-  red.x = 1090;
+  red.x = 1100;
   room["resolveCombat"](0);
   assert.equal(blue.lockedTargetId, "");
   assert.equal(blue.targetId, "");
@@ -132,7 +132,7 @@ test("concealed rocket rejection preserves cooldown; launched rocket still hits 
   room["onMessageHandlers"].activate_ability(client, payload);
   assert.equal(room.state.projectiles.size, 1);
   assert.ok(ability.cooldownEndsAt > Date.now());
-  red.x = 1090;
+  red.x = 1100;
   const hp = red.hp;
   room["updateProjectiles"](1000);
   assert.ok(red.hp < hp);
@@ -145,7 +145,7 @@ test("rejections do not distinguish missing, dead, near-hidden and far-hidden ta
   const ability = blue.abilities.get("damagedealer-homing-rocket")!;
   ability.level = 1;
   for (const variant of ["missing", "near", "far", "dead"]) {
-    red.x = variant === "far" ? 2000 : 1090;
+    red.x = variant === "far" ? 2000 : 1100;
     red.state = variant === "dead" ? "dead" : "alive";
     const targetId = variant === "missing" ? "unknown" : red.id;
     replies.length = 0;
@@ -165,7 +165,7 @@ test("ordinary shots launched in vision still hit after their target enters gras
   red.x = 1020;
   room["resolveCombat"](0);
   assert.equal(room.state.projectiles.size, 1);
-  red.x = 1090;
+  red.x = 1100;
   const hp = red.hp;
   room["updateProjectiles"](1000);
   assert.equal(red.hp, hp - blue.fireDamage);
@@ -203,7 +203,7 @@ test("minions resume lane movement when an enemy in firing range becomes conceal
   red.x = 1020;
   room["resolveCombat"](0);
   assert.equal(minion.targetId, red.id);
-  red.x = 1090;
+  red.x = 1100;
   room.update(100);
   assert.equal(minion.targetId, "");
   assert.ok(minion.x > 1000);

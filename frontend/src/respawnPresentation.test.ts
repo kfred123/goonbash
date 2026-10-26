@@ -4,7 +4,7 @@ import { TeamVision } from 'shared';
 import { getMinimapEntities } from './visionPresentation.js';
 import { getRespawnCountdown, getTankPresentation } from './respawnPresentation.js';
 
-const tank = { id: 'local', state: 'dead', team: 'blue', hp: 0, x: 240, y: 900, respawnAt: 10000, sightRange: 325 };
+const tank = { id: 'local', state: 'dead', team: 'blue', hp: 0, x: 240, y: 900, respawnAt: 10000, sightRange: 390 };
 
 test('dead allied figures are half opaque without combat visibility or minimap dots', () => {
   const vision = new TeamVision('blue', [tank]);
