@@ -10,7 +10,7 @@ export class Minion extends Entity {
   @type("number") speed: number = 50;
   @type("string") targetId: string = "";
   @type("number") fireRange: number = 100;
-  @type("number") sightRange: number = 130;
+  @type("number") sightRange: number = 156;
   @type("number") fireCooldown: number = 0;
   @type("number") fireCooldownMax: number = 1000;
   @type("number") fireDamage: number = 5;
