@@ -22,6 +22,8 @@ import {
   Role,
   isRole
 } from 'shared';
+import { isPreMatch, LOBBY_ACTION_ERROR, LOBBY_NAME_ERROR, normalizeLobbyName } from 'shared';
+import { getLobbyControls } from './lobbyPresentation.js';
 import type { AbilityId, AbilityActivationRequest, Base, Minion, Tank, VisionEntity, InvalidTargetMessage, MortarImpactMessage, Projectile } from 'shared';
 import { MORTAR_IMPACT_MESSAGE, mortarPointRejection } from 'shared';
 import { FogPresentation } from './FogPresentation.js';
@@ -81,6 +83,9 @@ export class GameScene extends Phaser.Scene {
   private viewportWidth = 800;
   private viewportHeight = 600;
   private nameInputEl: HTMLInputElement | null = null;
+  private menuRevision = 0;
+  private lobbyRenderKey = '';
+  private lobbyError = '';
   private playerName = '';
   private leavingRoom = false;
   private arenaStarted = false;
@@ -189,6 +194,7 @@ export class GameScene extends Phaser.Scene {
       this.room?.removeAllListeners();
       if (this.room) void this.room.leave().catch((error) => console.error('[GameScene] Failed to leave room on shutdown', error));
       this.clearArenaPresentation();
+      this.destroyMenuElements();
       this.scale.off(Phaser.Scale.Events.RESIZE, this.handleResize, this);
     });
     this.showMainMenu();
@@ -236,20 +242,21 @@ export class GameScene extends Phaser.Scene {
     });
   }
 
-  private createNameInput(initialValue: string) {
+  private createNameInput(initialValue: string, gameName = false) {
     const container = document.getElementById('game-container');
-    if (!container) return;
+    if (!container) throw new Error('Missing game-container for name input');
     const input = document.createElement('input');
     input.type = 'text';
-    input.maxLength = GameScene.MAX_NAME_LENGTH;
+    input.maxLength = gameName ? 48 : GameScene.MAX_NAME_LENGTH;
     input.value = initialValue;
-    input.placeholder = 'Your name';
+    input.placeholder = gameName ? 'Game name' : 'Your name';
+    input.setAttribute('aria-label', input.placeholder);
     Object.assign(input.style, {
       position: 'absolute',
       left: '50%',
       top: 'calc(50% - 40px)',
       transform: 'translateX(-50%)',
-      width: '200px',
+      width: gameName ? '280px' : '200px',
       height: '32px',
       fontSize: '16px',
       padding: '4px 8px',
@@ -270,6 +277,7 @@ export class GameScene extends Phaser.Scene {
     this.leavingRoom = true;
     const room = this.room;
     if (room) {
+      room.removeAllListeners();
       void room.leave().catch((error) => console.error('[GameScene] Failed to leave game room', error));
     }
     this.arenaStarted = false;
@@ -287,19 +295,21 @@ export class GameScene extends Phaser.Scene {
     this.addMenuText(400, 90, 'GOONBASH', 42, '#ffffff', true);
     this.addMenuText(400, 140, 'Choose a game or create your own', 18, '#aaaaff');
     this.addMenuText(245, 205, 'AVAILABLE GAMES', 16, '#00ff88', true);
-    this.addButton(700, 205, 190, 44, 'CREATE GAME', () => void this.createLobby());
+    this.addButton(700, 205, 190, 44, 'CREATE GAME', () => this.showCreateLobby());
     this.addButton(520, 205, 100, 36, 'REFRESH', () => this.showLobbyMenu());
     this.addButton(730, 30, 130, 34, 'MAIN MENU', () => this.showMainMenu());
     const listStatus = this.addMenuText(400, 275, message || 'Loading games...', 18, '#c8c8d8');
-    void this.loadLobbies(listStatus);
+    void this.loadLobbies(listStatus, this.menuRevision, message);
   }
 
-  private async loadLobbies(listStatus: Phaser.GameObjects.Text) {
+  private async loadLobbies(listStatus: Phaser.GameObjects.Text, revision: number, message: string) {
     try {
       const response = await fetch(`${this.backendHttpUrl}/lobbies`);
       if (!response.ok) throw new Error(`Lobby request failed (${response.status})`);
       const data = await response.json() as { lobbies: LobbyInfo[] };
+      if (revision !== this.menuRevision) return;
       listStatus.destroy();
+      if (message) this.addMenuText(400, 245, message, 13, '#ffaaaa');
       if (data.lobbies.length === 0) {
         this.addMenuText(400, 285, 'No games available yet.', 18, '#c8c8d8');
         return;
@@ -308,29 +318,62 @@ export class GameScene extends Phaser.Scene {
         const y = 275 + index * 58;
         this.addMenuText(220, y, lobby.name, 18, '#ffffff');
         this.addMenuText(470, y, `${lobby.players}/${lobby.maxPlayers} players`, 16, '#aaaaff');
-        this.addButton(700, y, 130, 36, 'JOIN', () => void this.joinLobby(lobby));
+        this.addButton(700, y, 130, 36, 'JOIN', () => void this.joinLobby(lobby), lobby.status === 'waiting');
       });
     } catch (error) {
       console.error('[GameScene] Failed to load lobbies', error);
+      if (revision !== this.menuRevision) return;
       listStatus.setText('Could not load games. Is the server running?');
       listStatus.setColor('#ff8888');
       this.addButton(400, 330, 140, 36, 'RETRY', () => this.showLobbyMenu());
     }
   }
 
-  private async createLobby() {
+  private showCreateLobby(initialName = '', message = '') {
+    this.resetCamera();
+    this.destroyMenuElements();
+    this.addMenuText(400, 140, 'CREATE GAME', 32, '#ffffff', true);
+    this.addMenuText(400, 195, 'Choose a name. It cannot be changed later.', 17, '#aaaaff');
+    this.createNameInput(initialName, true);
+    const validation = this.addMenuText(400, 305, message, 15, '#ffaaaa');
+    let submitting = false;
+    const confirm = this.addButton(400, 360, 220, 44, 'CREATE GAME', () => {
+      if (submitting) return;
+      const name = normalizeLobbyName(this.nameInputEl?.value);
+      if (!name) {
+        validation.setText(LOBBY_NAME_ERROR);
+        return;
+      }
+      submitting = true;
+      confirm.disableInteractive();
+      cancel.disableInteractive();
+      if (this.nameInputEl) this.nameInputEl.disabled = true;
+      validation.setText('Creating game...').setColor('#aaaaff');
+      void this.createLobby(name);
+    });
+    const cancel = this.addButton(400, 420, 220, 38, 'CANCEL', () => {
+      if (!submitting) this.showLobbyMenu();
+    });
+  }
+
+  private async createLobby(name: string) {
+    const revision = this.menuRevision;
     try {
       const response = await fetch(`${this.backendHttpUrl}/lobbies`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: 'New Game' })
+        body: JSON.stringify({ name })
       });
-      if (!response.ok) throw new Error(`Create lobby failed (${response.status})`);
+      if (!response.ok) {
+        const error = await response.json() as { error: string };
+        throw new Error(error.error || `Create lobby failed (${response.status})`);
+      }
       const data = await response.json() as { lobby: LobbyInfo };
+      if (revision !== this.menuRevision) return;
       await this.connectToLobby(data.lobby);
     } catch (error) {
       console.error('[GameScene] Failed to create lobby', error);
-      this.showLobbyMenu('Could not create the game. Please try again.');
+      if (revision === this.menuRevision) this.showCreateLobby(name, error instanceof Error ? error.message : 'Could not create the game. Please try again.');
     }
   }
 
@@ -345,6 +388,7 @@ export class GameScene extends Phaser.Scene {
 
   private async connectToLobby(lobby: LobbyInfo) {
     this.resultsShown = false;
+    this.lobbyError = '';
     this.resultPages = { red: 0, blue: 0 };
     this.resultSorts = {
       red: { stat: 'kills', direction: 'desc' },
@@ -372,6 +416,12 @@ export class GameScene extends Phaser.Scene {
     });
     this.room.onMessage(MORTAR_IMPACT_MESSAGE, (message: MortarImpactMessage) => {
       if (this.room === connectedRoom && this.arenaStarted && !this.resultsShown) this.showMortarImpact(message);
+    });
+    this.room.onMessage(LOBBY_ACTION_ERROR, (error: { message: string }) => {
+      if (this.room !== connectedRoom) return;
+      this.lobbyError = error.message;
+      this.statusText.setText(error.message).setColor('#ffbb88');
+      if (isPreMatch(this.room.state.phase)) this.showWaitingLobby(this.room.state);
     });
     this.statusText.setText(`Connected | ${this.room.sessionId}`);
     this.statusText.setColor('#44ff88');
@@ -408,10 +458,10 @@ export class GameScene extends Phaser.Scene {
     this.room.state.projectiles.onRemove((_projectile, id) => {
       if (this.room === connectedRoom && this.arenaStarted) this.removeProjectile(id);
     });
-    this.room.onStateChange((state: any) => {
+    this.room.onStateChange((state) => {
       if (this.room !== connectedRoom) return;
       if (this.resultsShown) return;
-      if (state.phase === 'waiting') {
+      if (isPreMatch(state.phase)) {
         this.showWaitingLobby(state);
         return;
       }
@@ -685,48 +735,91 @@ export class GameScene extends Phaser.Scene {
 
   private showWaitingLobby(state: GameState) {
     if (this.arenaStarted || !this.room) return;
+    const renderKey = JSON.stringify([
+      state.lobbyName, state.phase, state.hostSessionId, state.countdownSeconds, state.countdownCancelReason,
+      this.lobbyError, [...state.tanks].map(([id, tank]) => [id, tank.name, tank.team, tank.role, tank.ready])
+    ]);
+    if (this.lobbyRenderKey === renderKey) return;
     this.resetCamera();
     this.destroyMenuElements();
-    const myTank = state.tanks.get(this.room.sessionId) as any;
-    this.addMenuText(400, 65, state.lobbyName, 30, '#ffffff', true);
-    this.addMenuText(400, 100, 'Choose your team and role while the host prepares the match', 15, '#aaaaff');
-    this.addMenuText(220, 145, 'RED TEAM', 17, '#ff7777', true);
-    this.addMenuText(580, 145, 'BLUE TEAM', 17, '#7799ff', true);
-
-    let redCount = 0;
-    let blueCount = 0;
-    state.tanks.forEach((tank, sessionId) => {
-      const isRed = tank.team === 'red';
-      const x = isRed ? 220 : 580;
-      const index = isRed ? redCount++ : blueCount++;
-      const isMe = sessionId === this.room.sessionId;
-      const roleVisual = this.resolveRoleVisual((tank as any).role);
-      const namePart = isMe ? `${tank.name} (You)` : tank.name;
-      this.addMenuText(x, 180 + index * 24, `${namePart} · ${roleVisual.label}`, 14, isRed ? '#ffaaaa' : '#aaccff');
-    });
-
-    this.addButton(220, 370, 150, 38, 'JOIN RED', () => this.room.send('change_team', 'red'));
-    this.addButton(580, 370, 150, 38, 'JOIN BLUE', () => this.room.send('change_team', 'blue'));
-
-    this.addMenuText(400, 415, 'CHOOSE YOUR ROLE', 15, '#00ff88', true);
+    this.lobbyRenderKey = renderKey;
+    const myTank = state.tanks.get(this.room.sessionId);
+    const controls = getLobbyControls(state, this.room.sessionId);
+    const countdown = state.phase === 'countdown';
+    const title = this.addMenuText(400, 65, state.lobbyName, 27, '#ffffff', true);
+    this.fitMenuText(title, state.lobbyName, 700);
+    this.addMenuText(400, 104, countdown ? `Start in ${state.countdownSeconds}` : 'Choose your team and role, then select Bereit', countdown ? 26 : 16, countdown ? '#66ffbb' : '#aaaaff', countdown);
+    for (const team of ['red', 'blue'] as const) {
+      const x = team === 'red' ? 220 : 580;
+      const color = team === 'red' ? 0xff6666 : 0x6699ff;
+      const players = [...state.tanks].filter(([, tank]) => tank.team === team);
+      const panel = this.add.rectangle(this.viewportX(x), this.viewportY(239), 350, 228, color, 0.08)
+        .setStrokeStyle(2, color, 0.8).setDepth(3000).setScale(this.viewportScale());
+      this.menuElements.push(panel);
+      this.addMenuText(x, 146, `TEAM ${team.toUpperCase()}  (${players.length})`, 18, team === 'red' ? '#ff9999' : '#99bbff', true);
+      if (players.length === 0) this.addMenuText(x, 220, 'No players yet', 14, '#8899aa');
+      players.forEach(([id, tank], index) => {
+        const y = 177 + index * 18;
+        const name = `${tank.name}${id === this.room.sessionId ? ' (You)' : ''}`;
+        const nameText = this.addMenuText(x - 158, y, name, 12, '#e0e7ef').setOrigin(0, 0.5);
+        this.fitMenuText(nameText, name, 160);
+        const role = this.resolveRoleVisual(tank.role).label;
+        this.addMenuText(x + 48, y, role, 10, '#b4c6da');
+        this.addMenuText(x + 128, y, tank.ready ? 'Bereit' : 'Wartet', 10, tank.ready ? '#44ff88' : '#8899aa');
+        if (tank.ready) {
+          const check = this.add.graphics({ x: this.viewportX(x + 94), y: this.viewportY(y) })
+            .lineStyle(2, 0x44ff88).beginPath().moveTo(-5, 0).lineTo(-1, 4).lineTo(6, -5).strokePath()
+            .setDepth(3002).setScale(this.viewportScale());
+          this.menuElements.push(check);
+        }
+      });
+    }
+    const sendChoice = (type: string, value: string) => {
+      if (getLobbyControls(state, this.room.sessionId).canChoose) {
+        this.lobbyError = '';
+        this.room.send(type, value);
+      }
+    };
+    this.addButton(220, 378, 150, 34, 'JOIN RED', () => sendChoice('change_team', 'red'), controls.canChoose);
+    this.addButton(580, 378, 150, 34, 'JOIN BLUE', () => sendChoice('change_team', 'blue'), controls.canChoose);
+    this.addMenuText(400, 415, myTank?.ready ? 'ROLE LOCKED WHILE READY' : 'CHOOSE YOUR ROLE', 14, '#aaaaff', true);
     ROLE_ORDER.forEach((role, index) => {
       const x = 250 + index * 150;
       const teamColor = myTank?.team === 'blue' ? 0x4d8dff : 0xff4444;
-      this.addRoleCard(x, 467, role, myTank?.role === role, teamColor, () => this.room.send('select_role', role));
+      this.addRoleCard(x, 467, role, myTank?.role === role, teamColor, () => sendChoice('select_role', role), controls.canChoose);
     });
 
     this.addButton(730, 30, 130, 34, 'LEAVE GAME', () => this.backToMainMenu());
-    if (state.hostSessionId === this.room.sessionId) {
-      this.addButton(315, 535, 190, 40, 'RENAME GAME', () => this.renameLobby(state.lobbyName));
-      this.addButton(535, 535, 190, 40, 'START GAME', () => this.room.send('start_game'));
+    this.addButton(265, 542, 190, 38, myTank?.ready ? 'Nicht bereit' : 'Bereit', () => {
+      if (getLobbyControls(state, this.room.sessionId).canReady && myTank) {
+        this.lobbyError = '';
+        this.room.send('set_ready', !myTank.ready);
+      }
+    }, controls.canReady);
+    if (controls.isHost) {
+      this.addButton(535, 542, 190, 38, 'START GAME', () => {
+        if (getLobbyControls(state, this.room.sessionId).canStart) {
+          this.lobbyError = '';
+          this.room.send('start_game');
+        }
+      }, controls.canStart);
     } else {
-      this.addMenuText(400, 535, 'Waiting for the host to start the game', 16, '#c8c8d8');
+      const host = state.tanks.get(state.hostSessionId)?.name ?? 'Host';
+      const label = this.addMenuText(535, 542, `Host: ${host}`, 14, '#c8c8d8');
+      this.fitMenuText(label, `Host: ${host}`, 230);
     }
+    const message = this.lobbyError || (countdown ? 'All choices locked. Leaving cancels the countdown.'
+      : state.countdownCancelReason === 'player_left' ? 'Countdown cancelled: a player left. The host must start again.'
+      : controls.canStart ? 'Everyone is ready. The host can start the countdown.' : 'Waiting for every player, including the host, to be ready.');
+    const hint = this.addMenuText(400, 583, message, 13, this.lobbyError ? '#ffaaaa' : '#c8c8d8');
+    this.fitMenuText(hint, message, 760);
   }
 
-  private renameLobby(currentName: string) {
-    const name = window.prompt('Game name', currentName);
-    if (name) this.room.send('rename_lobby', name);
+  private fitMenuText(text: Phaser.GameObjects.Text, value: string, width: number) {
+    let length = value.length;
+    while (text.width > width && length > 0) {
+      text.setText(`${value.slice(0, --length)}...`);
+    }
   }
 
   private addMenuText(x: number, y: number, text: string, fontSize: number, color: string, bold = false) {
@@ -737,33 +830,43 @@ export class GameScene extends Phaser.Scene {
     return element;
   }
 
-  private addButton(x: number, y: number, width: number, height: number, label: string, action: () => void) {
+  private addButton(x: number, y: number, width: number, height: number, label: string, action: () => void, enabled = true) {
     x = this.viewportX(x);
     y = this.viewportY(y);
-    const button = this.add.rectangle(x, y, width, height, 0x245c52).setDepth(3001).setScale(this.viewportScale()).setInteractive({ useHandCursor: true });
-    const text = this.add.text(x, y, label, { color: '#ffffff', fontSize: '15px', fontStyle: 'bold' }).setOrigin(0.5).setDepth(3002).setScale(this.viewportScale());
-    button.on('pointerover', () => button.setFillStyle(0x347d6c));
-    button.on('pointerout', () => button.setFillStyle(0x245c52));
-    button.on('pointerdown', action);
+    const button = this.add.rectangle(x, y, width, height, enabled ? 0x245c52 : 0x303b48).setDepth(3001).setScale(this.viewportScale());
+    const text = this.add.text(x, y, label, { color: enabled ? '#ffffff' : '#8a99aa', fontSize: '15px', fontStyle: 'bold' }).setOrigin(0.5).setDepth(3002).setScale(this.viewportScale());
+    if (enabled) {
+      button.setInteractive({ useHandCursor: true });
+      button.on('pointerover', () => button.setFillStyle(0x347d6c));
+      button.on('pointerout', () => button.setFillStyle(0x245c52));
+      button.on('pointerdown', action);
+    }
     this.menuElements.push(button, text);
     return button;
   }
 
   /** Renders a selectable role preview in the player's team color. */
-  private addRoleCard(x: number, y: number, role: Role, selected: boolean, teamColor: number, action: () => void) {
+  private addRoleCard(x: number, y: number, role: Role, selected: boolean, teamColor: number, action: () => void, enabled = true) {
     x = this.viewportX(x);
     y = this.viewportY(y);
     const visual = ROLE_VISUALS[role];
     const width = 130;
     const height = 84;
-    const card = this.add.rectangle(x, y, width, height, teamColor, selected ? 0.85 : 0.25).setScale(this.viewportScale()).setInteractive({ useHandCursor: true });
+    const card = this.add.rectangle(x, y, width, height, teamColor, selected ? 0.85 : 0.25).setScale(this.viewportScale());
     card.setStrokeStyle(selected ? 4 : 2, teamColor, selected ? 1 : 0.6);
     const icon = this.createRoleShape(x, y - 10 * this.viewportScale(), role, 32, teamColor);
     icon.setAlpha(selected ? 1 : 0.85).setScale(this.viewportScale());
     const text = this.add.text(x, y + 27 * this.viewportScale(), visual.label, { color: '#ffffff', fontSize: '13px', fontStyle: 'bold' }).setOrigin(0.5).setScale(this.viewportScale());
-    card.on('pointerover', () => card.setFillStyle(teamColor, selected ? 0.85 : 0.45));
-    card.on('pointerout', () => card.setFillStyle(teamColor, selected ? 0.85 : 0.25));
-    card.on('pointerdown', action);
+    if (enabled) {
+      card.setInteractive({ useHandCursor: true });
+      card.on('pointerover', () => card.setFillStyle(teamColor, selected ? 0.85 : 0.45));
+      card.on('pointerout', () => card.setFillStyle(teamColor, selected ? 0.85 : 0.25));
+      card.on('pointerdown', action);
+    } else {
+      card.setAlpha(0.5);
+      icon.setAlpha(0.5);
+      text.setAlpha(0.5);
+    }
     this.menuElements.push(card, icon, text);
     return card;
   }
@@ -777,6 +880,8 @@ export class GameScene extends Phaser.Scene {
   }
 
   private destroyMenuElements() {
+    this.menuRevision++;
+    this.lobbyRenderKey = '';
     this.menuElements.forEach((element) => element.destroy());
     this.menuElements = [];
     this.menuBackground = undefined;

@@ -5,6 +5,7 @@ import {
   Base, Entity, GameState, getVisionEntities, MatchPlayerStats, Minion,
   Projectile, Tank, TeamVision, Tower
 } from "shared";
+import { isPreMatch } from "shared";
 
 interface ClientView {
   state: GameState;
@@ -54,12 +55,14 @@ function copyCombat(destination: Tank | Minion | Base | Tower, source: Tank | Mi
 /** Keeps canonical schema objects entirely outside the outgoing schema trees. */
 export function updateClientView(view: GameState, source: GameState, sessionId: string, vision: TeamVision): void {
   const now = Date.now();
-  if (source.phase === "waiting" && view.phase !== "waiting") view.tanks.clear();
+  if (isPreMatch(source.phase) && !isPreMatch(view.phase)) view.tanks.clear();
   view.phase = source.phase;
   view.lobbyName = source.lobbyName;
   view.hostSessionId = source.hostSessionId;
   view.winnerTeam = source.winnerTeam;
-  const waiting = source.phase === "waiting";
+  view.countdownSeconds = source.countdownSeconds;
+  view.countdownCancelReason = source.countdownCancelReason;
+  const waiting = isPreMatch(source.phase);
   const team = vision.team;
   const spatialAllowed = (entity: Entity) => !!team && (entity.team === team || vision.canSee(entity));
   const unitAllowed = (entity: Tank | Minion) => !!team && (entity.team === team
@@ -80,6 +83,7 @@ export function updateClientView(view: GameState, source: GameState, sessionId: 
       destination.name = tank.name;
       destination.team = tank.team;
       destination.role = tank.role;
+      destination.ready = tank.ready;
       // Lobby clients need roster metadata, not canonical spawn coordinates.
       if (waiting) return;
       copyCombat(destination, tank);

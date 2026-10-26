@@ -6,6 +6,7 @@ import { PLAYER_COLLISION_RADIUS } from "../collision";
 
 export class Tank extends Entity {
   @type("string") name: string = "Player";
+  @type("boolean") ready: boolean = false;
   @type("number") hp: number = 100;
   @type("number") maxHp: number = 100;
   @type("string") role: string = "tank";

@@ -239,6 +239,9 @@
         redRoom.onMessage(INVALID_TARGET_MESSAGE, () => {});
         await until(() => redRoom.state.tanks.size === 2 && blueRoom.state.tanks.size === 2, 'two-client state');
         check(blueRoom.state.tanks.get(blueRoom.sessionId).team !== blueRoom.state.tanks.get(redRoom.sessionId).team, 'Live lobby balances opposing teams');
+        blueRoom.send('set_ready', true);
+        redRoom.send('set_ready', true);
+        await until(() => [...blueRoom.state.tanks.values()].every(tank => tank.ready), 'everyone ready');
         blueRoom.send('start_game');
         await until(() => this.arenaStarted && this.fog && redRoom.state.phase === 'started', 'started arena');
         check(blueRoom.state.tanks.get(blueRoom.sessionId).sightRange === 390, 'Live client receives the same absolute sight as towers');

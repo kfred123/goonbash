@@ -9,6 +9,8 @@ import type { LobbyTeam, MatchPhase } from "../lobby";
 
 export class GameState extends Schema {
   @type("string") phase: MatchPhase = "waiting";
+  @type("number") countdownSeconds: number = 0;
+  @type("string") countdownCancelReason: "" | "player_left" = "";
   @type("string") lobbyName: string = "New Game";
   @type("string") hostSessionId: string = "";
   @type("string") winnerTeam: LobbyTeam | "" = "";

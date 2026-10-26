@@ -30,13 +30,43 @@ test("rejects unknown lobbies", () => {
   assert.throws(() => registry.join("missing"), /not found/);
 });
 
-test("renames an existing lobby", () => {
+test("requires a valid immutable creation-time name", () => {
   const registry = new LobbyRegistry();
-  const lobby = registry.create("Original name");
+  for (const name of ["", "  ", "x".repeat(49)]) {
+    assert.throws(() => registry.create(name), /1 to 48/);
+    assert.equal(registry.list().length, 0);
+  }
+  const lobby = registry.create("  Original name  ");
+  lobby.name = "Changed copy";
+  assert.equal(registry.get(lobby.id)?.name, "Original name");
+  assert.equal(registry.create("x".repeat(48)).name.length, 48);
+});
 
-  assert.equal(registry.rename(lobby.id, "Renamed game").name, "Renamed game");
-  assert.equal(registry.get(lobby.id)?.name, "Renamed game");
-  assert.throws(() => registry.rename(lobby.id, "  "), /required/);
+test("countdown blocks joins and listings and cancellation restores capacity status", () => {
+  const registry = new LobbyRegistry();
+  const lobby = registry.create("Countdown", 2);
+  registry.join(lobby.id);
+  registry.setCountdown(lobby.id, true);
+  assert.deepEqual(registry.list(), []);
+  assert.throws(() => registry.join(lobby.id), /counting down/);
+  assert.equal(registry.get(lobby.id)?.players, 1);
+  registry.setCountdown(lobby.id, false);
+  assert.equal(registry.list()[0].status, "waiting");
+  registry.join(lobby.id);
+  registry.setCountdown(lobby.id, true);
+  registry.setCountdown(lobby.id, false);
+  assert.equal(registry.get(lobby.id)?.status, "full");
+});
+
+test("a lobby can only own one room and failed claims cannot release its owner", () => {
+  const registry = new LobbyRegistry();
+  const lobby = registry.create("Single room");
+  registry.claimRoom(lobby.id);
+  assert.throws(() => registry.claimRoom(lobby.id), /already has a room/);
+  registry.join(lobby.id);
+  registry.releaseRoom(lobby.id);
+  registry.claimRoom(lobby.id);
+  assert.equal(registry.get(lobby.id)?.players, 1);
 });
 
 test("removes a lobby once its only player leaves before the match starts", () => {

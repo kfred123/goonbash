@@ -14,8 +14,8 @@ export function selectBalancedTeam(players: Iterable<{ team: string }>): LobbyTe
   return red <= blue ? "red" : "blue";
 }
 
-export function canChangeTeam(phase: MatchPhase, team: unknown): team is LobbyTeam {
-  return phase === "waiting" && (team === "red" || team === "blue");
+export function canChangeTeam(phase: MatchPhase, team: unknown, ready: boolean): team is LobbyTeam {
+  return phase === "waiting" && !ready && (team === "red" || team === "blue");
 }
 
 export function canUseGameplayActions(phase: MatchPhase): boolean {
@@ -23,21 +23,15 @@ export function canUseGameplayActions(phase: MatchPhase): boolean {
 }
 
 export function canJoinRoom(phase: MatchPhase): boolean {
-  return phase !== "ended";
+  return phase === "waiting" || phase === "started";
 }
 
-export function canChangeRole(phase: MatchPhase, role: unknown): role is Role {
-  return phase === "waiting" && isRole(role);
+export function canChangeRole(phase: MatchPhase, role: unknown, ready: boolean): role is Role {
+  return phase === "waiting" && !ready && isRole(role);
 }
 
 export function canManageLobby(phase: MatchPhase, clientSessionId: string, hostSessionId: string): boolean {
   return phase === "waiting" && clientSessionId === hostSessionId;
-}
-
-export function normalizeLobbyName(name: unknown): string | undefined {
-  if (typeof name !== "string") return undefined;
-  const trimmedName = name.trim();
-  return trimmedName && trimmedName.length <= 48 ? trimmedName : undefined;
 }
 
 export function normalizePlayerName(name: unknown): string {
