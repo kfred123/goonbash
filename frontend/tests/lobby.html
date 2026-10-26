@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>Lobby readiness acceptance</title>
+<style>body { background: #151c28; color: white; font: 14px system-ui; margin: 8px; } #game-container { position: relative; width: 800px; height: 600px; } canvas { display: block; } pre { white-space: pre-wrap; }</style>
+<h1>Named lobby, readiness and countdown</h1>
+<pre id="result">Running...</pre>
+<div id="game-container"></div>
+<script type="module">
+  import Phaser from 'phaser';
+  import { GameState, Tank } from 'shared';
+  import { GameScene } from '../src/GameScene.ts';
+
+  const checks = [];
+  function check(condition, label) {
+    if (!condition) throw new Error(label);
+    checks.push(label);
+  }
+  async function until(predicate) {
+    const end = Date.now() + 3000;
+    while (!predicate()) {
+      if (Date.now() >= end) throw new Error('UI operation timed out');
+      await new Promise(resolve => setTimeout(resolve, 10));
+    }
+  }
+  class LobbyChecks extends GameScene {
+    showMainMenu() {}
+    update() {}
+    async create() {
+      super.create();
+      const text = value => this.menuElements.find(element => element.type === 'Text' && element.text === value);
+      const button = label => {
+        return this.menuElements.find(element => element.type === 'Rectangle' && this.menuElements.some(caption =>
+          caption.type === 'Text' && caption.text === label && element.x === caption.x && element.y === caption.y));
+      };
+      try {
+        const originalFetch = window.fetch;
+        const originalConnect = this.connectToLobby;
+        const posts = [];
+        let acceptedName = '';
+        let reject = false;
+        window.fetch = async (_url, options) => {
+          if (options?.method !== 'POST') return Response.json({ lobbies: [] });
+          const body = JSON.parse(options.body);
+          posts.push(body);
+          return reject ? Response.json({ error: 'Creation denied. Try again.' }, { status: 400 })
+            : Response.json({ lobby: { id: 'created', name: body.name, players: 0, maxPlayers: 10, status: 'waiting' } }, { status: 201 });
+        };
+        this.connectToLobby = async lobby => {
+          acceptedName = lobby.name;
+          this.destroyMenuElements();
+        };
+        try {
+          this.showCreateLobby();
+          check(document.querySelectorAll('input').length === 1, 'Creation has one labeled game-name input');
+          check(this.nameInputEl.getAttribute('aria-label') === 'Game name', 'Game name input has an accessible label');
+          for (const invalid of ['', '   ', 'x'.repeat(49)]) {
+            this.nameInputEl.value = invalid;
+            button('CREATE GAME').emit('pointerdown');
+            check(posts.length === 0 && !!text('Game name must contain 1 to 48 characters.'), 'Invalid name gives feedback without a request');
+          }
+          button('CANCEL').emit('pointerdown');
+          check(posts.length === 0 && !this.nameInputEl, 'Cancel creates nothing and removes the input');
+          this.showCreateLobby();
+          this.nameInputEl.value = '  Named battle  ';
+          button('CREATE GAME').emit('pointerdown');
+          button('CREATE GAME').emit('pointerdown');
+          await until(() => acceptedName !== '');
+          check(posts.length === 1 && posts[0].name === 'Named battle', 'Valid confirmation sends the trimmed name exactly once');
+          check(!this.nameInputEl && document.querySelectorAll('input').length === 0, 'Successful creation removes the input');
+          reject = true;
+          this.showCreateLobby('Retry name');
+          button('CREATE GAME').emit('pointerdown');
+          await until(() => !!text('Creation denied. Try again.'));
+          check(this.nameInputEl.value === 'Retry name' && !this.nameInputEl.disabled, 'Server errors preserve the name and enable retry');
+        } finally {
+          window.fetch = originalFetch;
+          this.connectToLobby = originalConnect;
+        }
+
+        const state = new GameState();
+        state.lobbyName = 'A'.repeat(48);
+        state.hostSessionId = 'p0';
+        for (let i = 0; i < 10; i++) {
+          state.tanks.set(`p${i}`, Object.assign(new Tank(), {
+            id: `p${i}`, name: 'W'.repeat(20), team: 'red', role: 'damagedealer', ready: i !== 0
+          }));
+        }
+        const commands = [];
+        this.room = { state, sessionId: 'p0', send: (...args) => commands.push(args), removeAllListeners() {}, leave: async () => {} };
+        this.showWaitingLobby(state);
+        check(!this.nameInputEl, 'Entering the lobby removes stale form inputs');
+        check(!!text('TEAM RED  (10)') && !!text('TEAM BLUE  (0)') && !!text('No players yet'), 'Both bounded team panels remain visible with an empty team');
+        const panels = this.menuElements.filter(element => element.type === 'Rectangle' && element.width === 350);
+        check(panels.length === 2 && panels[0].getBounds().right < panels[1].getBounds().left, 'Team panels have separate nonoverlapping bounds');
+        check(this.menuElements.filter(element => element.type === 'Graphics').length === 9, 'Ready participants have nine graphical green checkmarks');
+        const names = this.menuElements.filter(element => element.type === 'Text' && element.text.startsWith('WW'));
+        check(names.length === 10 && names.every(element => {
+          const bounds = element.getBounds();
+          return bounds.left >= panels[0].getBounds().left && bounds.right < this.viewportX(220 + 4)
+            && bounds.top > this.viewportY(155) && bounds.bottom < panels[0].getBounds().bottom;
+        }), 'Ten long names fit inside one team without overlapping roles or controls');
+        check(!button('START GAME').input?.enabled, 'Host start is disabled while the host is not ready');
+        button('START GAME').emit('pointerdown');
+        check(commands.length === 0, 'Disabled start has no action listener');
+        button('Bereit').emit('pointerdown');
+        check(JSON.stringify(commands.at(-1)) === JSON.stringify(['set_ready', true]), 'Ready button sends only the sender boolean');
+        check(!state.tanks.get('p0').ready, 'Pending readiness is not displayed as confirmed state');
+        state.tanks.get('p0').ready = true;
+        this.showWaitingLobby(state);
+        check(button('START GAME').input.enabled && !!text('Nicht bereit'), 'Confirmed all-ready state enables host start and readiness reversal');
+        check(!button('JOIN RED').input?.enabled && !button('JOIN BLUE').input?.enabled, 'Ready player team controls are visibly disabled');
+        const roleCards = this.menuElements.filter(element => element.type === 'Rectangle' && element.width === 130 && element.height === 84);
+        const before = commands.length;
+        for (const control of [button('JOIN RED'), button('JOIN BLUE'), ...roleCards]) control.emit('pointerdown');
+        check(commands.length === before && roleCards.every(card => !card.input?.enabled), 'Ready role/team controls cannot emit changes');
+        button('Nicht bereit').emit('pointerdown');
+        check(commands.at(-1)[0] === 'set_ready' && commands.at(-1)[1] === false, 'Readiness can be revoked before countdown');
+        state.phase = 'countdown';
+        for (const seconds of [5, 4, 3, 2, 1]) {
+          state.countdownSeconds = seconds;
+          this.showWaitingLobby(state);
+          check(!!text(`Start in ${seconds}`), `Server-derived countdown shows ${seconds}`);
+          check(!button('Nicht bereit').input?.enabled && !button('START GAME').input?.enabled, 'Readiness and start are locked during countdown');
+          check(button('LEAVE GAME').input.enabled && !this.arenaStarted, 'Leaving remains available without starting gameplay locally');
+        }
+        const count = this.menuElements.length;
+        this.showWaitingLobby(state);
+        check(this.menuElements.length === count, 'Identical state does not rebuild or accumulate presentation');
+        state.phase = 'waiting';
+        state.countdownSeconds = 0;
+        state.countdownCancelReason = 'player_left';
+        this.showWaitingLobby(state);
+        check(!!text('Countdown cancelled: a player left. The host must start again.'), 'Cancellation is explicit and restores waiting');
+        check(button('Nicht bereit').input.enabled && !button('JOIN RED').input?.enabled, 'Cancellation preserves readiness and allows becoming not ready');
+        state.tanks.get('p0').ready = false;
+        this.showWaitingLobby(state);
+        check(button('JOIN RED').input.enabled && !button('START GAME').input?.enabled, 'Revoking readiness restores choices and disables start');
+        state.hostSessionId = 'p1';
+        this.showWaitingLobby(state);
+        check(!button('START GAME'), 'Non-host does not see start');
+        for (const [width, height] of [[320, 240], [1200, 800], [800, 600]]) {
+          this.scale.resize(width, height);
+          const currentPanels = this.menuElements.filter(element => element.type === 'Rectangle' && element.width === 350);
+          check(currentPanels.every(panel => panel.getBounds().left >= 0 && panel.getBounds().right <= width
+            && panel.getBounds().top >= 0 && panel.getBounds().bottom <= height), `Panels stay inside ${width}x${height}`);
+        }
+        for (let i = 0; i < 3; i++) {
+          this.showCreateLobby();
+          this.showWaitingLobby(state);
+          check(document.querySelectorAll('input').length === 0, 'Repeated screen switches clean up name inputs');
+        }
+        check(!this.menuElements.some(element => element.type === 'Text' && /RENAME/.test(element.text)), 'No rename action exists');
+        window.lobbyChecks = { passed: true, checks };
+        document.getElementById('result').textContent = `PASS (${checks.length})\n${checks.join('\n')}`;
+      } catch (error) {
+        window.lobbyChecks = { passed: false, error: String(error), checks };
+        document.getElementById('result').textContent = `FAIL: ${error.stack}\n${checks.join('\n')}`;
+        console.error(error);
+      }
+    }
+  }
+  window.lobbyGame = new Phaser.Game({ type: Phaser.CANVAS, width: 800, height: 600, parent: 'game-container', scene: [LobbyChecks], audio: { noAudio: true } });
+</script>
+</html>

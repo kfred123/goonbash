@@ -3,7 +3,7 @@ import { EventEmitter } from "node:events";
 import { test, TestContext } from "node:test";
 import type { Client } from "colyseus";
 import {
-  ARENA_VISION_TERRAIN, BLUE_BASE_POSITION, RED_BASE_POSITION, Minion, Tower, TOWER_COLLISION_RADIUS
+  ARENA_VISION_TERRAIN, BLUE_BASE_POSITION, RED_BASE_POSITION, Minion, Tank, Tower, TOWER_COLLISION_RADIUS
 } from "shared";
 import { GameRoom } from "./GameRoom.js";
 import { getLaneTowerPlacements } from "./towerPlacement.js";
@@ -32,7 +32,10 @@ function startMatch(t: TestContext) {
     leave: unexpected, close: unexpected, error: unexpected
   };
   room.state.hostSessionId = client.sessionId;
+  room.state.tanks.set(client.sessionId, Object.assign(new Tank(), { id: client.sessionId, team: "blue", ready: true }));
   room["onMessageHandlers"].start_game(client);
+  room.clock.elapsedTime += 5000;
+  for (const timer of [...room.clock.delayed]) if (timer.active) timer.tick(5000);
   assert.equal(room.state.phase, "started");
   return room;
 }

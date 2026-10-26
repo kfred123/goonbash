@@ -247,7 +247,10 @@ test("initial joins and match start respect occupied spawns and changed lobby te
   room.onJoin(client("two"), { lobbyId: lobby.id });
   const owner = room.state.tanks.get(first.sessionId)!;
   owner.team = "blue";
+  room.state.tanks.forEach(unit => { unit.ready = true; });
   room["onMessageHandlers"].start_game(first);
+  room.clock.elapsedTime += 5000;
+  for (const timer of [...room.clock.delayed]) if (timer.active) timer.tick(5000);
   assert.equal(room.state.phase, "started");
   assert.ok(Math.hypot(owner.x - BLUE_BASE_POSITION.x, owner.y - BLUE_BASE_POSITION.y) <= 140 + COLLISION_TOLERANCE);
   assertSeparated(room);

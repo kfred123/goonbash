@@ -3,7 +3,8 @@ import { Base, computeAbilityConfigForLevel, GameState, getLaneWaypoints, isAbil
 import { isRole, resolveRoleStats } from "shared";
 import { BLUE_BASE_POSITION, RED_BASE_POSITION, WORLD_WIDTH, WORLD_HEIGHT, TeamVision, getVisionEntities, INVALID_TARGET_MESSAGE, TOWER_COLLISION_RADIUS } from "shared";
 import { lobbyRegistry } from "../lobbies/LobbyRegistry.js";
-import { canChangeRole, canChangeTeam, canJoinRoom, canManageLobby, canUseGameplayActions, normalizeLobbyName, normalizePlayerName, resolveHostAfterLeave, selectBalancedTeam } from "./lobbyControls.js";
+import { canChangeRole, canChangeTeam, canJoinRoom, canManageLobby, canUseGameplayActions, normalizePlayerName, resolveHostAfterLeave, selectBalancedTeam } from "./lobbyControls.js";
+import { allPlayersReady, COUNTDOWN_DURATION_MS, LOBBY_ACTION_ERROR } from "shared";
 import { clampToBounds, createShotProjectile, findNearestEnemyInRange, getLivingTowers, hasDied, hasProjectileReachedTarget, isReadyToRespawn, isWithinRange, stepHomingProjectile, stepProjectileTowardTarget, stepToward, applyDamage as computeDamagedHp, nearBasePosition, respawnDelayMs, respawnTank, tickShooter } from "./combat.js";
 import { activateAbility, applyDamageReduction, canActivateRoleAbility, effectiveFireCooldown, effectiveMoveSpeed, healOverTick, homingRocketDamage, isAbilityActive, isMovementLocked, isValidRocketTarget, strongestReduction } from "./ability.js";
 import { getLaneTowerPlacements } from "./towerPlacement.js";
@@ -55,12 +56,18 @@ export class GameRoom extends Room<GameState> {
   private pendingMinions = new Map<string, PendingMinion>();
   private deferredTanks = new Set<string>();
   private nextMinionId = 0;
+  private lobbyId!: string;
+  private ownsLobby = false;
+  private countdown?: { deadline: number; timer?: { clear(): void } };
 
   onCreate (options: any) {
     console.log("GameRoom created!", options);
     this.setMetadata({ lobbyId: options.lobbyId });
     const lobby = lobbyRegistry.get(options.lobbyId);
     if (!lobby) throw new Error("Lobby not found");
+    lobbyRegistry.claimRoom(lobby.id);
+    this.lobbyId = lobby.id;
+    this.ownsLobby = true;
     const state = new GameState();
     state.lobbyName = lobby.name;
     this.setState(state);
@@ -96,8 +103,11 @@ export class GameRoom extends Room<GameState> {
       tank.lockedTargetId = "";
     });
     this.onMessage("change_team", (client, team: unknown) => {
-      if (!canChangeTeam(this.state.phase, team)) return;
       const tank = this.state.tanks.get(client.sessionId);
+      if (!tank || !canChangeTeam(this.state.phase, team, tank.ready)) {
+        this.rejectLobbyAction(client, "Team changes require a not-ready player in a waiting lobby.");
+        return;
+      }
       if (tank) {
         tank.team = team;
         const stats = this.state.playerStats.get(client.sessionId);
@@ -105,9 +115,20 @@ export class GameRoom extends Room<GameState> {
       }
     });
     this.onMessage("select_role", (client, role: unknown) => {
-      if (!canChangeRole(this.state.phase, role)) return;
       const tank = this.state.tanks.get(client.sessionId);
-      if (tank) tank.role = role;
+      if (!tank || !canChangeRole(this.state.phase, role, tank.ready)) {
+        this.rejectLobbyAction(client, "Role changes require a not-ready player in a waiting lobby.");
+        return;
+      }
+      tank.role = role;
+    });
+    this.onMessage("set_ready", (client, ready: unknown) => {
+      const tank = this.state.tanks.get(client.sessionId);
+      if (!tank || this.state.phase !== "waiting" || typeof ready !== "boolean") {
+        this.rejectLobbyAction(client, "Readiness can only be changed for yourself while waiting.");
+        return;
+      }
+      tank.ready = ready;
     });
     this.onMessage("activate_ability", (client, payload: { abilityId?: unknown; targetId?: unknown; targetX?: unknown; targetY?: unknown }) => {
       const tank = this.state.tanks.get(client.sessionId);
@@ -145,26 +166,70 @@ export class GameRoom extends Room<GameState> {
       if (!tank || this.state.phase !== "started" || tank.state === "dead") return;
       purchaseAbilityUpgrade(tank, payload?.abilityId);
     });
-    this.onMessage("rename_lobby", (client, name: unknown) => {
-      if (!canManageLobby(this.state.phase, client.sessionId, this.state.hostSessionId)) return;
-      const trimmedName = normalizeLobbyName(name);
-      if (!trimmedName) return;
-      const lobbyId = this.metadata.lobbyId;
-      lobbyRegistry.rename(lobbyId, trimmedName);
-      this.state.lobbyName = trimmedName;
+    this.onMessage("*", (client, type) => {
+      this.rejectLobbyAction(client, type === "rename_lobby" ? "Game names cannot be changed after creation." : "Unknown action.");
     });
     this.onMessage("start_game", (client) => {
-      if (!canManageLobby(this.state.phase, client.sessionId, this.state.hostSessionId)) return;
-      this.state.tanks.forEach((tank) => this.applyRoleStats(tank));
-      this.createLaneTowers();
-      const tanks = [...this.state.tanks.values()].sort(byId);
-      for (const tank of tanks) tank.state = "dead";
-      for (const tank of tanks) this.activateTank(tank);
-      this.state.phase = "started";
+      if (!this.state.tanks.has(client.sessionId)
+        || !canManageLobby(this.state.phase, client.sessionId, this.state.hostSessionId)
+        || !allPlayersReady(this.state.tanks.values())) {
+        this.rejectLobbyAction(client, "Only the host can start while waiting, and every player must be ready.");
+        return;
+      }
+      this.beginCountdown();
     });
 
     // Fixed time-step game loop (60 FPS)
     this.setSimulationInterval((deltaTime) => this.update(deltaTime), 1000 / 60);
+  }
+
+  private rejectLobbyAction(client: Client, message: string) {
+    console.warn(`[Lobby] Rejected action from ${client.sessionId}: ${message}`);
+    client.send(LOBBY_ACTION_ERROR, { message });
+  }
+
+  private beginCountdown() {
+    lobbyRegistry.setCountdown(this.lobbyId, true);
+    this.state.phase = "countdown";
+    this.state.countdownSeconds = COUNTDOWN_DURATION_MS / 1000;
+    this.state.countdownCancelReason = "";
+    const countdown: { deadline: number; timer?: { clear(): void } } = {
+      deadline: this.clock.elapsedTime + COUNTDOWN_DURATION_MS
+    };
+    this.countdown = countdown;
+    const tick = () => {
+      if (this.countdown !== countdown || this.state.phase !== "countdown") return;
+      const remaining = countdown.deadline - this.clock.elapsedTime;
+      if (remaining <= 0) {
+        if (!allPlayersReady(this.state.tanks.values())) {
+          this.cancelCountdown();
+          return;
+        }
+        this.countdown = undefined;
+        this.state.countdownSeconds = 0;
+        lobbyRegistry.setCountdown(this.lobbyId, false);
+        this.state.tanks.forEach((tank) => this.applyRoleStats(tank));
+        this.createLaneTowers();
+        const tanks = [...this.state.tanks.values()].sort(byId);
+        for (const tank of tanks) tank.state = "dead";
+        for (const tank of tanks) this.activateTank(tank);
+        this.state.phase = "started";
+        return;
+      }
+      this.state.countdownSeconds = Math.ceil(remaining / 1000);
+      countdown.timer = this.clock.setTimeout(tick, Math.min(1000, remaining));
+    };
+    countdown.timer = this.clock.setTimeout(tick, 1000);
+  }
+
+  private cancelCountdown() {
+    this.countdown?.timer?.clear();
+    this.countdown = undefined;
+    if (this.state?.phase !== "countdown") return;
+    this.state.phase = "waiting";
+    this.state.countdownSeconds = 0;
+    this.state.countdownCancelReason = "player_left";
+    lobbyRegistry.setCountdown(this.lobbyId, false);
   }
 
   update(deltaTime: number) {
@@ -721,9 +786,9 @@ export class GameRoom extends Room<GameState> {
   }
 
   onJoin (client: Client, options: any) {
-    if (!canJoinRoom(this.state.phase)) throw new Error("Match has ended");
+    if (!canJoinRoom(this.state.phase)) throw new Error("Game is unavailable: countdown in progress or match ended.");
     console.log(client.sessionId, "joined!");
-    lobbyRegistry.join(options.lobbyId);
+    lobbyRegistry.join(this.lobbyId);
     if (!this.state.hostSessionId) this.state.hostSessionId = client.sessionId;
     const tank = new Tank();
     tank.id = client.sessionId;
@@ -746,6 +811,9 @@ export class GameRoom extends Room<GameState> {
 
   onLeave (client: Client, consented: boolean) {
     this.visibilitySerializer.removeClient(client);
+    // A rejected seat reservation never became a participant.
+    if (!this.state.tanks.has(client.sessionId)) return;
+    this.cancelCountdown();
     console.log(client.sessionId, "left!");
     removeLeavingPlayerTank(this.state, client.sessionId);
     this.deferredTanks.delete(client.sessionId);
@@ -754,10 +822,13 @@ export class GameRoom extends Room<GameState> {
       this.state.hostSessionId,
       this.state.tanks.keys()
     );
-    lobbyRegistry.leave(this.metadata.lobbyId);
+    lobbyRegistry.leave(this.lobbyId);
   }
 
   onDispose() {
+    this.cancelCountdown();
+    if (this.ownsLobby) lobbyRegistry.releaseRoom(this.lobbyId);
+    this.ownsLobby = false;
     this.clearMovementState();
     this.clearMortarFlights();
     this.projectileLifetimes.clear();

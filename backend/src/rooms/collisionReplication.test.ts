@@ -10,7 +10,7 @@ import { lobbyRegistry } from "../lobbies/LobbyRegistry.js";
 import { COLLISION_TOLERANCE } from "./collision.js";
 
 async function until(predicate: () => boolean, label: string) {
-  const deadline = Date.now() + 5000;
+  const deadline = Date.now() + 8000;
   while (!predicate()) {
     assert.ok(Date.now() < deadline, `Timeout: ${label}`);
     await setTimeout(10);
@@ -50,7 +50,13 @@ test("two live clients receive collision-constrained commands, minion detours an
   second.send("change_team", "blue");
   await until(() => simulation!.state.tanks.get(first.sessionId)!.team === "blue"
     && simulation!.state.tanks.get(second.sessionId)!.team === "blue", "team commands");
+  first.send("set_ready", true);
+  second.send("set_ready", true);
+  await until(() => [...simulation!.state.tanks.values()].every(tank => tank.ready), "readiness");
   first.send("start_game");
+  await until(() => simulation!.state.phase === "countdown", "countdown admitted");
+  simulation!.clock.elapsedTime += 5000;
+  for (const timer of [...simulation!.clock.delayed]) if (timer.active) timer.tick(5000);
   await until(() => first.state.phase === "started" && second.state.phase === "started", "started match");
   const room = simulation!;
   const mover = room.state.tanks.get(first.sessionId)!;

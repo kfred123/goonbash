@@ -58,6 +58,54 @@ function setup() {
   return { source, blue, red, serializer, first, second, connections, patch, join, initialBlue, initialRed };
 }
 
+test("both teams receive only lobby metadata through countdown and cancellation before normal visibility resumes", () => {
+  const { source, blue, red, first, second, patch } = setup();
+  source.phase = "waiting";
+  blue.ready = true;
+  red.ready = false;
+  patch();
+  for (const connection of [first, second]) {
+    assert.equal(connection.decoded.tanks.size, 2);
+    assert.equal(connection.decoded.tanks.get(blue.id)?.ready, true);
+    assert.equal(connection.decoded.tanks.get(red.id)?.ready, false);
+    assert.equal(connection.decoded.tanks.get(red.id)?.x, 0);
+    assert.equal(connection.decoded.tanks.get(blue.id)?.x, 0);
+  }
+  red.ready = true;
+  source.phase = "countdown";
+  source.countdownSeconds = 5;
+  patch();
+  for (const seconds of [5, 4, 3, 2, 1]) {
+    source.countdownSeconds = seconds;
+    patch();
+    for (const connection of [first, second]) {
+      assert.equal(connection.decoded.phase, "countdown");
+      assert.equal(connection.decoded.countdownSeconds, seconds);
+      assert.equal(connection.decoded.tanks.size, 2);
+      assert.equal(connection.decoded.tanks.get(red.id)?.ready, true);
+      assert.equal(connection.decoded.tanks.get(blue.id)?.x, 0);
+      assert.equal(connection.decoded.tanks.get(red.id)?.x, 0);
+      for (const map of [connection.decoded.minions, connection.decoded.bases, connection.decoded.towers, connection.decoded.projectiles]) {
+        assert.equal(map.size, 0);
+      }
+    }
+  }
+  source.phase = "waiting";
+  source.countdownSeconds = 0;
+  source.countdownCancelReason = "player_left";
+  patch();
+  for (const connection of [first, second]) {
+    assert.equal(connection.decoded.countdownCancelReason, "player_left");
+    assert.equal(connection.decoded.tanks.size, 2);
+    assert.equal(connection.decoded.tanks.get(red.id)?.ready, true);
+  }
+  source.phase = "started";
+  patch();
+  assert.deepEqual([...first.decoded.tanks.keys()], [blue.id]);
+  assert.deepEqual([...second.decoded.tanks.keys()], [red.id]);
+  assert.equal(first.decoded.tanks.get(blue.id)?.x, blue.x);
+});
+
 test("initial snapshots exclude concealed spatial entities for both teams and keep public scores", () => {
   const { first, second, initialBlue, initialRed } = setup();
   assert.deepEqual([...first.decoded.tanks.keys()], ["blue"]);

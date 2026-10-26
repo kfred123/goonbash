@@ -4,6 +4,51 @@
 
 ## Game Mechanics
 
+### Creating and preparing a match
+
+Choose **Create Game**, enter a name (1-48 characters after trimming), and
+confirm. Cancel returns to the browser without creating a lobby. The accepted
+name is fixed for the lobby's lifetime; there is no rename action.
+
+The waiting lobby has separate **Team Red** and **Team Blue** panels showing
+names, roles, and readiness. Choose your team and role, then select **Bereit**:
+a green checkmark and ready label appear beside your name for everyone.
+While ready, you cannot change team or role. Select **Nicht bereit** to unlock
+them again before the countdown starts. New participants always join not ready.
+
+Only the host can start, and only when **every participant, including the host,
+is ready**. Start begins a shared server-controlled **5-second countdown**.
+Team, role, readiness, and start controls are locked during it; gameplay begins
+only when the server completes the countdown. New joins are rejected and the
+lobby is temporarily hidden from the game browser.
+
+Leaving or disconnecting during countdown cancels it for everyone. Remaining
+players keep their readiness; if the host leaves, another participant becomes
+host. The lobby becomes available again when it has capacity. The host must
+explicitly start a new full countdown; cancellation never starts automatically.
+Leaving the room remains possible during the countdown, and an empty room is
+removed.
+
+Lobby API / protocol:
+- `POST /lobbies` requires JSON such as `{"name":"Friday battle"}`; success
+  returns HTTP 201 with `{ "lobby": ... }`. Missing, non-string, blank, or
+  overlong names return HTTP 400 with `{ "error": ... }` and create nothing.
+- `change_team` and `select_role` accept the local player's choice only while
+  waiting and not ready. `set_ready` accepts a boolean for the sender only.
+- `start_game` is host-only and requires everyone ready; `lobby_action_error`
+  reports rejected lobby actions with `{ "message": ... }`. Legacy
+  `rename_lobby` requests never change the name.
+- Replicated `ready`, `phase`, `countdownSeconds`, and `countdownCancelReason`
+  drive the UI. Waiting and countdown expose full roster metadata but no
+  canonical spawn coordinates. Match visibility rules resume at `started`.
+
+Deploy shared schemas, backend, and frontend together with fresh rooms.
+Rollback all three together; no database migration is required. The lobby
+checks use controlled room clocks, schema snapshots/patches, and real
+multi-client WebSocket flows. With the frontend running, `/tests/lobby.html`
+also checks creation, disabled controls, roster capacity, resize, and cleanup
+in the real Phaser renderer.
+
 ### 1. Teams & Roles
 The game features two teams (Blue vs. Red). Each player chooses a tank with a specific role:
 - **The Grunt**: Well-rounded tank with balanced speed, armor, and firepower.
