@@ -6,4 +6,5 @@ export class Entity extends Schema {
   @type("number") y: number = 0;
   @type("number") radius: number = 0;
   @type("string") team: string = "neutral";
+  @type("number") movementDisabledUntil: number = 0;
 }

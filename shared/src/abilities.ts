@@ -9,7 +9,10 @@ export const ABILITY_IDS = [
   "tank-entrench",
   "damagedealer-rapidfire",
   "damagedealer-homing-rocket",
-  "damagedealer-mortar"
+  "damagedealer-mortar",
+  "scout-weitsicht",
+  "scout-offroad",
+  "scout-shockshot"
 ] as const;
 
 export type AbilityId = typeof ABILITY_IDS[number];
@@ -60,13 +63,26 @@ export const ABILITY_DEFINITIONS: Record<AbilityId, AbilityDefinition> = {
   "damagedealer-mortar": {
     id: "damagedealer-mortar", role: "damagedealer", name: "Mortar",
     config: { cooldownMs: 24000, durationMs: 0, magnitude: 2, range: 900, radius: 120, flightDurationMs: 1500, buildingMultiplier: 3 }
+  },
+  "scout-weitsicht": {
+    id: "scout-weitsicht", role: "scout", name: "Weitsicht",
+    config: { cooldownMs: 24000, durationMs: 4000, magnitude: 150 }
+  },
+  "scout-offroad": {
+    id: "scout-offroad", role: "scout", name: "Offroad",
+    config: { cooldownMs: 18000, durationMs: 5000, magnitude: 1.2 }
+  },
+  "scout-shockshot": {
+    id: "scout-shockshot", role: "scout", name: "Schockschuss",
+    config: { cooldownMs: 16000, durationMs: 2000, magnitude: 0, range: 650, projectileSpeed: 550 }
   }
 };
 
 export const ROLE_ABILITY_IDS: Record<Role, readonly AbilityId[]> = {
   healer: ["healer-aura", "healer-speed"],
   tank: ["tank-shield", "tank-entrench"],
-  damagedealer: ["damagedealer-rapidfire", "damagedealer-homing-rocket", "damagedealer-mortar"]
+  damagedealer: ["damagedealer-rapidfire", "damagedealer-homing-rocket", "damagedealer-mortar"],
+  scout: ["scout-weitsicht", "scout-offroad", "scout-shockshot"]
 };
 
 export function isAbilityId(value: unknown): value is AbilityId {
@@ -94,6 +110,7 @@ export function computeAbilityConfigForLevel(
   const rank = level <= 0 ? 0 : safeLevel - 1;
   const cooldownMs = Math.round(base.cooldownMs * Math.max(0.5, 1 - rank * 0.03));
   let magnitude = base.magnitude;
+  let durationMs = base.durationMs;
 
   switch (abilityId) {
     case "healer-aura":
@@ -117,7 +134,17 @@ export function computeAbilityConfigForLevel(
     case "damagedealer-mortar":
       magnitude += rank * 0.2;
       break;
+    case "scout-weitsicht":
+      magnitude += rank * 50;
+      durationMs += rank * 500;
+      break;
+    case "scout-offroad":
+      magnitude += rank * 0.05;
+      break;
+    case "scout-shockshot":
+      durationMs += rank * 500;
+      break;
   }
 
-  return { ...base, cooldownMs, magnitude: Number(magnitude.toFixed(2)) };
+  return { ...base, cooldownMs, durationMs, magnitude: Number(magnitude.toFixed(2)) };
 }

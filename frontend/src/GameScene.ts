@@ -42,7 +42,7 @@ import { drawWrench } from './wrenchVisuals.js';
 import { createMinionBeetle, MinionBeetle } from './minionBeetle.js';
 import { getRespawnCountdown, getTankPresentation } from './respawnPresentation.js';
 
-const ROLE_ORDER: Role[] = ['healer', 'tank', 'damagedealer'];
+const ROLE_ORDER: Role[] = ['healer', 'tank', 'damagedealer', 'scout'];
 
 export class GameScene extends Phaser.Scene {
   private client!: Client;
@@ -404,6 +404,10 @@ export class GameScene extends Phaser.Scene {
       if (this.room !== connectedRoom) return;
       if (message.action === 'mortar') {
         this.statusText.setText(MORTAR_REJECTION_TEXT[message.reason]).setColor('#ffbb88');
+        return;
+      }
+      if (message.action === 'shockshot') {
+        this.statusText.setText('Choose a visible living enemy within 650 range.').setColor('#ffbb88');
         return;
       }
       this.attackMarkers.forEach(({ graphics }) => {
@@ -1310,8 +1314,8 @@ export class GameScene extends Phaser.Scene {
     const sprite = this.projectileSprites.get(id) ?? this.add.circle(
       x,
       y,
-      projectile.isMortar ? 12 : 4,
-      projectile.isMortar ? 0x202632 : projectile.team === 'blue' ? 0x99ccff : 0xffcc99
+      projectile.isMortar ? 12 : projectile.isShockshot ? 6 : 4,
+      projectile.isMortar ? 0x202632 : projectile.isShockshot ? 0x72e8ff : projectile.team === 'blue' ? 0x99ccff : 0xffcc99
     ).setDepth(projectile.isMortar ? 910 : 2);
     if (projectile.isMortar) {
       sprite.setStrokeStyle(2, 0xffdd88);
@@ -1513,13 +1517,17 @@ export class GameScene extends Phaser.Scene {
       { team: myTank.team, x: myTank.x, y: myTank.y },
       hit,
       { x: worldX, y: worldY },
-      getAbilityDefinition('damagedealer-homing-rocket').config.range ?? 0
+      getAbilityDefinition('damagedealer-homing-rocket').config.range ?? 0,
+      getAbilityDefinition('scout-shockshot').config.range ?? 0
     );
     if (action.type === 'rocket') {
       this.sendAbilityActivation({ abilityId: 'damagedealer-homing-rocket', targetId: action.targetId });
       this.cancelRocketTargetSelection();
     } else if (action.type === 'mortar') {
       this.sendAbilityActivation({ abilityId: 'damagedealer-mortar', targetX: action.x, targetY: action.y });
+      this.cancelRocketTargetSelection();
+    } else if (action.type === 'shock') {
+      this.sendAbilityActivation({ abilityId: 'scout-shockshot', targetId: action.targetId });
       this.cancelRocketTargetSelection();
     } else if (action.type === 'attack') {
       this.room.send('command', { targetId: action.targetId });
@@ -1954,8 +1962,9 @@ export class GameScene extends Phaser.Scene {
     if (!myTank || myTank.state === 'dead') return;
     const ability = myTank.abilities?.get(abilityId);
     if (!ability || ability.level <= 0 || Date.now() < ability.cooldownEndsAt) return;
-    if (abilityId === 'damagedealer-homing-rocket' || abilityId === 'damagedealer-mortar') {
-      this.weaponSelection = nextWeaponSelection(this.weaponSelection, abilityId === 'damagedealer-mortar' ? 'mortar' : 'rocket');
+    if (abilityId === 'damagedealer-homing-rocket' || abilityId === 'damagedealer-mortar' || abilityId === 'scout-shockshot') {
+      const selection = abilityId === 'damagedealer-mortar' ? 'mortar' : abilityId === 'scout-shockshot' ? 'shock' : 'rocket';
+      this.weaponSelection = nextWeaponSelection(this.weaponSelection, selection);
       if (this.weaponSelection) this.refreshWeaponTargeting();
       else this.cancelRocketTargetSelection();
       return;
@@ -1981,7 +1990,9 @@ export class GameScene extends Phaser.Scene {
     applyWeaponCursor(this.game.canvas, this.weaponSelection);
     this.rocketTargetHint?.setVisible(true).setText(this.weaponSelection === 'mortar'
       ? 'Select Mortar ground point (Esc/right-click to cancel)'
-      : 'Select a rocket target (Esc/right-click to cancel)');
+      : this.weaponSelection === 'shock'
+        ? 'Select an enemy within 650 range (Esc/right-click to cancel)'
+        : 'Select a rocket target (Esc/right-click to cancel)');
     this.mortarPreview?.clear();
     if (this.weaponSelection !== 'mortar') return;
     const pointer = this.input.activePointer;

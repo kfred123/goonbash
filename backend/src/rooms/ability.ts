@@ -87,6 +87,30 @@ export interface RocketTarget {
   state?: string;
 }
 
+export interface ShockTarget extends RocketTarget {
+  movementDisabledUntil: number;
+}
+
+export function isValidShockTarget(
+  shooter: { team: string; x: number; y: number },
+  target: ShockTarget | undefined,
+  range: number
+): boolean {
+  return target !== undefined &&
+    target.team !== shooter.team &&
+    target.hp > 0 &&
+    target.state !== "dead" &&
+    Math.hypot(target.x - shooter.x, target.y - shooter.y) <= range;
+}
+
+export function applyMovementDisable(target: ShockTarget, now: number, durationMs: number): void {
+  target.movementDisabledUntil = Math.max(target.movementDisabledUntil, now + durationMs);
+}
+
+export function isMovementDisabled(now: number, disabledUntil: number): boolean {
+  return now < disabledUntil;
+}
+
 export function isValidRocketTarget(
   shooter: { team: string; x: number; y: number },
   target: RocketTarget | undefined,

@@ -45,7 +45,7 @@ function setup(t: TestContext) {
 test("role sight initialization survives progression, fire range changes and respawn", (t) => {
   const { room, blue } = setup(t);
   room["createBase"]("blue", 240, 900);
-  for (const role of ["healer", "tank", "damagedealer"]) {
+  for (const role of ["healer", "tank", "damagedealer", "scout"]) {
     blue.role = role;
     room["applyRoleStats"](blue);
     assert.equal(blue.sightRange, new Tower().sightRange);
@@ -59,6 +59,51 @@ test("role sight initialization survives progression, fire range changes and res
     assert.equal(blue.state, "alive");
     assert.equal(blue.sightRange, 390);
   }
+});
+
+test("Scout Weitsicht adds shared team vision temporarily and restores base sight", (t) => {
+  const { room, blue, client } = setup(t);
+  blue.role = "scout";
+  room["applyRoleStats"](blue);
+  blue.abilities.get("scout-weitsicht")!.level = 1;
+  assert.equal(room["teamVision"]("blue").canSee({ x: 1120, y: 600 }), false);
+
+  room["onMessageHandlers"].activate_ability(client, { abilityId: "scout-weitsicht" });
+  assert.equal(blue.sightRange, 540);
+  assert.equal(room["teamVision"]("blue").canSee({ x: 1120, y: 600 }), true);
+
+  blue.abilities.get("scout-weitsicht")!.activeUntil = Date.now() - 1;
+  room["updateTemporaryAbilityEffects"](Date.now());
+  assert.equal(blue.sightRange, 390);
+  assert.equal(room["teamVision"]("blue").canSee({ x: 1120, y: 600 }), false);
+});
+
+test("Schockschuss immobilizes an enemy without stopping its firing", (t) => {
+  const { room, blue, red, client } = setup(t);
+  blue.role = "scout";
+  room["applyRoleStats"](blue);
+  blue.abilities.get("scout-shockshot")!.level = 1;
+  blue.sightRange = 1000;
+  red.sightRange = 1000;
+  red.fireRange = 200;
+  red.moveSpeed = 100;
+  red.hasMoveTarget = true;
+  red.moveTargetX = 1300;
+  red.moveTargetY = red.y;
+
+  room["onMessageHandlers"].activate_ability(client, { abilityId: "scout-shockshot", targetId: red.id });
+  const projectile = [...room.state.projectiles.values()].find((shot) => shot.isShockshot);
+  assert.ok(projectile);
+  assert.ok(blue.abilities.get("scout-shockshot")!.activeUntil > Date.now());
+  room["updateProjectiles"](1000);
+  assert.ok(red.movementDisabledUntil > Date.now());
+  const targetX = red.x;
+  room["updateTankMovement"](100);
+  assert.equal(red.x, targetX);
+
+  room["resolveCombat"](0);
+  assert.ok([...room.state.projectiles.values()].some((shot) => shot.ownerId === red.id),
+    "the immobilized target can still fire");
 });
 
 test("hidden targets inside firing range are skipped; allied spotting enables fire without extending range", (t) => {

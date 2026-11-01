@@ -38,6 +38,7 @@ test("allows only valid role changes during the waiting phase", () => {
   assert.equal(canChangeRole("waiting", "healer", false), true);
   assert.equal(canChangeRole("waiting", "tank", false), true);
   assert.equal(canChangeRole("waiting", "damagedealer", false), true);
+  assert.equal(canChangeRole("waiting", "scout", false), true);
   assert.equal(canChangeRole("waiting", "grunt", false), false);
   assert.equal(canChangeRole("waiting", undefined, false), false);
   assert.equal(canChangeRole("waiting", "healer", true), false);

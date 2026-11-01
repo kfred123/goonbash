@@ -14,14 +14,15 @@ import {
 
 test("each role maps Space and E to its independent abilities", () => {
   assert.deepEqual(
-    ["healer", "tank", "damagedealer"].map((role) => [
+    ["healer", "tank", "damagedealer", "scout"].map((role) => [
       getRoleAbilityAtIndex(role, 0),
       getRoleAbilityAtIndex(role, 1)
     ]),
     [
       ["healer-aura", "healer-speed"],
       ["tank-shield", "tank-entrench"],
-      ["damagedealer-rapidfire", "damagedealer-homing-rocket"]
+      ["damagedealer-rapidfire", "damagedealer-homing-rocket"],
+      ["scout-weitsicht", "scout-offroad"]
     ]
   );
   assert.equal(getRoleAbilityAtIndex("unknown", 0), null);
@@ -32,6 +33,8 @@ test("Damagedealer has a third R slot without changing other roles or crowding l
   assert.equal(getRoleAbilityAtIndex("damagedealer", 2), "damagedealer-mortar");
   assert.equal(getRoleAbilityAtIndex("tank", 2), null);
   assert.equal(getRoleAbilityAtIndex("healer", 2), null);
+  assert.equal(getRoleAbilityAtIndex("scout", 2), "scout-shockshot");
+  assert.equal(getRoleAbilityAtIndex("scout", 3), null);
   for (const count of [2, 3]) {
     const centers = Array.from({ length: count }, (_, index) => getAbilitySlotDesignX(index, count));
     assert.ok(centers[0] - 71 > 250, "slots do not overlap the progression panel");
@@ -46,6 +49,8 @@ test("weapon selection toggles or switches exclusively", () => {
   assert.equal(nextWeaponSelection("rocket", "mortar"), "mortar");
   assert.equal(nextWeaponSelection("mortar", "rocket"), "rocket");
   assert.equal(nextWeaponSelection("mortar", "mortar"), null);
+  assert.equal(nextWeaponSelection(null, "shock"), "shock");
+  assert.equal(nextWeaponSelection("shock", "shock"), null);
 });
 
 test("Mortar consumes valid ground clicks regardless of occupants but never leaks movement on invalid points", () => {
@@ -115,4 +120,15 @@ test("rocket target clicks never turn into ordinary move or attack commands", ()
     x: 500,
     y: 500
   });
+});
+
+test("Shockshot targeting accepts only living enemies in range without leaking movement", () => {
+  const shooter = { team: "blue", x: 0, y: 0 };
+  const enemy = { id: "enemy", team: "red", x: 650, y: 0, hp: 10 };
+  assert.deepEqual(resolveArenaClick("shock", shooter, enemy, { x: 400, y: 400 }, 900), {
+    type: "shock", targetId: "enemy"
+  });
+  assert.deepEqual(resolveArenaClick("shock", shooter, { ...enemy, x: 651 }, { x: 400, y: 400 }, 900), { type: "ignore" });
+  assert.deepEqual(resolveArenaClick("shock", shooter, { ...enemy, team: "blue" }, { x: 400, y: 400 }, 900), { type: "ignore" });
+  assert.deepEqual(resolveArenaClick("shock", shooter, null, { x: 400, y: 400 }, 900), { type: "ignore" });
 });

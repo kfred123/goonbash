@@ -19,11 +19,12 @@ test("canUpgradeAbility permits upgrade only when having at least 1 point and be
   assert.equal(canUpgradeAbility(2, 11), false); // exceeds max
 });
 
-test("the ability catalog defines independent role abilities including a third Damagedealer skill", () => {
-  assert.equal(new Set(ABILITY_IDS).size, 7);
+test("the ability catalog defines independent role abilities including three Scout skills", () => {
+  assert.equal(new Set(ABILITY_IDS).size, 10);
   assert.deepEqual(ROLE_ABILITY_IDS.healer, ["healer-aura", "healer-speed"]);
   assert.deepEqual(ROLE_ABILITY_IDS.tank, ["tank-shield", "tank-entrench"]);
   assert.deepEqual(ROLE_ABILITY_IDS.damagedealer, ["damagedealer-rapidfire", "damagedealer-homing-rocket", "damagedealer-mortar"]);
+  assert.deepEqual(ROLE_ABILITY_IDS.scout, ["scout-weitsicht", "scout-offroad", "scout-shockshot"]);
   for (const abilityId of ABILITY_IDS) {
     assert.equal(ABILITY_DEFINITIONS[abilityId].id, abilityId);
   }
@@ -60,6 +61,21 @@ test("tank damage reduction and cooldown scaling remain bounded at level 10", ()
   assert.equal(shield.magnitude, 0.68);
   assert.equal(entrench.magnitude, 0.94);
   assert.ok(entrench.cooldownMs >= 12000, "cooldown does not fall below half its base");
+});
+
+test("Scout abilities scale sight, grass speed and immobilization duration independently", () => {
+  const sightFirst = computeAbilityConfigForLevel("scout-weitsicht", 1);
+  const sightLast = computeAbilityConfigForLevel("scout-weitsicht", 10);
+  assert.equal(sightFirst.magnitude, 150);
+  assert.equal(sightLast.magnitude, 600);
+  assert.equal(sightFirst.durationMs, 4000);
+  assert.equal(sightLast.durationMs, 8500);
+
+  assert.equal(computeAbilityConfigForLevel("scout-offroad", 1).magnitude, 1.2);
+  assert.equal(computeAbilityConfigForLevel("scout-offroad", 10).magnitude, 1.65);
+
+  assert.equal(computeAbilityConfigForLevel("scout-shockshot", 1).durationMs, 2000);
+  assert.equal(computeAbilityConfigForLevel("scout-shockshot", 10).durationMs, 6500);
 });
 
 test("computeAbilityConfigForLevel clamps levels above maximum", () => {

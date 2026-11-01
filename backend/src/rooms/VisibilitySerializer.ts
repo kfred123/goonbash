@@ -40,6 +40,7 @@ function copyEntity(destination: Entity, source: Entity): void {
   destination.x = source.x;
   destination.y = source.y;
   destination.radius = source.radius;
+  destination.movementDisabledUntil = source.movementDisabledUntil;
 }
 
 function copyCombat(destination: Tank | Minion | Base | Tower, source: Tank | Minion | Base | Tower): void {
@@ -136,6 +137,8 @@ export function updateClientView(view: GameState, source: GameState, sessionId: 
       destination.speed = projectile.speed;
       destination.damage = projectile.damage;
       destination.isHomingRocket = projectile.isHomingRocket;
+      destination.isShockshot = projectile.isShockshot;
+      destination.effectDurationMs = projectile.effectDurationMs;
       destination.isMortar = projectile.isMortar;
       destination.flightProgress = projectile.flightProgress;
       destination.blastRadius = projectile.blastRadius;

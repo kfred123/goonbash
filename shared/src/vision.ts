@@ -158,5 +158,5 @@ export class TeamVision {
 
 export const INVALID_TARGET_MESSAGE = "action_rejected";
 export type InvalidTargetMessage =
-  | { action: "attack" | "rocket"; reason: "invalid_target" }
+  | { action: "attack" | "rocket" | "shockshot"; reason: "invalid_target" }
   | { action: "mortar"; reason: import("./mortar").MortarRejectionReason };

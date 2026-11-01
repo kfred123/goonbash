@@ -27,7 +27,7 @@ function recorder() {
   return { graphics, calls };
 }
 
-for (const role of ['healer', 'tank', 'damagedealer'] satisfies Role[]) {
+for (const role of ['healer', 'tank', 'damagedealer', 'scout'] satisfies Role[]) {
   for (const teamColor of [0x4d8dff, 0xff4444]) {
     for (const detailed of [true, false]) {
       test(`${role}, team ${teamColor.toString(16)}, detailed=${detailed}: tracks, team hull and separate cannon`, () => {
@@ -41,7 +41,7 @@ for (const role of ['healer', 'tank', 'damagedealer'] satisfies Role[]) {
         const tracks = chassis.calls.filter(c => c.method === 'fillRoundedRect' && c.args[3] === 68);
         assert.equal(tracks.length, 2);
         assert.ok(tracks[0].args[0] < 0 && tracks[1].args[0] > 0);
-        const expectedSpan = role === 'tank' ? 68 : role === 'healer' ? 56 : 48;
+        const expectedSpan = role === 'tank' ? 68 : role === 'healer' || role === 'scout' ? 56 : 48;
         assert.equal(tracks[1].args[0] + tracks[1].args[2] - tracks[0].args[0], expectedSpan);
         assert.ok(turret.calls.some(c => c.method === 'fillRoundedRect' && c.args[1] === (role === 'damagedealer' ? -48 : -39)), 'visible cannon muzzle');
         assert.ok(turret.calls.some(c => c.method === 'fillStyle' && c.args[0] === 0xc0cfd8), 'metal barrel');

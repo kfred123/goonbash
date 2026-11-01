@@ -6,6 +6,7 @@ test("resolves the matching stats block for each valid role", () => {
   assert.deepEqual(resolveRoleStats("healer"), ROLE_STATS.healer);
   assert.deepEqual(resolveRoleStats("tank"), ROLE_STATS.tank);
   assert.deepEqual(resolveRoleStats("damagedealer"), ROLE_STATS.damagedealer);
+  assert.deepEqual(resolveRoleStats("scout"), ROLE_STATS.scout);
 });
 
 test("defaults to the Tank stats for an unset or invalid role", () => {
@@ -17,6 +18,7 @@ test("resolves the matching ability config for each valid role", () => {
   assert.deepEqual(resolveRoleAbilityConfig("healer"), ROLE_ABILITY_CONFIG.healer);
   assert.deepEqual(resolveRoleAbilityConfig("tank"), ROLE_ABILITY_CONFIG.tank);
   assert.deepEqual(resolveRoleAbilityConfig("damagedealer"), ROLE_ABILITY_CONFIG.damagedealer);
+  assert.deepEqual(resolveRoleAbilityConfig("scout"), ROLE_ABILITY_CONFIG.scout);
 });
 
 test("defaults to the Tank ability config for an unset or invalid role", () => {

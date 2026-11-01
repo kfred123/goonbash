@@ -6,9 +6,9 @@ import { lobbyRegistry } from "../lobbies/LobbyRegistry.js";
 import { canChangeRole, canChangeTeam, canJoinRoom, canManageLobby, canUseGameplayActions, normalizePlayerName, resolveHostAfterLeave, selectBalancedTeam } from "./lobbyControls.js";
 import { allPlayersReady, COUNTDOWN_DURATION_MS, LOBBY_ACTION_ERROR } from "shared";
 import { clampToBounds, createShotProjectile, findNearestEnemyInRange, getLivingTowers, hasDied, hasProjectileReachedTarget, isReadyToRespawn, isWithinRange, stepHomingProjectile, stepProjectileTowardTarget, stepToward, applyDamage as computeDamagedHp, nearBasePosition, respawnDelayMs, respawnTank, tickShooter } from "./combat.js";
-import { activateAbility, applyDamageReduction, canActivateRoleAbility, effectiveFireCooldown, effectiveMoveSpeed, healOverTick, homingRocketDamage, isAbilityActive, isMovementLocked, isValidRocketTarget, strongestReduction } from "./ability.js";
+import { activateAbility, applyDamageReduction, applyMovementDisable, canActivateRoleAbility, effectiveFireCooldown, effectiveMoveSpeed, healOverTick, homingRocketDamage, isAbilityActive, isMovementDisabled, isMovementLocked, isValidRocketTarget, isValidShockTarget, strongestReduction } from "./ability.js";
 import { getLaneTowerPlacements } from "./towerPlacement.js";
-import { effectiveTerrainMoveSpeed } from "./terrain.js";
+import { effectiveScoutTerrainMoveSpeed, effectiveTerrainMoveSpeed } from "./terrain.js";
 import { applyTankProgressionStats, distributeKillXp, purchaseAbilityUpgrade } from "./progressionService.js";
 import { endMatchAfterBaseDestroyed, recordPlayerDamage, recordPlayerKill, removeLeavingPlayerTank } from "./matchResults.js";
 import { VisibilitySerializer } from "./VisibilitySerializer.js";
@@ -77,7 +77,8 @@ export class GameRoom extends Room<GameState> {
     this.createBase("red", RED_BASE_POSITION.x, RED_BASE_POSITION.y);
     this.onMessage("command", (client, command: { x?: unknown; y?: unknown; targetId?: unknown }) => {
       const tank = this.state.tanks.get(client.sessionId);
-      if (!tank || !canUseGameplayActions(this.state.phase) || tank.state === "dead") return;
+      if (!tank || !canUseGameplayActions(this.state.phase) || tank.state === "dead"
+        || this.isTankMovementLocked(tank, Date.now())) return;
       const targetId = typeof command?.targetId === "string" ? command.targetId : "";
       if (targetId) {
         const target = this.findLivingEntity(targetId);
@@ -92,7 +93,6 @@ export class GameRoom extends Room<GameState> {
         }
         // Friendly targetId: fall through and treat it as a move-to-point instead.
       }
-      if (this.isEntrenched(tank, Date.now())) return;
       const x = typeof command?.x === "number" ? command.x : NaN;
       const y = typeof command?.y === "number" ? command.y : NaN
       if (!Number.isFinite(x) || !Number.isFinite(y)) return;
@@ -153,12 +153,37 @@ export class GameRoom extends Room<GameState> {
         }
         this.spawnHomingRocket(tank, target, homingRocketDamage(tank.fireDamage, ability.level), abilityConfig.projectileSpeed ?? 450);
       }
+      if (abilityId === "scout-shockshot") {
+        if (typeof payload.targetId !== "string") return;
+        const target = this.findLivingEntity(payload.targetId);
+        const shockTarget = target instanceof Tank || target instanceof Minion ? target : undefined;
+        if (!shockTarget || !this.teamVision(tank.team).canSee(shockTarget)
+          || !isValidShockTarget(tank, shockTarget, abilityConfig.range ?? 0)) {
+          client.send(INVALID_TARGET_MESSAGE, { action: "shockshot", reason: "invalid_target" });
+          return;
+        }
+        const projectile = new Projectile();
+        projectile.id = `shock-${now}-${Math.random()}`;
+        projectile.team = tank.team;
+        projectile.ownerId = tank.id;
+        projectile.targetId = shockTarget.id;
+        projectile.x = tank.x;
+        projectile.y = tank.y;
+        projectile.speed = abilityConfig.projectileSpeed ?? 550;
+        projectile.effectDurationMs = abilityConfig.durationMs;
+        projectile.isShockshot = true;
+        this.state.projectiles.set(projectile.id, projectile);
+        this.projectileLifetimes.set(projectile.id, 0);
+      }
       const timing = activateAbility(now, abilityConfig);
       ability.cooldownEndsAt = timing.cooldownEndsAt;
       ability.cooldownMax = timing.cooldownMax;
       ability.activeUntil = timing.activeUntil;
       if (abilityId === "tank-entrench") {
         tank.hasMoveTarget = false;
+      }
+      if (abilityId === "scout-weitsicht") {
+        tank.sightRange = resolveRoleStats(tank.role).sightRange + abilityConfig.magnitude;
       }
     });
     this.onMessage("upgrade_ability", (client, payload: { abilityId?: unknown }) => {
@@ -240,6 +265,7 @@ export class GameRoom extends Room<GameState> {
     }
     const elapsedSeconds = deltaTime / 1000;
     const now = Date.now();
+    this.updateTemporaryAbilityEffects(now);
 
     // Resolve targeting/firing before movement so units that are engaged
     // with an enemy this tick hold their ground instead of marching through it.
@@ -269,14 +295,17 @@ export class GameRoom extends Room<GameState> {
     [...this.state.tanks.values()].sort(byId).forEach((tank) => {
       if (tank.state === "dead") return;
       const now = Date.now();
-      if (this.isEntrenched(tank, now)) return;
+      if (this.isTankMovementLocked(tank, now)) return;
       const speedAbility = tank.abilities.get("healer-speed");
       const speedActive = tank.role === "healer" && isAbilityActive(now, speedAbility);
       const speedMultiplier = speedAbility
         ? computeAbilityConfigForLevel("healer-speed", speedAbility.level).magnitude
         : 1;
       const effectiveSpeed = effectiveMoveSpeed(tank.moveSpeed, speedActive, speedMultiplier);
-      const speed = effectiveTerrainMoveSpeed(effectiveSpeed, tank) * elapsedSeconds;
+      const offroad = tank.abilities.get("scout-offroad");
+      const offroadActive = tank.role === "scout" && isAbilityActive(now, offroad);
+      const offroadMultiplier = computeAbilityConfigForLevel("scout-offroad", offroad?.level ?? 0).magnitude;
+      const speed = effectiveScoutTerrainMoveSpeed(effectiveSpeed, tank, offroadActive, offroadMultiplier) * elapsedSeconds;
       if (tank.lockedTargetId) {
         const target = this.findLivingEntity(tank.lockedTargetId);
         if (!target || target.team === tank.team || !this.teamVision(tank.team).canSee(target)) {
@@ -306,7 +335,7 @@ export class GameRoom extends Room<GameState> {
 
   private updateMinionMovement(elapsedSeconds: number) {
     for (const minion of [...this.state.minions.values()].sort(byId)) {
-      if (minion.targetId || minion.hp <= 0) continue;
+      if (minion.targetId || minion.hp <= 0 || isMovementDisabled(Date.now(), minion.movementDisabledUntil)) continue;
       const speed = effectiveTerrainMoveSpeed(minion.speed, minion) * elapsedSeconds;
       const position = moveMinion(minion, speed, movementBlockers(minion, this.state), WORLD_BOUNDS, this.minionDetours);
       minion.x = position.x;
@@ -556,7 +585,13 @@ export class GameRoom extends Room<GameState> {
       projectile.y = nextPosition.y;
 
       if (hasProjectileReachedTarget(projectile.x, projectile.y, target.x, target.y, PROJECTILE_HIT_RADIUS)) {
-        this.applyDamage(target, projectile.damage, projectile.ownerId);
+        if (projectile.isShockshot) {
+          if (target instanceof Tank || target instanceof Minion) {
+            applyMovementDisable(target, Date.now(), projectile.effectDurationMs);
+          }
+        } else {
+          this.applyDamage(target, projectile.damage, projectile.ownerId);
+        }
         toRemove.push(projectile.id);
         continue;
       }
@@ -644,6 +679,8 @@ export class GameRoom extends Room<GameState> {
     tank.moveTargetX = position.x;
     tank.moveTargetY = position.y;
     tank.abilities.forEach((ability) => { ability.activeUntil = 0; });
+    tank.sightRange = resolveRoleStats(tank.role).sightRange;
+    tank.movementDisabledUntil = 0;
     tank.respawnAt = Date.now() + respawnDelayMs(tank.level);
   }
 
@@ -676,8 +713,17 @@ export class GameRoom extends Room<GameState> {
     });
   }
 
-  private isEntrenched(tank: Tank, now: number): boolean {
-    return isMovementLocked(tank.role, isAbilityActive(now, tank.abilities.get("tank-entrench")));
+  private isTankMovementLocked(tank: Tank, now: number): boolean {
+    return isMovementLocked(tank.role, isAbilityActive(now, tank.abilities.get("tank-entrench")))
+      || isMovementDisabled(now, tank.movementDisabledUntil);
+  }
+
+  private updateTemporaryAbilityEffects(now: number) {
+    this.state.tanks.forEach((tank) => {
+      if (tank.role !== "scout" || isAbilityActive(now, tank.abilities.get("scout-weitsicht"))) return;
+      const baseSightRange = resolveRoleStats(tank.role).sightRange;
+      if (tank.sightRange !== baseSightRange) tank.sightRange = baseSightRange;
+    });
   }
 
   /** Restores a dead tank to full HP at its team's base once its respawn delay has elapsed. */
