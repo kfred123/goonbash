@@ -9,3 +9,13 @@ export function terrainMovementMultiplier(position: { x: number; y: number }): n
 export function effectiveTerrainMoveSpeed(speed: number, position: { x: number; y: number }): number {
   return speed * terrainMovementMultiplier(position);
 }
+
+export function effectiveScoutTerrainMoveSpeed(
+  speed: number,
+  position: { x: number; y: number },
+  boostActive: boolean,
+  multiplier: number
+): number {
+  const terrainMultiplier = terrainMovementMultiplier(position);
+  return speed * terrainMultiplier * (boostActive && terrainMultiplier < 1 ? multiplier : 1);
+}

@@ -116,6 +116,19 @@ test("purchaseAbilityUpgrade learns or upgrades an available ability independent
   assert.equal(tank.abilities.get("tank-entrench")?.level, 0);
 });
 
+test("Scout purchases are role restricted and each ability upgrades independently", () => {
+  const scout = createMockTank({ role: "scout", skillPoints: 3 });
+  assert.equal(purchaseAbilityUpgrade(scout, "scout-weitsicht"), true);
+  assert.equal(purchaseAbilityUpgrade(scout, "scout-offroad"), true);
+  assert.equal(purchaseAbilityUpgrade(scout, "scout-shockshot"), true);
+  assert.equal(scout.skillPoints, 0);
+  assert.deepEqual(
+    ["scout-weitsicht", "scout-offroad", "scout-shockshot"].map((id) => scout.abilities.get(id)?.level),
+    [1, 1, 1]
+  );
+  assert.equal(purchaseAbilityUpgrade(createMockTank({ skillPoints: 1 }), "scout-weitsicht"), false);
+});
+
 test("purchaseAbilityUpgrade rejects upgrade if already at max level 10", () => {
   const tank = createMockTank({ skillPoints: 5 });
   tank.abilities.get("tank-shield")!.level = MAX_ABILITY_LEVEL;

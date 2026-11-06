@@ -7,6 +7,8 @@ export class Projectile extends Entity {
   @type("number") damage: number = 0;
   @type("number") speed: number = 400;
   @type("boolean") isHomingRocket: boolean = false;
+  @type("boolean") isShockshot: boolean = false;
+  @type("number") effectDurationMs: number = 0;
   @type("boolean") isMortar: boolean = false;
   @type("number") landingX: number = 0;
   @type("number") landingY: number = 0;

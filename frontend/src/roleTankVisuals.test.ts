@@ -3,6 +3,10 @@ import { test } from 'node:test';
 import type { Role } from 'shared';
 import { drawRoleChassis, drawRoleTurret, getSmoothedHeading, getVehicleHeading } from './roleTankVisuals.js';
 import { drawWrench } from './wrenchVisuals.js';
+import {
+  drawBinocularIcon, drawOffroadIcon, drawScoutOffroadEffects, drawScoutSightEffects, drawShockIcon,
+  getScoutEffectState, SCOUT_EMITTER_TIP_Y, SCOUT_WHEEL_HEIGHT
+} from './scoutVisuals.js';
 import type { Drawing } from './wrenchVisuals.js';
 
 function recorder() {
@@ -59,6 +63,64 @@ for (const role of ['healer', 'tank', 'damagedealer'] satisfies Role[]) {
     assert.ok(small.calls.length < full.calls.length);
   });
 }
+
+for (const teamColor of [0x4d8dff, 0xff4444]) {
+  for (const detailed of [true, false]) {
+    test(`scout, team ${teamColor.toString(16)}, detailed=${detailed}: off-road wheels, binocular turret and shock emitter`, () => {
+      const chassis = recorder();
+      const turret = recorder();
+      drawRoleChassis(chassis.graphics, 'scout', teamColor, detailed);
+      drawRoleTurret(turret.graphics, 'scout', teamColor, detailed);
+      assert.equal(chassis.calls[0].method, 'clear');
+      assert.equal(turret.calls[0].method, 'clear');
+      assert.ok(chassis.calls.some(c => c.method === 'fillStyle' && c.args[0] === teamColor));
+      const wheels = chassis.calls.filter(c => c.method === 'fillRoundedRect' && c.args[3] === SCOUT_WHEEL_HEIGHT);
+      assert.equal(wheels.length, 4, 'four tires instead of tracks');
+      assert.equal(chassis.calls.filter(c => c.method === 'fillRoundedRect' && c.args[2] < 20 && c.args[3] === 68).length, 0, 'no tracks');
+      const lenses = turret.calls.filter(c => c.method === 'fillStyle' && c.args[0] === 0x6fd3ff);
+      assert.equal(lenses.length, 2, 'two binocular lenses');
+      assert.ok(turret.calls.some(c => c.method === 'fillRoundedRect' && c.args[1] === SCOUT_EMITTER_TIP_Y + 2), 'forward shock emitter');
+      assert.ok(turret.calls.some(c => c.method === 'fillStyle' && c.args[0] === teamColor));
+    });
+  }
+}
+
+test('scout: lobby keeps geometry while reducing detail', () => {
+  const full = recorder();
+  const small = recorder();
+  drawRoleChassis(full.graphics, 'scout', 0x4d8dff, true);
+  drawRoleTurret(full.graphics, 'scout', 0x4d8dff, true);
+  drawRoleChassis(small.graphics, 'scout', 0x4d8dff, false);
+  drawRoleTurret(small.graphics, 'scout', 0x4d8dff, false);
+  assert.ok(small.calls.length < full.calls.length);
+});
+
+test('scout ability effects follow replicated active times and always clear the previous frame', () => {
+  assert.deepEqual(getScoutEffectState(false, 2000, 0, 1000), { sight: true, offroad: false });
+  assert.deepEqual(getScoutEffectState(false, 1000, 1500, 1000), { sight: false, offroad: true });
+  assert.deepEqual(getScoutEffectState(true, 2000, 2000, 1000), { sight: false, offroad: false });
+  for (const draw of [drawScoutOffroadEffects, drawScoutSightEffects]) {
+    const idle = recorder();
+    draw(idle.graphics, false, 0);
+    assert.deepEqual(idle.calls.map(c => c.method), ['clear']);
+    const active = recorder();
+    draw(active.graphics, true, 250);
+    assert.equal(active.calls[0].method, 'clear');
+    assert.ok(active.calls.some(c => c.method === 'lineBetween'));
+  }
+});
+
+test('scout HUD icons draw a binocular, a grass wheel and a lightning bolt', () => {
+  const binocular = recorder();
+  drawBinocularIcon(binocular.graphics, 0, 0, 40);
+  assert.equal(binocular.calls.filter(c => c.method === 'strokeCircle').length, 2);
+  const offroad = recorder();
+  drawOffroadIcon(offroad.graphics, 0, 0, 40);
+  assert.ok(offroad.calls.some(c => c.method === 'strokeCircle'));
+  const shock = recorder();
+  drawShockIcon(shock.graphics, 0, 0, 40);
+  assert.ok(shock.calls.some(c => c.method === 'fillPath'));
+});
 
 test('north-facing artwork aims at targets and falls back to the chassis heading', () => {
   const origin = { x: 100, y: 100 };

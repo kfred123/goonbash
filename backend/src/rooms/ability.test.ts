@@ -11,6 +11,9 @@ import {
   healOverTick,
   homingRocketDamage,
   isValidRocketTarget,
+  isValidShockTarget,
+  applyMovementDisable,
+  isMovementDisabled,
   isMovementLocked,
   isAbilityActive,
   strongestReduction
@@ -28,7 +31,8 @@ test("role ability activation requires an ability belonging to the role and its 
   for (const [role, abilityId] of [
     ["healer", "healer-aura"], ["healer", "healer-speed"],
     ["tank", "tank-shield"], ["tank", "tank-entrench"],
-    ["damagedealer", "damagedealer-rapidfire"], ["damagedealer", "damagedealer-homing-rocket"]
+    ["damagedealer", "damagedealer-rapidfire"], ["damagedealer", "damagedealer-homing-rocket"],
+    ["scout", "scout-weitsicht"], ["scout", "scout-offroad"], ["scout", "scout-shockshot"]
   ] as const) {
     assert.equal(canActivateRoleAbility(1000, role, abilityId, ready), true);
   }
@@ -94,6 +98,27 @@ test("rocket target validation accepts every supported living enemy entity type"
     target.hp = 100;
   });
   assert.ok(targets.every((target) => isValidRocketTarget(shooter, target, 900)));
+});
+
+test("Shockshot accepts living enemies in range and rejects invalid targets", () => {
+  const shooter = { team: "blue", x: 0, y: 0 };
+  const target = { team: "red", x: 650, y: 0, hp: 100, movementDisabledUntil: 0 };
+  assert.equal(isValidShockTarget(shooter, target, 650), true);
+  assert.equal(isValidShockTarget(shooter, { ...target, team: "blue" }, 650), false);
+  assert.equal(isValidShockTarget(shooter, { ...target, hp: 0 }, 650), false);
+  assert.equal(isValidShockTarget(shooter, { ...target, x: 651 }, 650), false);
+  assert.equal(isValidShockTarget(shooter, undefined, 650), false);
+});
+
+test("Shockshot movement restrictions extend to the later expiry without dealing damage", () => {
+  const target = { team: "red", x: 0, y: 0, hp: 100, movementDisabledUntil: 1200 };
+  applyMovementDisable(target, 1000, 2000);
+  assert.equal(target.movementDisabledUntil, 3000);
+  applyMovementDisable(target, 2000, 500);
+  assert.equal(target.movementDisabledUntil, 3000);
+  assert.equal(isMovementDisabled(2999, target.movementDisabledUntil), true);
+  assert.equal(isMovementDisabled(3000, target.movementDisabledUntil), false);
+  assert.equal(target.hp, 100);
 });
 
 test("homing rocket damage snapshots progression-adjusted fire damage and ability scaling", () => {

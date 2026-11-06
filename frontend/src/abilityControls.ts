@@ -1,7 +1,7 @@
 import type { AbilityId, Role } from "shared";
 import { ROLE_ABILITY_IDS, mortarPointRejection, getAbilityDefinition } from "shared";
 
-export type WeaponSelection = "rocket" | "mortar" | null;
+export type WeaponSelection = "rocket" | "mortar" | "shock" | null;
 export const ABILITY_KEYS = ["SPACE", "E", "R"] as const;
 
 export function getAbilitySlotDesignX(index: number, count: number): number {
@@ -62,6 +62,7 @@ export function isRocketTargetClickValid(
 
 export type ArenaClickAction =
   | { type: "rocket"; targetId: string }
+  | { type: "shock"; targetId: string }
   | { type: "mortar"; x: number; y: number }
   | { type: "attack"; targetId: string; x: number; y: number }
   | { type: "move"; x: number; y: number }
@@ -72,11 +73,17 @@ export function resolveArenaClick(
   shooter: { team: string; x: number; y: number },
   target: RocketClickTarget | null,
   worldPoint: { x: number; y: number },
-  rocketRange: number
+  rocketRange: number,
+  shockRange = 650
 ): ArenaClickAction {
   if (selection === "mortar") {
     return mortarPointRejection(shooter, worldPoint.x, worldPoint.y, getAbilityDefinition("damagedealer-mortar").config.range!) === null
       ? { type: "mortar", x: worldPoint.x, y: worldPoint.y }
+      : { type: "ignore" };
+  }
+  if (selection === "shock") {
+    return target?.id && isRocketTargetClickValid(shooter, target, shockRange)
+      ? { type: "shock", targetId: target.id }
       : { type: "ignore" };
   }
   if (selection === "rocket" || selection === true) {

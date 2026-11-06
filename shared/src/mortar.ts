@@ -4,7 +4,8 @@ import type { AbilityId } from "./abilities";
 export type AbilityActivationRequest =
   | { abilityId: "damagedealer-homing-rocket"; targetId: string }
   | { abilityId: "damagedealer-mortar"; targetX: number; targetY: number }
-  | { abilityId: Exclude<AbilityId, "damagedealer-homing-rocket" | "damagedealer-mortar"> };
+  | { abilityId: "scout-shockshot"; targetId: string }
+  | { abilityId: Exclude<AbilityId, "damagedealer-homing-rocket" | "damagedealer-mortar" | "scout-shockshot"> };
 
 export type MortarRejectionReason =
   | "invalid_point" | "out_of_range" | "unavailable" | "unlearned" | "cooldown" | "inactive";

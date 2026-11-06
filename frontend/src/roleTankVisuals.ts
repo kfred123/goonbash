@@ -1,5 +1,6 @@
 import type { Role } from 'shared';
 import { drawWrench } from './wrenchVisuals.js';
+import { drawScoutChassis, drawScoutTurret } from './scoutVisuals.js';
 import type { Drawing } from './wrenchVisuals.js';
 
 const INK = 0x172330;
@@ -27,6 +28,10 @@ function box(g: Drawing, x: number, y: number, w: number, h: number, color: numb
 }
 
 export function drawRoleChassis(g: Drawing, role: Role, teamColor: number, detailed: boolean) {
+  if (role === 'scout') {
+    drawScoutChassis(g, teamColor, detailed);
+    return;
+  }
   g.clear();
   const heavy = role === 'tank';
   const light = role === 'damagedealer';
@@ -85,6 +90,10 @@ export function drawRoleChassis(g: Drawing, role: Role, teamColor: number, detai
 }
 
 export function drawRoleTurret(g: Drawing, role: Role, teamColor: number, detailed: boolean) {
+  if (role === 'scout') {
+    drawScoutTurret(g, teamColor, detailed);
+    return;
+  }
   g.clear();
   const long = role === 'damagedealer';
   const heavy = role === 'tank';

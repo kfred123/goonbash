@@ -6,8 +6,8 @@ const bomb = `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" vie
 
 export function getWeaponCursor(selection: WeaponSelection): string | null {
   if (!selection) return null;
-  const svg = selection === "rocket" ? crosshair : bomb;
-  const hotspot = selection === "rocket" ? "16 16" : "15 19";
+  const svg = selection === "mortar" ? bomb : crosshair;
+  const hotspot = selection === "mortar" ? "15 19" : "16 16";
   return `url("data:image/svg+xml,${encodeURIComponent(svg)}") ${hotspot}, crosshair`;
 }
 
