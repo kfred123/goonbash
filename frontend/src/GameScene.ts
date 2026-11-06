@@ -39,6 +39,7 @@ import { getMatchResultsPage, MatchResultsSort, nextMatchResultsSort, sortMatchR
 import { createRoleTank, RoleTank } from './roleTank.js';
 import { getSmoothedHeading, getVehicleHeading } from './roleTankVisuals.js';
 import { drawWrench } from './wrenchVisuals.js';
+import { drawBinocularIcon, drawOffroadIcon, drawShockIcon } from './scoutVisuals.js';
 import { createMinionBeetle, MinionBeetle } from './minionBeetle.js';
 import { getRespawnCountdown, getTankPresentation } from './respawnPresentation.js';
 
@@ -1025,7 +1026,7 @@ export class GameScene extends Phaser.Scene {
       };
     }
     if (isDead) {
-      this.tankSprites.get(sessionId)?.updateAbilityVisuals(true, 0, 0, Date.now(), this.time.now);
+      this.tankSprites.get(sessionId)?.updateAbilityVisuals(true, () => 0, Date.now(), this.time.now);
       this.removeTargetFeedback(sessionId);
       if (isMe) this.cancelRocketTargetSelection();
     }
@@ -1317,6 +1318,7 @@ export class GameScene extends Phaser.Scene {
       projectile.isMortar ? 12 : projectile.isShockshot ? 6 : 4,
       projectile.isMortar ? 0x202632 : projectile.isShockshot ? 0x72e8ff : projectile.team === 'blue' ? 0x99ccff : 0xffcc99
     ).setDepth(projectile.isMortar ? 910 : 2);
+    if (projectile.isShockshot) sprite.setStrokeStyle(2, 0xffffff);
     if (projectile.isMortar) {
       sprite.setStrokeStyle(2, 0xffdd88);
       const shadow = this.mortarShadows.get(id) ?? this.add.ellipse(x, y, 22, 10, 0x000000, 0.5).setDepth(901);
@@ -1701,8 +1703,7 @@ export class GameScene extends Phaser.Scene {
       if (!sprite) return;
       sprite.updateAbilityVisuals(
         tank.state === 'dead',
-        tank.abilities?.get('healer-aura')?.activeUntil ?? 0,
-        tank.abilities?.get('healer-speed')?.activeUntil ?? 0,
+        (abilityId) => tank.abilities?.get(abilityId)?.activeUntil ?? 0,
         now,
         this.time.now
       );
@@ -1930,6 +1931,9 @@ export class GameScene extends Phaser.Scene {
       g.lineStyle(3 * scale, 0xffaa33).lineBetween(cx + 5 * scale, cy - 8 * scale, cx + 9 * scale, cy - 14 * scale);
       g.lineBetween(cx + 9 * scale, cy - 14 * scale, cx + 15 * scale, cy - 12 * scale);
     } else if (abilityId === 'damagedealer-rapidfire') this.drawRapidFireIcon(g, cx, cy, size);
+    else if (abilityId === 'scout-weitsicht') drawBinocularIcon(g, cx, cy, size);
+    else if (abilityId === 'scout-offroad') drawOffroadIcon(g, cx, cy, size);
+    else if (abilityId === 'scout-shockshot') drawShockIcon(g, cx, cy, size);
     else {
       g.fillStyle(0xffffff, 1);
       g.beginPath();
