@@ -1,7 +1,7 @@
 import type { AbilityId, Role } from "shared";
 import { ROLE_ABILITY_IDS, mortarPointRejection, getAbilityDefinition } from "shared";
 
-export type WeaponSelection = "rocket" | "mortar" | "shock" | null;
+export type WeaponSelection = "rocket" | "mortar" | "shock" | "rescue" | null;
 export const ABILITY_KEYS = ["SPACE", "E", "R"] as const;
 
 export function getAbilitySlotDesignX(index: number, count: number): number {
@@ -24,6 +24,7 @@ export interface RocketClickTarget {
   y: number;
   hp?: number;
   state?: string;
+  kind?: "tank" | "minion" | "base" | "tower";
 }
 
 export interface AbilityHudProgress {
@@ -63,6 +64,7 @@ export function isRocketTargetClickValid(
 export type ArenaClickAction =
   | { type: "rocket"; targetId: string }
   | { type: "shock"; targetId: string }
+  | { type: "rescue"; targetId: string }
   | { type: "mortar"; x: number; y: number }
   | { type: "attack"; targetId: string; x: number; y: number }
   | { type: "move"; x: number; y: number }
@@ -76,6 +78,13 @@ export function resolveArenaClick(
   rocketRange: number,
   shockRange = 650
 ): ArenaClickAction {
+  if (selection === "rescue") {
+    return target?.id && target.kind === "tank" && target.team === shooter.team
+      && target.hp !== undefined && target.hp > 0 && target.state !== "dead"
+      && Math.hypot(target.x - shooter.x, target.y - shooter.y) <= getAbilityDefinition("healer-rescue-impulse").config.range!
+      ? { type: "rescue", targetId: target.id }
+      : { type: "ignore" };
+  }
   if (selection === "mortar") {
     return mortarPointRejection(shooter, worldPoint.x, worldPoint.y, getAbilityDefinition("damagedealer-mortar").config.range!) === null
       ? { type: "mortar", x: worldPoint.x, y: worldPoint.y }

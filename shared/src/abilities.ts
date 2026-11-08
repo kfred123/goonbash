@@ -5,6 +5,7 @@ export const MAX_ABILITY_LEVEL = 10;
 export const ABILITY_IDS = [
   "healer-aura",
   "healer-speed",
+  "healer-rescue-impulse",
   "tank-shield",
   "tank-entrench",
   "damagedealer-rapidfire",
@@ -16,6 +17,9 @@ export const ABILITY_IDS = [
 ] as const;
 
 export type AbilityId = typeof ABILITY_IDS[number];
+
+export type RescueImpulseRejectionReason =
+  | "invalid_target" | "unavailable" | "unlearned" | "cooldown" | "inactive";
 
 export interface AbilityConfig {
   cooldownMs: number;
@@ -43,6 +47,10 @@ export const ABILITY_DEFINITIONS: Record<AbilityId, AbilityDefinition> = {
   "healer-speed": {
     id: "healer-speed", role: "healer", name: "Speed",
     config: { cooldownMs: 18000, durationMs: 4000, magnitude: 1.15 }
+  },
+  "healer-rescue-impulse": {
+    id: "healer-rescue-impulse", role: "healer", name: "Rettungsimpuls",
+    config: { cooldownMs: 20000, durationMs: 0, magnitude: 18, range: 250 }
   },
   "tank-shield": {
     id: "tank-shield", role: "tank", name: "Shield",
@@ -79,7 +87,7 @@ export const ABILITY_DEFINITIONS: Record<AbilityId, AbilityDefinition> = {
 };
 
 export const ROLE_ABILITY_IDS: Record<Role, readonly AbilityId[]> = {
-  healer: ["healer-aura", "healer-speed"],
+  healer: ["healer-aura", "healer-speed", "healer-rescue-impulse"],
   tank: ["tank-shield", "tank-entrench"],
   damagedealer: ["damagedealer-rapidfire", "damagedealer-homing-rocket", "damagedealer-mortar"],
   scout: ["scout-weitsicht", "scout-offroad", "scout-shockshot"]
@@ -118,6 +126,9 @@ export function computeAbilityConfigForLevel(
       break;
     case "healer-speed":
       magnitude += rank * 0.05;
+      break;
+    case "healer-rescue-impulse":
+      magnitude += rank * 3;
       break;
     case "tank-shield":
       magnitude = Math.min(0.8, magnitude + rank * 0.02);

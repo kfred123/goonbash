@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { getWeaponCursor, mortarShellHeight, MORTAR_REJECTION_TEXT } from "./weaponTargeting";
+import { getWeaponCursor, mortarShellHeight, MORTAR_REJECTION_TEXT, RESCUE_REJECTION_TEXT } from "./weaponTargeting";
 
 test("Rocket red crosshair and Mortar bomb replace pointers with explicit aiming hotspots", () => {
   const rocket = getWeaponCursor("rocket")!;
@@ -24,4 +24,15 @@ test("Mortar arc has fixed ground endpoints, a large midpoint height and bounded
 test("all authoritative Mortar rejection reasons have actionable feedback", () => {
   assert.equal(Object.keys(MORTAR_REJECTION_TEXT).length, 6);
   assert.ok(Object.values(MORTAR_REJECTION_TEXT).every((text) => text.length > 10));
+});
+
+test("Rescue Impulse uses a distinct green medical cursor and complete rejection feedback", () => {
+  const cursor = getWeaponCursor("rescue")!;
+  assert.match(cursor, /16 16, crosshair$/);
+  assert.ok(decodeURIComponent(cursor).includes("#44dd88"));
+  assert.notEqual(cursor, getWeaponCursor("rocket"));
+  assert.notEqual(cursor, getWeaponCursor("mortar"));
+  assert.deepEqual(Object.keys(RESCUE_REJECTION_TEXT).sort(),
+    ["cooldown", "inactive", "invalid_target", "unavailable", "unlearned"]);
+  assert.ok(Object.values(RESCUE_REJECTION_TEXT).every(text => text.length > 10));
 });

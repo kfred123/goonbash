@@ -42,7 +42,7 @@ export {
   canUpgradeAbility,
   computeAbilityConfigForLevel
 } from "./abilities";
-export type { AbilityDefinition, AbilityConfig, AbilityId } from "./abilities";
+export type { AbilityDefinition, AbilityConfig, AbilityId, RescueImpulseRejectionReason } from "./abilities";
 export { mortarPointRejection, MORTAR_IMPACT_MESSAGE } from "./mortar";
 export type { AbilityActivationRequest, MortarRejectionReason, MortarImpactMessage } from "./mortar";
 export type {

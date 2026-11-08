@@ -129,6 +129,28 @@ test("Scout purchases are role restricted and each ability upgrades independentl
   assert.equal(purchaseAbilityUpgrade(createMockTank({ skillPoints: 1 }), "scout-weitsicht"), false);
 });
 
+test("Rescue Impulse purchases are Healer-only and do not change other abilities", () => {
+  const healer = createMockTank({ role: "healer", skillPoints: 2 });
+  assert.equal(purchaseAbilityUpgrade(healer, "healer-rescue-impulse"), true);
+  assert.equal(healer.abilities.get("healer-rescue-impulse")!.level, 1);
+  assert.equal(purchaseAbilityUpgrade(healer, "healer-rescue-impulse"), true);
+  assert.equal(healer.abilities.get("healer-rescue-impulse")!.level, 2);
+  assert.equal(healer.skillPoints, 0);
+  assert.equal(purchaseAbilityUpgrade(healer, "healer-rescue-impulse"), false);
+  assert.equal(healer.abilities.get("healer-aura")!.level, 0);
+  assert.equal(healer.abilities.get("healer-speed")!.level, 0);
+  healer.skillPoints = 1;
+  healer.abilities.get("healer-rescue-impulse")!.level = MAX_ABILITY_LEVEL;
+  assert.equal(purchaseAbilityUpgrade(healer, "healer-rescue-impulse"), false);
+  assert.equal(healer.skillPoints, 1);
+  for (const role of ["tank", "damagedealer", "scout"]) {
+    const other = createMockTank({ role, skillPoints: 1 });
+    assert.equal(purchaseAbilityUpgrade(other, "healer-rescue-impulse"), false);
+    assert.equal(other.skillPoints, 1);
+    assert.equal(other.abilities.get("healer-rescue-impulse")!.level, 0);
+  }
+});
+
 test("purchaseAbilityUpgrade rejects upgrade if already at max level 10", () => {
   const tank = createMockTank({ skillPoints: 5 });
   tank.abilities.get("tank-shield")!.level = MAX_ABILITY_LEVEL;

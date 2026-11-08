@@ -5,7 +5,8 @@ export type AbilityActivationRequest =
   | { abilityId: "damagedealer-homing-rocket"; targetId: string }
   | { abilityId: "damagedealer-mortar"; targetX: number; targetY: number }
   | { abilityId: "scout-shockshot"; targetId: string }
-  | { abilityId: Exclude<AbilityId, "damagedealer-homing-rocket" | "damagedealer-mortar" | "scout-shockshot"> };
+  | { abilityId: "healer-rescue-impulse"; targetId: string }
+  | { abilityId: Exclude<AbilityId, "damagedealer-homing-rocket" | "damagedealer-mortar" | "scout-shockshot" | "healer-rescue-impulse"> };
 
 export type MortarRejectionReason =
   | "invalid_point" | "out_of_range" | "unavailable" | "unlearned" | "cooldown" | "inactive";

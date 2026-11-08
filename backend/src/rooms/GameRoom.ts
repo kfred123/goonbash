@@ -13,7 +13,7 @@ import { applyTankProgressionStats, distributeKillXp, purchaseAbilityUpgrade } f
 import { endMatchAfterBaseDestroyed, recordPlayerDamage, recordPlayerKill, removeLeavingPlayerTank } from "./matchResults.js";
 import { VisibilitySerializer } from "./VisibilitySerializer.js";
 import { MORTAR_IMPACT_MESSAGE, mortarPointRejection } from "shared";
-import type { MortarImpactMessage, MortarRejectionReason } from "shared";
+import type { MortarImpactMessage, MortarRejectionReason, RescueImpulseRejectionReason } from "shared";
 import { mortarDamage } from "./ability.js";
 import { byId, COLLISION_TOLERANCE, findClearNearBase, findLaneSpawn, movementBlockers, resolveMovement } from "./collision.js";
 import { moveMinion, type MinionDetour } from "./minionMovement.js";
@@ -132,6 +132,10 @@ export class GameRoom extends Room<GameState> {
     });
     this.onMessage("activate_ability", (client, payload: { abilityId?: unknown; targetId?: unknown; targetX?: unknown; targetY?: unknown }) => {
       const tank = this.state.tanks.get(client.sessionId);
+      if (payload?.abilityId === "healer-rescue-impulse") {
+        this.activateRescueImpulse(client, tank, payload.targetId);
+        return;
+      }
       if (payload?.abilityId === "damagedealer-mortar") {
         this.activateMortar(client, tank, payload.targetX, payload.targetY);
         return;
@@ -447,6 +451,37 @@ export class GameRoom extends Room<GameState> {
     projectile.isHomingRocket = true;
     this.state.projectiles.set(projectile.id, projectile);
     this.projectileLifetimes.set(projectile.id, 0);
+  }
+
+  private activateRescueImpulse(client: Client, tank: Tank | undefined, targetId: unknown) {
+    const reject = (reason: RescueImpulseRejectionReason) => client.send(INVALID_TARGET_MESSAGE, { action: "rescue", reason });
+    if (!tank || !canUseGameplayActions(this.state.phase) || tank.state === "dead" || tank.hp <= 0) {
+      reject("inactive");
+      return;
+    }
+    if (tank.role !== "healer") {
+      reject("unavailable");
+      return;
+    }
+    const ability = tank.abilities.get("healer-rescue-impulse");
+    if (!ability || ability.level <= 0) {
+      reject("unlearned");
+      return;
+    }
+    const now = Date.now();
+    if (now < ability.cooldownEndsAt) {
+      reject("cooldown");
+      return;
+    }
+    const config = computeAbilityConfigForLevel("healer-rescue-impulse", ability.level);
+    const target = typeof targetId === "string" ? this.state.tanks.get(targetId) : undefined;
+    if (!target || target.team !== tank.team || target.state === "dead" || target.hp <= 0
+      || !this.teamVision(tank.team).canSee(target) || !isWithinRange(tank, target, config.range!)) {
+      reject("invalid_target");
+      return;
+    }
+    target.hp = Math.min(target.maxHp, target.hp + config.magnitude);
+    Object.assign(ability, activateAbility(now, config), { activeUntil: 0 });
   }
 
   private activateMortar(client: Client, tank: Tank | undefined, x: unknown, y: unknown) {
