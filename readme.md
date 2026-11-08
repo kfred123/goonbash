@@ -209,6 +209,24 @@ stationary tower/base revelation and removal callbacks. It reuses the existing
 client SDK as a backend test-only dependency. For the live check, start the backend with
 `$env:PORT='2578'; npm run dev --workspace=backend` in PowerShell.
 
+### Kamerazoom und Touch-Steuerung
+
+Im laufenden Spiel zoomt das Mausrad die Arena: nach oben hinein, nach unten
+heraus. Strg+Mausrad bleibt dem Browser vorbehalten. Auf Touchgeraeten zoomen
+zwei Finger durch Auseinander- oder Zusammenziehen; der Zoom bleibt auf den
+eigenen Panzer zentriert. HUD und Minimap bleiben unveraendert. Die Ansicht
+stoppt an den Zoom- und Arenagrenzen und wird beim Verlassen zurueckgesetzt.
+
+Ein einzelnes Tippen bewegt den Panzer, greift ein Ziel an oder bestaetigt ein
+ausgewaehltes Ziel erst beim Loslassen. Beginnt vorher eine Beruehrung mit einem
+zweiten Finger, wird kein Befehl ausgefuehrt. Faehigkeiten und Upgrades werden
+auf Touchgeraeten ebenfalls erst beim Loslassen auf derselben Schaltflaeche
+ausgeloest; Mausklicks bleiben unmittelbar.
+
+Nach dem Start des Frontends prueft `/tests/cameraZoom.html` Zoom, HUD und
+Eingaben im Phaser-Renderer. Mit einem lokalen Backend auf Port 2578 startet
+`/tests/cameraZoom.html?live` zusaetzlich eine Partie mit zwei lokalen Clients.
+
 ### Respawn
 
 On death, your tank immediately appears near your own main tower as a stationary
