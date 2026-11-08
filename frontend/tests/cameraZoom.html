@@ -1,0 +1,477 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Camera zoom integration checks</title>
+<style>
+  body { background: #151c28; color: white; font: 14px system-ui; margin: 8px; }
+  #game-container { position: absolute; left: 8px; top: 80px; width: 800px; height: 600px; }
+  canvas { display: block; touch-action: none; }
+  pre { position: absolute; top: 700px; white-space: pre-wrap; }
+  body.live { margin: 0; overflow: hidden; }
+  body.live h1, body.live pre { display: none; }
+  body.live #game-container { position: fixed; inset: 0; width: 100vw; height: 100dvh; }
+</style>
+<h1>Camera zoom and input</h1>
+<pre id="result">Running...</pre>
+<div id="game-container"></div>
+<script type="module">
+  import Phaser from 'phaser';
+  import { Client } from 'colyseus.js';
+  import { GameState, Minion, Tank } from 'shared';
+  import { GameScene } from '../src/GameScene.ts';
+
+  const live = new URLSearchParams(location.search).has('live');
+  if (live) document.body.classList.add('live');
+  const checks = [];
+  function check(condition, label) {
+    if (!condition) throw new Error(label);
+    checks.push(label);
+  }
+  const nextFrame = () => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  async function until(predicate, label) {
+    const deadline = Date.now() + 15000;
+    while (!predicate()) {
+      if (Date.now() > deadline) throw new Error(`Timed out waiting for ${label}`);
+      await new Promise(resolve => setTimeout(resolve, 50));
+    }
+  }
+  function mouse(canvas, type, x, y, buttons) {
+    const bounds = canvas.getBoundingClientRect();
+    canvas.dispatchEvent(new MouseEvent(type, {
+      bubbles: true, cancelable: true, button: 0, buttons,
+      clientX: bounds.left + x, clientY: bounds.top + y
+    }));
+  }
+  function click(canvas, x, y) {
+    mouse(canvas, 'mousemove', x, y, 0);
+    mouse(canvas, 'mousedown', x, y, 1);
+    mouse(canvas, 'mouseup', x, y, 0);
+  }
+  function wheel(canvas, x, y, deltaY, ctrlKey = false) {
+    const bounds = canvas.getBoundingClientRect();
+    const event = new WheelEvent('wheel', {
+      bubbles: true, cancelable: true, deltaY, ctrlKey,
+      clientX: bounds.left + x, clientY: bounds.top + y
+    });
+    canvas.dispatchEvent(event);
+    return event;
+  }
+  const activeTouches = new Map();
+  function touch(canvas, type, id, x, y) {
+    const bounds = canvas.getBoundingClientRect();
+    const clientX = bounds.left + x;
+    const clientY = bounds.top + y;
+    const changed = new Touch({
+      identifier: id, target: canvas, clientX, clientY,
+      pageX: clientX + window.scrollX, pageY: clientY + window.scrollY
+    });
+    if (type === 'touchstart' || type === 'touchmove') activeTouches.set(id, changed);
+    else activeTouches.delete(id);
+    const touches = [...activeTouches.values()];
+    const event = new TouchEvent(type, {
+      bubbles: true, cancelable: true, touches, targetTouches: touches, changedTouches: [changed]
+    });
+    canvas.dispatchEvent(event);
+    return event;
+  }
+
+  class ZoomChecks extends GameScene {
+    showMainMenu(...args) {
+      if (live) super.showMainMenu(...args);
+    }
+
+    showWaitingLobby(state) {
+      if (state.lobbyName === undefined) {
+        console.info('[cameraZoom] Waiting for the initial lobby snapshot');
+        return;
+      }
+      super.showWaitingLobby(state);
+    }
+
+    async create() {
+      super.create();
+      try {
+        if (live) {
+          await this.setupLiveMatch();
+          return;
+        }
+        const state = new GameState();
+        const local = Object.assign(new Tank(), {
+          id: 'local', name: 'Local', team: 'blue', role: 'damagedealer',
+          x: 1200, y: 900, skillPoints: 2
+        });
+        local.abilities.get('damagedealer-homing-rocket').level = 1;
+        local.abilities.get('damagedealer-mortar').level = 1;
+        local.abilities.get('scout-shockshot').level = 1;
+        const enemy = Object.assign(new Tank(), {
+          id: 'enemy', name: 'Enemy', team: 'red', x: 1330, y: 900
+        });
+        state.phase = 'started';
+        state.hostSessionId = local.id;
+        state.tanks.set(local.id, local);
+        state.tanks.set(enemy.id, enemy);
+        const commands = [];
+        this.room = {
+          state, sessionId: local.id, send: (...args) => commands.push(args),
+          removeAllListeners() {}, leave: async () => {}
+        };
+        this.createArena('Camera checks');
+        this.arenaStarted = true;
+        state.tanks.forEach((tank, id) => this.upsertTank(tank, id));
+        await nextFrame();
+
+        const world = this.cameras.main;
+        const ui = this.uiCamera;
+        const onUiOnly = object => (object.cameraFilter & world.id) !== 0 && (object.cameraFilter & ui.id) === 0;
+        const onWorldOnly = object => (object.cameraFilter & ui.id) !== 0 && (object.cameraFilter & world.id) === 0;
+        world.centerOn(local.x, local.y);
+        await nextFrame();
+        const beforeTap = commands.length;
+        const tapPoint = world.getWorldPoint(250, 300);
+        const touchStart = touch(this.game.canvas, 'touchstart', 1, 250, 300);
+        check(touchStart.defaultPrevented && commands.length === beforeTap,
+          'A single touch does not issue a command before release');
+        touch(this.game.canvas, 'touchend', 1, 250, 300);
+        check(commands.length === beforeTap + 1 && commands.at(-1)?.[0] === 'command' &&
+          Math.abs(commands.at(-1)[1].x - tapPoint.x) < 0.01 &&
+          Math.abs(commands.at(-1)[1].y - tapPoint.y) < 0.01,
+          'A single-finger tap issues its world command on release');
+        const beforePinch = commands.length;
+        const beforeGraphics = this.children.list.filter(object => object.type === 'Graphics').length;
+        touch(this.game.canvas, 'touchstart', 1, 240, 250);
+        touch(this.game.canvas, 'touchstart', 2, 340, 250);
+        const touchMove = touch(this.game.canvas, 'touchmove', 2, 440, 250);
+        check(touchMove.defaultPrevented && Math.abs(world.zoom - 2) < 1e-10,
+          'Spreading two fingers zooms in and prevents the browser gesture');
+        touch(this.game.canvas, 'touchmove', 2, 290, 250);
+        check(Math.abs(world.zoom - 0.5) < 1e-10, 'Pinching two fingers zooms out to the lower limit');
+        touch(this.game.canvas, 'touchend', 2, 290, 250);
+        touch(this.game.canvas, 'touchend', 1, 240, 250);
+        check(commands.length === beforePinch &&
+          this.children.list.filter(object => object.type === 'Graphics').length === beforeGraphics,
+          'Neither finger of a pinch sends a command or creates a marker');
+        world.setZoom(1);
+        await nextFrame();
+        const beforeNextTap = commands.length;
+        touch(this.game.canvas, 'touchstart', 3, 250, 300);
+        touch(this.game.canvas, 'touchend', 3, 250, 300);
+        check(commands.length === beforeNextTap + 1, 'A new single-finger tap works after a pinch');
+        for (const [index, zoom] of [0.5, 1, 2].entries()) {
+          world.setZoom(zoom);
+          await nextFrame();
+          const beforeZoomedTap = commands.length;
+          const expected = world.getWorldPoint(250, 300);
+          touch(this.game.canvas, 'touchstart', 30 + index, 250, 300);
+          touch(this.game.canvas, 'touchend', 30 + index, 250, 300);
+          const command = commands.at(-1)?.[1];
+          check(commands.length === beforeZoomedTap + 1 &&
+            Math.abs(command.x - expected.x) < 0.01 && Math.abs(command.y - expected.y) < 0.01,
+            `Touch commands resolve through the world camera at ${zoom}x`);
+        }
+        world.setZoom(1);
+        await nextFrame();
+        const beforeCancelledTouch = commands.length;
+        touch(this.game.canvas, 'touchstart', 4, 250, 300);
+        touch(this.game.canvas, 'touchcancel', 4, 250, 300);
+        touch(this.game.canvas, 'touchstart', 5, 250, 300);
+        touch(this.game.canvas, 'touchend', 5, -10, 300);
+        check(commands.length === beforeCancelledTouch, 'Cancelled touches and releases outside the arena send nothing');
+        const beforeThree = commands.length;
+        touch(this.game.canvas, 'touchstart', 6, 200, 250);
+        touch(this.game.canvas, 'touchstart', 7, 300, 250);
+        touch(this.game.canvas, 'touchstart', 8, 400, 250);
+        touch(this.game.canvas, 'touchmove', 7, 350, 250);
+        touch(this.game.canvas, 'touchend', 8, 400, 250);
+        touch(this.game.canvas, 'touchend', 7, 350, 250);
+        touch(this.game.canvas, 'touchend', 6, 200, 250);
+        check(commands.length === beforeThree && world.zoom === 1,
+          'An extra finger cannot resume a pinch or issue a command');
+
+        const touchRocket = this.abilityHud.slots[1].slotBg;
+        const beforeHudPinch = commands.length;
+        touch(this.game.canvas, 'touchstart', 9, 200, 250);
+        touch(this.game.canvas, 'touchstart', 10, touchRocket.x, touchRocket.y);
+        touch(this.game.canvas, 'touchend', 10, touchRocket.x, touchRocket.y);
+        touch(this.game.canvas, 'touchend', 9, 200, 250);
+        check(commands.length === beforeHudPinch && !this.weaponSelection && world.zoom === 1,
+          'A second touch on the HUD neither activates the ability nor zooms');
+        touch(this.game.canvas, 'touchstart', 11, touchRocket.x, touchRocket.y);
+        touch(this.game.canvas, 'touchstart', 12, 200, 250);
+        touch(this.game.canvas, 'touchend', 12, 200, 250);
+        touch(this.game.canvas, 'touchend', 11, touchRocket.x, touchRocket.y);
+        check(commands.length === beforeHudPinch && !this.weaponSelection && world.zoom === 1,
+          'A HUD touch followed by another finger does not activate or zoom');
+        const touchUpgrade = this.abilityHud.slots[0].upgradeButtonBg;
+        touch(this.game.canvas, 'touchstart', 18, touchRocket.x, touchRocket.y);
+        touch(this.game.canvas, 'touchend', 18, touchUpgrade.x, touchUpgrade.y);
+        check(commands.length === beforeHudPinch && !this.weaponSelection,
+          'A HUD touch released on a different button activates neither control');
+        touch(this.game.canvas, 'touchstart', 13, touchRocket.x, touchRocket.y);
+        check(!this.weaponSelection, 'A touch on an ability waits for release');
+        touch(this.game.canvas, 'touchend', 13, touchRocket.x, touchRocket.y);
+        check(this.weaponSelection === 'rocket', 'A single-finger HUD tap selects the ability');
+        const touchEnemyX = (enemy.x - world.scrollX - world.width / 2) * world.zoom + world.width / 2;
+        const touchEnemyY = (enemy.y - world.scrollY - world.height / 2) * world.zoom + world.height / 2;
+        const beforeTouchTarget = commands.length;
+        touch(this.game.canvas, 'touchstart', 14, touchEnemyX, touchEnemyY);
+        check(commands.length === beforeTouchTarget, 'A touch target waits for release');
+        touch(this.game.canvas, 'touchend', 14, touchEnemyX, touchEnemyY);
+        check(commands.at(-1)?.[0] === 'activate_ability' &&
+          commands.at(-1)?.[1]?.targetId === enemy.id, 'A touch release targets the selected enemy');
+        const beforeTouchAttack = commands.length;
+        touch(this.game.canvas, 'touchstart', 15, touchEnemyX, touchEnemyY);
+        touch(this.game.canvas, 'touchend', 15, touchEnemyX, touchEnemyY);
+        check(commands.length === beforeTouchAttack + 1 && commands.at(-1)?.[0] === 'command' &&
+          commands.at(-1)?.[1]?.targetId === enemy.id && this.attackMarkers.at(-1)?.targetId === enemy.id,
+          'A single-finger tap attacks and marks the enemy under it');
+        const beforeTouchUpgrade = commands.length;
+        touch(this.game.canvas, 'touchstart', 16, touchUpgrade.x, touchUpgrade.y);
+        check(commands.length === beforeTouchUpgrade, 'A touch on an upgrade waits for release');
+        touch(this.game.canvas, 'touchend', 16, touchUpgrade.x, touchUpgrade.y);
+        check(commands.length === beforeTouchUpgrade + 1 && commands.at(-1)?.[0] === 'upgrade_ability',
+          'A single-finger tap upgrades the chosen ability');
+        const gesture = new Event('gesturestart', { bubbles: true, cancelable: true });
+        this.game.canvas.dispatchEvent(gesture);
+        check(gesture.defaultPrevented, 'Platform touch gestures on the match canvas are isolated');
+
+        const zoomIn = wheel(this.game.canvas, 300, 250, -100);
+        check(zoomIn.defaultPrevented && Math.abs(world.zoom - 1.1) < 1e-10,
+          'Plain wheel zooms in and prevents page scrolling');
+        const ctrlWheel = wheel(this.game.canvas, 300, 250, -100, true);
+        check(!ctrlWheel.defaultPrevented && Math.abs(world.zoom - 1.1) < 1e-10,
+          'Ctrl+wheel leaves camera zoom unchanged and is not prevented');
+        const zoomOut = wheel(this.game.canvas, 300, 250, 100);
+        check(zoomOut.defaultPrevented && Math.abs(world.zoom - 1) < 1e-10,
+          'Plain wheel zooms out');
+        const bounds = this.fog.bounds;
+        for (const point of [
+          { x: 300, y: 590 },
+          { x: bounds.x + bounds.width / 2, y: bounds.y + bounds.height / 2 },
+          { x: this.statusText.getBounds().centerX, y: this.statusText.getBounds().centerY },
+          { x: this.arenaTitle.getBounds().centerX, y: this.arenaTitle.getBounds().centerY }
+        ]) {
+          const ignored = wheel(this.game.canvas, point.x, point.y, -100);
+          check(!ignored.defaultPrevented && Math.abs(world.zoom - 1) < 1e-10,
+            'Wheel input on a HUD element does not zoom');
+        }
+
+        for (const zoom of [0.5, 1, 2]) {
+          world.setZoom(zoom);
+          await nextFrame();
+          const expected = world.getWorldPoint(200, 300);
+          click(this.game.canvas, 200, 300);
+          const [type, command] = commands.at(-1);
+          check(type === 'command' && Math.abs(command.x - expected.x) < 0.01 &&
+            Math.abs(command.y - expected.y) < 0.01, `Ground click maps to the displayed world point at ${zoom}x`);
+          const enemyX = (enemy.x - world.scrollX - world.width / 2) * zoom + world.width / 2;
+          const enemyY = (enemy.y - world.scrollY - world.height / 2) * zoom + world.height / 2;
+          click(this.game.canvas, enemyX, enemyY);
+          check(commands.at(-1)?.[0] === 'command' && commands.at(-1)?.[1]?.targetId === enemy.id &&
+            this.attackMarkers.at(-1)?.targetId === enemy.id, `Attack and marker target the visible enemy at ${zoom}x`);
+          const enemySprite = this.tankSprites.get(enemy.id);
+          enemySprite.setPosition(enemy.x - 60, enemy.y);
+          const displayedX = (enemySprite.x - world.scrollX - world.width / 2) * zoom + world.width / 2;
+          click(this.game.canvas, displayedX, enemyY);
+          check(commands.at(-1)?.[0] === 'command' && commands.at(-1)?.[1]?.targetId === enemy.id &&
+            this.attackMarkers.at(-1)?.graphics.x === enemySprite.x,
+            `Moving enemy hit-testing and markers follow the displayed position at ${zoom}x`);
+          this.weaponSelection = 'rocket';
+          touch(this.game.canvas, 'touchstart', 40 + zoom * 2, displayedX, enemyY);
+          touch(this.game.canvas, 'touchend', 40 + zoom * 2, displayedX, enemyY);
+          check(commands.at(-1)?.[0] === 'activate_ability' &&
+            commands.at(-1)?.[1]?.targetId === enemy.id,
+            `Touch targeting follows a moving enemy at ${zoom}x`);
+          enemySprite.setPosition(enemy.x, enemy.y);
+          if (zoom === 2) {
+            const minion = Object.assign(new Minion(), {
+              id: 'moving-minion', team: 'red', x: 1240, y: 950
+            });
+            state.minions.set(minion.id, minion);
+            this.upsertMinion(minion, minion.id);
+            const minionSprite = this.minionSprites.get(minion.id).setPosition(1200, 950);
+            this.setEntityVisibility(minion.id, true);
+            const minionX = (minionSprite.x - world.scrollX - world.width / 2) * zoom + world.width / 2;
+            const minionY = (minionSprite.y - world.scrollY - world.height / 2) * zoom + world.height / 2;
+            click(this.game.canvas, minionX, minionY);
+            check(commands.at(-1)?.[0] === 'command' && commands.at(-1)?.[1]?.targetId === minion.id &&
+              this.attackMarkers.at(-1)?.graphics.x === minionSprite.x,
+              'Moving minion hit-testing and markers follow the displayed position');
+            this.removeMinion(minion.id);
+            state.minions.delete(minion.id);
+          }
+          this.weaponSelection = 'mortar';
+          mouse(this.game.canvas, 'mousemove', 320, 320, 0);
+          this.refreshWeaponTargeting();
+          const previewPoint = world.getWorldPoint(320, 320);
+          check(Math.abs(this.input.activePointer.worldX - previewPoint.x) < 0.01 &&
+            Math.abs(this.input.activePointer.worldY - previewPoint.y) < 0.01 &&
+            this.mortarPreview?.commandBuffer.length > 0, `Mortar preview follows the world pointer at ${zoom}x`);
+          this.cancelRocketTargetSelection();
+        }
+        world.setZoom(2);
+        await nextFrame();
+        check(ui.zoom === 1 && ui.scrollX === 0 && ui.scrollY === 0, 'HUD camera remains unzoomed and stationary');
+        check([
+          this.statusText, this.arenaTitle, this.abilityHud.bar, this.abilityHud.slots[0].slotBg,
+          this.fog.minimap
+        ].every(onUiOnly), 'Status, title, ability HUD and minimap render only on the HUD camera');
+        check([this.tankSprites.get(local.id), this.fog.worldFog].every(onWorldOnly),
+          'Tanks and world fog render only on the arena camera');
+
+        const rocketSlot = this.abilityHud.slots[1].slotBg;
+        click(this.game.canvas, rocketSlot.x, rocketSlot.y);
+        check(this.weaponSelection === 'rocket', 'Rocket HUD button remains clickable at 2x zoom');
+        const beforeMinimap = commands.length;
+        click(this.game.canvas, bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
+        check(commands.length === beforeMinimap && this.weaponSelection === 'rocket',
+          'Minimap clicks do not issue commands or consume target selection');
+        const enemyX = (enemy.x - world.scrollX - world.width / 2) * world.zoom + world.width / 2;
+        const enemyY = (enemy.y - world.scrollY - world.height / 2) * world.zoom + world.height / 2;
+        click(this.game.canvas, enemyX, enemyY);
+        check(commands.at(-1)?.[0] === 'activate_ability' &&
+          commands.at(-1)?.[1]?.abilityId === 'damagedealer-homing-rocket' &&
+          commands.at(-1)?.[1]?.targetId === enemy.id, 'Rocket targets the enemy under the pointer');
+        const upgrade = this.abilityHud.slots[0].upgradeButtonBg;
+        click(this.game.canvas, upgrade.x, upgrade.y);
+        check(commands.at(-1)?.[0] === 'upgrade_ability', 'Upgrade HUD button remains clickable at 2x zoom');
+        const mortarSlot = this.abilityHud.slots[2].slotBg;
+        click(this.game.canvas, mortarSlot.x, mortarSlot.y);
+        check(this.weaponSelection === 'mortar', 'Mortar HUD button remains clickable at 2x zoom');
+        mouse(this.game.canvas, 'mousemove', 320, 320, 0);
+        this.refreshWeaponTargeting();
+        const mortarPoint = world.getWorldPoint(320, 320);
+        check(Math.abs(this.input.activePointer.worldX - mortarPoint.x) < 0.01 &&
+          Math.abs(this.input.activePointer.worldY - mortarPoint.y) < 0.01,
+          'Mortar preview resolves the pointer through the world camera');
+        click(this.game.canvas, 320, 320);
+        check(commands.at(-1)?.[0] === 'activate_ability' &&
+          commands.at(-1)?.[1]?.abilityId === 'damagedealer-mortar' &&
+          Math.abs(commands.at(-1)[1].targetX - mortarPoint.x) < 0.01 &&
+          Math.abs(commands.at(-1)[1].targetY - mortarPoint.y) < 0.01,
+          'Mortar targets the world point under the pointer');
+        local.role = 'scout';
+        this.upsertTank(local, local.id);
+        this.refreshAbilityHud();
+        const shockSlot = this.abilityHud.slots[2].slotBg;
+        click(this.game.canvas, shockSlot.x, shockSlot.y);
+        check(this.weaponSelection === 'shock', 'Shock HUD button remains clickable at 2x zoom');
+        click(this.game.canvas, enemyX, enemyY);
+        check(commands.at(-1)?.[0] === 'activate_ability' &&
+          commands.at(-1)?.[1]?.abilityId === 'scout-shockshot' &&
+          commands.at(-1)?.[1]?.targetId === enemy.id, 'Shock targets the enemy under the pointer');
+
+        world.setZoom(0.5);
+        this.scale.resize(2000, 1500);
+        await nextFrame();
+        check(Math.abs(world.zoom - 2000 / 2400) < 1e-10 &&
+          world.width / world.zoom <= 2400 && world.height / world.zoom <= 1800,
+          'Resizing clamps zoom so the viewport fits inside the arena');
+        check(world.worldView.x >= 0 && world.worldView.y >= 0 &&
+          world.worldView.right <= 2400 && world.worldView.bottom <= 1800,
+          'The enlarged viewport stays within the world bounds');
+        check(ui.width === 2000 && ui.height === 1500, 'HUD camera follows viewport resize');
+        this.scale.resize(800, 600);
+        await nextFrame();
+
+        const beforeMatchEnd = commands.length;
+        touch(this.game.canvas, 'touchstart', 17, 250, 300);
+        state.phase = 'ended';
+        state.winnerTeam = 'blue';
+        world.setZoom(1.7);
+        const endedWheel = wheel(this.game.canvas, 300, 250, -100);
+        check(!endedWheel.defaultPrevented && world.zoom === 1.7, 'Wheel input is ignored after the match');
+        this.showMatchResults(state);
+        touch(this.game.canvas, 'touchend', 17, 250, 300);
+        check(commands.length === beforeMatchEnd && this.touchZoom.contacts.size === 0,
+          'Ending a match clears pending touch input without issuing a command');
+        await nextFrame();
+        check(world.zoom === 1, 'Results reset the world camera zoom');
+        check(this.menuElements.length > 0 && this.menuElements.every(onUiOnly),
+          'Results background, text and buttons share the HUD camera');
+        const heading = this.menuElements.find(element => element.type === 'Text' && element.text === 'KILLS DESC');
+        click(this.game.canvas, heading.x, heading.y);
+        check(this.resultSorts.red.direction === 'asc', 'Results controls remain interactive above the background');
+
+        this.arenaStarted = false;
+        this.resultsShown = false;
+        state.phase = 'waiting';
+        this.showWaitingLobby(state);
+        await nextFrame();
+        check(this.menuElements.every(onUiOnly), 'Lobby panels, role previews and controls share the HUD camera');
+        const beforeLobby = commands.length;
+        const joinText = this.menuElements.find(element => element.type === 'Text' && element.text === 'JOIN RED');
+        click(this.game.canvas, joinText.x, joinText.y);
+        check(commands.length === beforeLobby + 1 && commands.at(-1)[0] === 'change_team',
+          'Lobby controls still receive pointer input');
+        const lobbyWheel = wheel(this.game.canvas, 300, 250, -100);
+        check(!lobbyWheel.defaultPrevented && world.zoom === 1, 'Wheel input is ignored in the lobby');
+        state.phase = 'started';
+        world.setZoom(1.8);
+        this.createArena('Fresh match');
+        this.arenaStarted = true;
+        check(world.zoom === 1, 'A new match starts at the default zoom');
+
+        window.cameraZoomChecks = { passed: true, checks };
+        document.getElementById('result').textContent = `PASS (${checks.length})\n${checks.join('\n')}`;
+      } catch (error) {
+        if (live) window.cameraZoomLive = { ready: false, error: error.stack };
+        window.cameraZoomChecks = { passed: false, error: String(error), checks };
+        document.getElementById('result').textContent = `FAIL: ${error.stack}\n${checks.join('\n')}`;
+        console.error(error);
+      }
+    }
+
+    async setupLiveMatch() {
+      this.backendWsUrl = `ws://${location.hostname}:2578`;
+      this.playerName = 'Zoom Blue';
+      const response = await fetch(`http://${location.hostname}:2578/lobbies`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: 'Camera zoom acceptance' })
+      });
+      if (!response.ok) throw new Error(`Lobby creation failed: ${response.status}`);
+      const { lobby } = await response.json();
+      await this.connectToLobby(lobby);
+      const room = this.room;
+      const other = await new Client(this.backendWsUrl).joinOrCreate('game_room', {
+        lobbyId: lobby.id, playerName: 'Zoom Red'
+      });
+      try {
+        await until(() => room.state.tanks.size === 2 && other.state.tanks.size === 2, 'both players');
+        room.send('set_ready', true);
+        other.send('set_ready', true);
+        await until(() => [...room.state.tanks.values()].every(tank => tank.ready), 'both players ready');
+        room.send('start_game');
+        await until(() => this.arenaStarted && this.fog && other.state.phase === 'started', 'started match');
+        const sent = [];
+        const nativeEvents = [];
+        const send = room.send.bind(room);
+        room.send = (type, message) => {
+          sent.push({ type, message });
+          return send(type, message);
+        };
+        for (const type of ['touchstart', 'touchmove', 'touchend', 'touchcancel', 'wheel']) {
+          this.game.canvas.addEventListener(type, event => {
+            nativeEvents.push({ type, trusted: event.isTrusted, prevented: event.defaultPrevented });
+          });
+        }
+        window.cameraZoomLive = {
+          ready: true, scene: this, room, other, sent, nativeEvents,
+          cleanup: async () => { await other.leave(); this.backToMainMenu(); }
+        };
+      } catch (error) {
+        await other.leave();
+        this.backToMainMenu();
+        throw error;
+      }
+    }
+  }
+  window.cameraZoomGame = new Phaser.Game({
+    type: live ? Phaser.AUTO : new URLSearchParams(location.search).has('webgl') ? Phaser.WEBGL : Phaser.CANVAS,
+    width: 800, height: 600, parent: 'game-container',
+    scene: [ZoomChecks], audio: { noAudio: true },
+    input: live ? { mouse: { preventDefaultWheel: false } } : { touch: true },
+    scale: live ? { mode: Phaser.Scale.RESIZE } : { mode: Phaser.Scale.NONE }
+  });
+</script>
+</html>

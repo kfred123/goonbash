@@ -42,6 +42,8 @@ import { drawWrench } from './wrenchVisuals.js';
 import { drawBinocularIcon, drawOffroadIcon, drawShockIcon } from './scoutVisuals.js';
 import { createMinionBeetle, MinionBeetle } from './minionBeetle.js';
 import { getRespawnCountdown, getTankPresentation } from './respawnPresentation.js';
+import { clampZoom, DEFAULT_ZOOM, wheelZoom } from './cameraZoom.js';
+import { TouchZoomController } from './cameraZoomInput.js';
 
 const ROLE_ORDER: Role[] = ['healer', 'tank', 'damagedealer', 'scout'];
 
@@ -79,6 +81,8 @@ export class GameScene extends Phaser.Scene {
   private arenaBackgroundObjects: Phaser.GameObjects.GameObject[] = [];
   private arenaTitle?: Phaser.GameObjects.Text;
   private fog?: FogPresentation;
+  private uiCamera?: Phaser.Cameras.Scene2D.Camera;
+  private readonly touchZoom = new TouchZoomController();
   private vision = new TeamVision('', []);
   private visibleEntities = new Set<string>();
   private viewportWidth = 800;
@@ -171,11 +175,26 @@ export class GameScene extends Phaser.Scene {
     this.viewportHeight = this.scale.height;
     this.scale.on(Phaser.Scale.Events.RESIZE, this.handleResize, this);
     this.cameras.main.setBounds(0, 0, GameScene.WORLD_WIDTH, GameScene.WORLD_HEIGHT);
+    this.uiCamera = this.cameras.add(0, 0, this.scale.width, this.scale.height, false, 'ui');
+    this.events.on(Phaser.Scenes.Events.PRE_RENDER, this.updateCameraFilters, this);
     this.statusText = this.add.text(10, 10, 'Lobby menu', {
       color: '#aaaaff', fontSize: '14px',
       backgroundColor: '#00000088', padding: { x: 6, y: 4 }
     }).setScrollFactor(0).setDepth(2200);
-    this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => this.handlePointerClick(pointer));
+    const mouse = this.input.mouse;
+    const previousPreventDefaultWheel = mouse?.preventDefaultWheel;
+    if (mouse) mouse.preventDefaultWheel = false;
+    this.game.canvas.addEventListener('wheel', this.handleCanvasWheel, { passive: false });
+    for (const type of ['gesturestart', 'gesturechange', 'gestureend']) {
+      this.game.canvas.addEventListener(type, this.handleCanvasGesture, { passive: false });
+    }
+    const additionalPointers = 10 - this.input.manager.pointersTotal;
+    if (additionalPointers > 0) this.input.addPointer(additionalPointers);
+    this.input.on('pointerdown', this.handlePointerDown, this);
+    this.input.on('pointerdownoutside', this.handlePointerDownOutside, this);
+    this.input.on('pointermove', this.handlePointerMove, this);
+    this.input.on('pointerup', this.handlePointerUp, this);
+    this.input.on('pointerupoutside', this.handlePointerUpOutside, this);
     this.input.keyboard?.on('keydown-SPACE', (event: KeyboardEvent) => {
       if (shouldHandleAbilityKeydown(event)) this.activateRoleAbility(0);
     });
@@ -197,6 +216,12 @@ export class GameScene extends Phaser.Scene {
       this.clearArenaPresentation();
       this.destroyMenuElements();
       this.scale.off(Phaser.Scale.Events.RESIZE, this.handleResize, this);
+      this.events.off(Phaser.Scenes.Events.PRE_RENDER, this.updateCameraFilters, this);
+      this.game.canvas.removeEventListener('wheel', this.handleCanvasWheel);
+      for (const type of ['gesturestart', 'gesturechange', 'gestureend']) {
+        this.game.canvas.removeEventListener(type, this.handleCanvasGesture);
+      }
+      if (mouse && previousPreventDefaultWheel !== undefined) mouse.preventDefaultWheel = previousPreventDefaultWheel;
     });
     this.showMainMenu();
   }
@@ -204,7 +229,90 @@ export class GameScene extends Phaser.Scene {
   /** Stops the camera following the local player and resets it to the origin, for menu/lobby screens with no arena. */
   private resetCamera() {
     this.cameras.main.stopFollow();
+    this.cameras.main.setZoom(DEFAULT_ZOOM);
     this.cameras.main.setScroll(0, 0);
+    this.touchZoom.reset();
+  }
+
+  private isMatchActive() {
+    return this.arenaStarted && !this.resultsShown && this.room?.state.phase === 'started';
+  }
+
+  private isZoomablePoint(point: { x: number; y: number }) {
+    if (point.x < 0 || point.x >= this.scale.width || point.y < 0 ||
+        point.y >= this.scale.height - GameScene.HUD_BAR_HEIGHT || this.fog?.contains(point)) return false;
+    return ![this.statusText, this.arenaTitle, this.rocketTargetHint].some(
+      element => element?.visible && element.getBounds().contains(point.x, point.y)
+    );
+  }
+
+  private readonly handleCanvasWheel = (event: WheelEvent) => {
+    if (!this.isMatchActive() || event.ctrlKey || event.deltaY === 0) return;
+    const point = { x: this.scale.transformX(event.pageX), y: this.scale.transformY(event.pageY) };
+    if (!this.isZoomablePoint(point)) return;
+    this.cameras.main.setZoom(wheelZoom(this.cameras.main.zoom, event.deltaY, this.scale));
+    event.preventDefault();
+  };
+
+  private readonly handleCanvasGesture = (event: Event) => {
+    if (this.isMatchActive()) event.preventDefault();
+  };
+
+  private handlePointerDown(pointer: Phaser.Input.Pointer) {
+    if (!pointer.wasTouch) {
+      this.handlePointerClick(pointer);
+      return;
+    }
+    if (!this.isMatchActive()) return;
+    const touchCount = 'touches' in pointer.event ? pointer.event.touches.length : 1;
+    this.touchZoom.start(pointer.id, pointer, this.isZoomablePoint(pointer), this.cameras.main.zoom, touchCount);
+  }
+
+  private handlePointerDownOutside(pointer: Phaser.Input.Pointer) {
+    if (!pointer.wasTouch || !this.isMatchActive()) return;
+    const touchCount = 'touches' in pointer.event ? pointer.event.touches.length : 1;
+    this.touchZoom.start(pointer.id, pointer, false, this.cameras.main.zoom, touchCount);
+  }
+
+  private handlePointerMove(pointer: Phaser.Input.Pointer) {
+    if (!pointer.wasTouch || !this.isMatchActive()) return;
+    const zoom = this.touchZoom.move(pointer.id, pointer, this.isZoomablePoint(pointer), this.cameras.main.zoom, this.scale);
+    if (zoom !== null) this.cameras.main.setZoom(zoom);
+  }
+
+  private handlePointerUp(pointer: Phaser.Input.Pointer) {
+    this.finishTouch(pointer, false);
+  }
+
+  private handlePointerUpOutside(pointer: Phaser.Input.Pointer) {
+    this.finishTouch(pointer, true);
+  }
+
+  private finishTouch(pointer: Phaser.Input.Pointer, outside: boolean) {
+    if (!pointer.wasTouch) return;
+    const remaining = 'touches' in pointer.event ? pointer.event.touches.length : 0;
+    const tap = this.touchZoom.end(pointer.id, outside || pointer.wasCanceled, remaining);
+    if (tap && this.isMatchActive() && this.isZoomablePoint(pointer)) this.handlePointerClick(pointer);
+  }
+
+  private isHudTouchTap(pointer: Phaser.Input.Pointer, target: Phaser.GameObjects.Rectangle) {
+    return pointer.wasTouch && !pointer.wasCanceled && this.touchZoom.canTap(pointer.id) &&
+      target.getBounds().contains(pointer.downX, pointer.downY);
+  }
+
+  private updateCameraFilters() {
+    const uiCamera = this.uiCamera;
+    if (!uiCamera) return;
+    const worldCamera = this.cameras.main;
+    const cameraMask = worldCamera.id | uiCamera.id;
+    const menuElements = new Set<Phaser.GameObjects.GameObject>(this.menuElements);
+    for (const object of this.children.list) {
+      const screenSpace = menuElements.has(object) ||
+        ('scrollFactorX' in object && object.scrollFactorX === 0 &&
+         'scrollFactorY' in object && object.scrollFactorY === 0);
+      const ignoredCamera = screenSpace ? worldCamera.id : uiCamera.id;
+      object.cameraFilter = (object.cameraFilter & ~cameraMask) | ignoredCamera;
+    }
   }
 
   private loadStoredName(): string {
@@ -505,6 +613,8 @@ export class GameScene extends Phaser.Scene {
 
   private createArena(lobbyName: string) {
     this.clearArenaPresentation();
+    this.resetCamera();
+    this.cameras.main.setZoom(clampZoom(DEFAULT_ZOOM, this.scale));
     this.destroyMenuElements();
     this.createTilemap();
     this.arenaTitle = this.add.text(this.viewportX(400), 20, lobbyName, { color: '#ffffff', fontSize: '24px', fontStyle: 'bold' })
@@ -906,6 +1016,10 @@ export class GameScene extends Phaser.Scene {
   }
 
   private handleResize() {
+    this.uiCamera?.setSize(this.scale.width, this.scale.height);
+    if (this.isMatchActive()) {
+      this.cameras.main.setZoom(clampZoom(this.cameras.main.zoom, this.scale));
+    }
     const scaleRatio = this.viewportScale() / Math.min(1, this.viewportWidth / 800, this.viewportHeight / 600);
     const deltaY = this.scale.height - this.viewportHeight;
     this.menuElements.forEach((element) => {
@@ -1414,9 +1528,10 @@ export class GameScene extends Phaser.Scene {
   private hitTestClick(worldX: number, worldY: number): { id: string; team: string; x: number; y: number } | null {
     let closest: { id: string; team: string; x: number; y: number; distSq: number } | null = null;
     const consider = (id: string, x: number, y: number, team: string, radius: number) => {
-      if (!this.visibleEntities.has(id)) return;
-      const dx = x - worldX;
-      const dy = y - worldY;
+      const displayed = this.findEntityPosition(id);
+      if (!displayed) return;
+      const dx = displayed.x - worldX;
+      const dy = displayed.y - worldY;
       const distSq = dx * dx + dy * dy;
       if (distSq > radius * radius) return;
       if (!closest || distSq < closest.distSq) closest = { id, team, x, y, distSq };
@@ -1533,7 +1648,8 @@ export class GameScene extends Phaser.Scene {
       this.cancelRocketTargetSelection();
     } else if (action.type === 'attack') {
       this.room.send('command', { targetId: action.targetId });
-      this.showAttackMarker(action.targetId, action.x, action.y, 0xff3333);
+      const displayed = this.findEntityPosition(action.targetId) ?? action;
+      this.showAttackMarker(action.targetId, displayed.x, displayed.y, 0xff3333);
     } else if (action.type === 'move') {
       this.room.send('command', { x: action.x, y: action.y });
       this.showClickMarker(action.x, action.y, 0x33ff55);
@@ -1819,10 +1935,16 @@ export class GameScene extends Phaser.Scene {
         upgradeButtonBg, upgradeButtonText, slotSize, slotTop, slotCenterX, abilityLearned: null as boolean | null
       };
       slotBg.on('pointerdown', (pointer?: Phaser.Input.Pointer) => {
-        if (!pointer || pointer.button === 0) this.activateAbility(slot.abilityId);
+        if (!pointer || (!pointer.wasTouch && pointer.button === 0)) this.activateAbility(slot.abilityId);
+      });
+      slotBg.on('pointerup', (pointer: Phaser.Input.Pointer) => {
+        if (this.isHudTouchTap(pointer, slotBg)) this.activateAbility(slot.abilityId);
       });
       upgradeButtonBg.on('pointerdown', (pointer?: Phaser.Input.Pointer) => {
-        if (!pointer || pointer.button === 0) this.upgradeAbility(slot.abilityId);
+        if (!pointer || (!pointer.wasTouch && pointer.button === 0)) this.upgradeAbility(slot.abilityId);
+      });
+      upgradeButtonBg.on('pointerup', (pointer: Phaser.Input.Pointer) => {
+        if (this.isHudTouchTap(pointer, upgradeButtonBg)) this.upgradeAbility(slot.abilityId);
       });
       return slot;
     };
