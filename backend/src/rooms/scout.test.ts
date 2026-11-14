@@ -22,7 +22,7 @@ test("Scout abilities work together in a started match without disabling enemy f
     id: "scout", team: "blue", role: "scout", x: 1200, y: 900, fireRange: 0
   });
   const enemy = Object.assign(new Tank(), resolveRoleStats("tank"), {
-    id: "enemy", team: "red", role: "tank", x: 1600, y: 900, fireRange: 300
+    id: "enemy", team: "red", role: "tank", x: 1680, y: 900, fireRange: 300
   });
   room.state.tanks.set(scout.id, scout);
   room.state.tanks.set(enemy.id, enemy);

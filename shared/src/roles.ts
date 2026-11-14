@@ -15,11 +15,15 @@ export interface RoleStats {
   fireDamage: number;
 }
 
+export const PLAYER_TOWER_FIRE_RANGE = 275;
+export const STANDARD_SIGHT_RANGE = 468;
+export const MINION_SIGHT_RANGE = 187.2;
+
 export const ROLE_STATS: Record<Role, RoleStats> = {
-  healer: { maxHp: 90, moveSpeed: 95, fireRange: 140, sightRange: 390, fireCooldownMax: 900, fireDamage: 6 },
-  tank: { maxHp: 160, moveSpeed: 70, fireRange: 130, sightRange: 390, fireCooldownMax: 900, fireDamage: 7 },
-  damagedealer: { maxHp: 80, moveSpeed: 100, fireRange: 160, sightRange: 390, fireCooldownMax: 700, fireDamage: 10 },
-  scout: { maxHp: 90, moveSpeed: 100, fireRange: 150, sightRange: 390, fireCooldownMax: 800, fireDamage: 8 }
+  healer: { maxHp: 90, moveSpeed: 95, fireRange: PLAYER_TOWER_FIRE_RANGE, sightRange: STANDARD_SIGHT_RANGE, fireCooldownMax: 900, fireDamage: 6 },
+  tank: { maxHp: 160, moveSpeed: 70, fireRange: PLAYER_TOWER_FIRE_RANGE, sightRange: STANDARD_SIGHT_RANGE, fireCooldownMax: 900, fireDamage: 7 },
+  damagedealer: { maxHp: 80, moveSpeed: 100, fireRange: PLAYER_TOWER_FIRE_RANGE, sightRange: STANDARD_SIGHT_RANGE, fireCooldownMax: 700, fireDamage: 10 },
+  scout: { maxHp: 90, moveSpeed: 100, fireRange: PLAYER_TOWER_FIRE_RANGE, sightRange: STANDARD_SIGHT_RANGE, fireCooldownMax: 800, fireDamage: 8 }
 };
 
 /** Resolves the base stats for a role, defaulting to Tank stats for an unset/invalid role. */

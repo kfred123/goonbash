@@ -5,7 +5,7 @@ import { Base } from "./state/Base.js";
 import { Tower } from "./state/Tower.js";
 import { Tank } from "./state/Tank.js";
 import { Minion } from "./state/Minion.js";
-import { ROLE_STATS } from "./roles.js";
+import { MINION_SIGHT_RANGE, PLAYER_TOWER_FIRE_RANGE, ROLE_STATS, STANDARD_SIGHT_RANGE } from "./roles.js";
 
 const road = new VisionTerrain([[{ x: 100, y: 500 }, { x: 1000, y: 500 }]], 100);
 const observer = (overrides: Partial<VisionEntity> = {}): VisionEntity => ({
@@ -13,9 +13,16 @@ const observer = (overrides: Partial<VisionEntity> = {}): VisionEntity => ({
 });
 
 test("absolute sight defaults are independent of combat stats", () => {
-  assert.deepEqual(Object.values(ROLE_STATS).map((stats) => stats.sightRange), [390, 390, 390, 390]);
-  for (const [unit, sight] of [[new Tank(), 390], [new Minion(), 156], [new Tower(), 390], [new Base(), 390]] as const) {
+  assert.deepEqual(Object.values(ROLE_STATS).map((stats) => stats.sightRange), [468, 468, 468, 468]);
+  assert.deepEqual(Object.values(ROLE_STATS).map((stats) => stats.fireRange), [275, 275, 275, 275]);
+  for (const [unit, sight] of [
+    [new Tank(), STANDARD_SIGHT_RANGE],
+    [new Minion(), MINION_SIGHT_RANGE],
+    [new Tower(), STANDARD_SIGHT_RANGE],
+    [new Base(), STANDARD_SIGHT_RANGE]
+  ] as const) {
     assert.equal(unit.sightRange, sight);
+    if (!(unit instanceof Minion)) assert.equal(unit.fireRange, PLAYER_TOWER_FIRE_RANGE);
     unit.fireRange *= 2;
     assert.equal(unit.sightRange, sight);
   }
@@ -35,11 +42,11 @@ test("default terrain classifies the enlarged borders and relocated lanes with u
 test("every player role matches tower sight on roads and with the unchanged grass penalties", () => {
   for (const stats of [...Object.values(ROLE_STATS), new Tank(), new Tower()]) {
     const onRoad = new TeamVision("blue", [observer({ sightRange: stats.sightRange })], road);
-    assert.equal(onRoad.canSee({ x: 690, y: 500 }), true);
-    assert.equal(onRoad.canSee({ x: 690.001, y: 500 }), false);
+    assert.equal(onRoad.canSee({ x: 768, y: 500 }), true);
+    assert.equal(onRoad.canSee({ x: 768.001, y: 500 }), false);
     const inGrass = new TeamVision("blue", [observer({ x: 300, y: 700, sightRange: stats.sightRange })], road);
-    assert.equal(inGrass.canSee({ x: 397.5, y: 700 }), true);
-    assert.equal(inGrass.canSee({ x: 397.501, y: 700 }), false);
+    assert.equal(inGrass.canSee({ x: 417, y: 700 }), true);
+    assert.equal(inGrass.canSee({ x: 417.001, y: 700 }), false);
   }
 });
 

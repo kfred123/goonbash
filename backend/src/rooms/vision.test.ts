@@ -17,8 +17,8 @@ function setup(t: TestContext) {
   room.setSimulationInterval();
   room.state.phase = "started";
   room.state.bases.clear();
-  const blue = Object.assign(new Tank(), { id: "blue", team: "blue", x: 1000, y: 600 });
-  const red = Object.assign(new Tank(), { id: "red", team: "red", x: 1100, y: 600, fireRange: 0 });
+  const blue = Object.assign(new Tank(), { id: "blue", team: "blue", x: 1000, y: 600, sightRange: 390 });
+  const red = Object.assign(new Tank(), { id: "red", team: "red", x: 1100, y: 600, fireRange: 0, sightRange: 390 });
   room.state.tanks.set(blue.id, blue);
   room.state.tanks.set(red.id, red);
   const replies: Array<{ type: string | number; message: unknown }> = [];
@@ -52,12 +52,12 @@ test("role sight initialization survives progression, fire range changes and res
     blue.level = 5;
     blue.fireRange = 500;
     applyTankProgressionStats(blue);
-    assert.equal(blue.sightRange, 390);
+    assert.equal(blue.sightRange, 468);
     blue.state = "dead";
     blue.respawnAt = 0;
     room["resolveRespawns"](Date.now());
     assert.equal(blue.state, "alive");
-    assert.equal(blue.sightRange, 390);
+    assert.equal(blue.sightRange, 468);
   }
 });
 
@@ -69,12 +69,12 @@ test("Scout Weitsicht adds shared team vision temporarily and restores base sigh
   assert.equal(room["teamVision"]("blue").canSee({ x: 1120, y: 600 }), false);
 
   room["onMessageHandlers"].activate_ability(client, { abilityId: "scout-weitsicht" });
-  assert.equal(blue.sightRange, 540);
+  assert.equal(blue.sightRange, 618);
   assert.equal(room["teamVision"]("blue").canSee({ x: 1120, y: 600 }), true);
 
   blue.abilities.get("scout-weitsicht")!.activeUntil = Date.now() - 1;
   room["updateTemporaryAbilityEffects"](Date.now());
-  assert.equal(blue.sightRange, 390);
+  assert.equal(blue.sightRange, 468);
   assert.equal(room["teamVision"]("blue").canSee({ x: 1120, y: 600 }), false);
 });
 
@@ -223,7 +223,7 @@ test("towers and bases use team visibility and destroyed observers grant no sigh
     room.state.towers.clear();
     room.state.bases.clear();
     room.state.projectiles.clear();
-    const structure = Object.assign(new Type(), { id: "structure", team: "blue", x: blue.x, y: blue.y });
+    const structure = Object.assign(new Type(), { id: "structure", team: "blue", x: blue.x, y: blue.y, sightRange: 390 });
     if (structure instanceof Tower) room.state.towers.set(structure.id, structure);
     else room.state.bases.set(structure.id, structure);
     room["resolveCombat"](0);

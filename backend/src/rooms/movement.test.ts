@@ -274,6 +274,10 @@ test("saturated waves retain lane identities, retry without duplicates and clean
   assert.equal(room.state.minions.size, 12);
   assert.equal(room["pendingMinions"].size, 0);
   assertSeparated(room);
+  for (const minion of room.state.minions.values()) {
+    assert.equal(minion.hp, 75);
+    assert.equal(minion.maxHp, 75);
+  }
   for (const team of ["red", "blue"]) {
     const units = [...room.state.minions.values()].filter(unit => unit.team === team);
     assert.equal(units.length, 6);
