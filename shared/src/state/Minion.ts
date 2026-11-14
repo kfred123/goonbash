@@ -4,8 +4,8 @@ import { MINION_COLLISION_RADIUS } from "../collision";
 import { MINION_SIGHT_RANGE } from "../roles";
 
 export class Minion extends Entity {
-  @type("number") hp: number = 50;
-  @type("number") maxHp: number = 50;
+  @type("number") hp: number = 75;
+  @type("number") maxHp: number = 75;
   @type("number") waypointX: number = 0;
   @type("number") waypointY: number = 0;
   @type("number") speed: number = 50;
