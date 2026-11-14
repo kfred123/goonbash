@@ -128,6 +128,26 @@
           'activate_ability', { abilityId: 'healer-rescue-impulse', targetId: minion.id }
         ]) && minion.hp === minionHp && rescue.cooldownEndsAt === 0 && cursorCleared(),
           'Allied minion confirmation sends a targeted request without optimistic changes');
+        minion.x = 1080;
+        minion.y = 950;
+        this.upsertMinion(minion, minion.id);
+        healer.abilities.get('healer-aura').activeUntil = Date.now() + 60000;
+        this.applyRoleAbilityVisuals();
+        check(this.healEffectIcons.has(minion.id) && this.healEffectIcons.get(minion.id).visible,
+          'Active heal aura displays a wrench above an allied minion in range');
+        this.setEntityVisibility(minion.id, false);
+        check(!this.healEffectIcons.get(minion.id).visible, 'Hidden minion healing indicator stays hidden');
+        this.setEntityVisibility(minion.id, true);
+        minion.team = 'red';
+        this.applyRoleAbilityVisuals();
+        check(!this.healEffectIcons.has(minion.id), 'Enemy minion has no healing indicator');
+        minion.team = 'blue';
+        this.applyRoleAbilityVisuals();
+        this.removeMinion(minion.id);
+        check(!this.healEffectIcons.has(minion.id), 'Removing a minion clears its healing indicator');
+        state.minions.delete(minion.id);
+        healer.abilities.get('healer-aura').activeUntil = 0;
+        this.applyRoleAbilityVisuals();
         messages.get(INVALID_TARGET_MESSAGE)({ action: 'rescue', reason: 'cooldown' });
         check(this.statusText.text.includes('cooling down') && cursorCleared(),
           'Authoritative rejection shows actionable feedback without reviving targeting');

@@ -734,7 +734,7 @@ export class GameRoom extends Room<GameState> {
     tank.hp = tank.maxHp;
   }
 
-  /** Heals every Healer with an active aura, and every allied tank within its radius, once per tick. */
+  /** Heals allied tanks and minions within each active Healer aura once per tick. */
   private resolveHealerAuras(elapsedSeconds: number, now: number) {
     this.state.tanks.forEach((healer) => {
       if (healer.role !== "healer" || healer.state === "dead") return;
@@ -743,6 +743,11 @@ export class GameRoom extends Room<GameState> {
       const config = computeAbilityConfigForLevel("healer-aura", aura?.level ?? 0);
       this.state.tanks.forEach((ally) => {
         if (ally.state === "dead" || ally.team !== healer.team) return;
+        if (!isWithinRange(healer, ally, config.radius ?? 0)) return;
+        ally.hp = healOverTick(ally.hp, ally.maxHp, config.magnitude, elapsedSeconds);
+      });
+      this.state.minions.forEach((ally) => {
+        if (ally.hp <= 0 || ally.team !== healer.team) return;
         if (!isWithinRange(healer, ally, config.radius ?? 0)) return;
         ally.hp = healOverTick(ally.hp, ally.maxHp, config.magnitude, elapsedSeconds);
       });

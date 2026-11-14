@@ -10,6 +10,7 @@ The Healer can currently heal nearby allies over time or improve their own movem
 - Let the Healer target a living, visible allied player tank or minion, including themselves, within 250 world units and instantly heal 18 HP at rank 1, plus 3 HP per rank above 1, capped at the target's maximum HP.
 - Give the ability a 20-second base cooldown, reduced by the existing rank-based cooldown rule; invalid targets do not apply healing or start cooldown.
 - Allow activation on a target at full HP; it still starts the ability's cooldown.
+- Extend the existing Heal Aura to heal living allied minions in its radius at the same rate as allied tanks.
 - Add a third Healer HUD slot on **R**, with ally-target selection, confirmation, and cancellation behavior.
 
 ## Capabilities

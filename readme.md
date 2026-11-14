@@ -168,6 +168,9 @@ Learn and upgrade each ability separately with skill points (ranks 1-10).
 SPACE activates Heal Aura, E activates Speed, and **R** selects **Rettungsimpuls
 (Rescue Impulse)**. The HUD controls provide the same actions.
 
+While active, Heal Aura also heals living allied minions within its 120-unit
+radius at the same rank-based rate as allied player tanks, up to their maximum HP.
+
 Rettungsimpuls replaces the pointer with a green medical cross. Click a living,
 visible allied player tank or minion within **250 world units**, including your own Healer,
 to heal it immediately. Rank 1 restores **18 HP**, and each additional rank adds

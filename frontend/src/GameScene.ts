@@ -1398,6 +1398,8 @@ export class GameScene extends Phaser.Scene {
     this.minionSprites.get(id)?.destroy();
     this.minionSprites.delete(id);
     this.removeHealthBar(id);
+    this.healEffectIcons.get(id)?.destroy();
+    this.healEffectIcons.delete(id);
   }
 
   private removeTower(id: string) {
@@ -1824,6 +1826,12 @@ export class GameScene extends Phaser.Scene {
         const dy = (allyTank.y ?? 0) - (healerTank.y ?? 0);
         if (dx * dx + dy * dy <= healRadius * healRadius) healedSessionIds.add(allyId);
       });
+      this.room.state.minions.forEach((minion: Minion, id: string) => {
+        if (minion.team !== healerTank.team || minion.hp <= 0) return;
+        const dx = minion.x - healerTank.x;
+        const dy = minion.y - healerTank.y;
+        if (dx * dx + dy * dy <= healRadius * healRadius) healedSessionIds.add(id);
+      });
     });
 
     this.room.state.tanks.forEach((tank: any, sessionId: string) => {
@@ -1839,7 +1847,8 @@ export class GameScene extends Phaser.Scene {
 
     healedSessionIds.forEach((sessionId) => {
       if (this.healEffectIcons.has(sessionId)) return;
-      const icon = this.add.graphics().setDepth(500).setScale(WORLD_SCALE.entity);
+      const icon = this.add.graphics().setDepth(500).setScale(WORLD_SCALE.entity)
+        .setVisible(this.visibleEntities.has(sessionId));
       drawWrench(icon, 0, 0, 22);
       this.healEffectIcons.set(sessionId, icon);
     });
@@ -1850,7 +1859,7 @@ export class GameScene extends Phaser.Scene {
     });
     const t = this.time.now;
     this.healEffectIcons.forEach((icon, sessionId) => {
-      const sprite = this.tankSprites.get(sessionId);
+      const sprite = this.tankSprites.get(sessionId) ?? this.minionSprites.get(sessionId);
       if (!sprite) return;
       const bob = Math.sin((t + sessionId.length * 137) / 260) * 5 * WORLD_SCALE.entity;
       icon.setPosition(sprite.x, sprite.y - 68 * WORLD_SCALE.entity + bob);
