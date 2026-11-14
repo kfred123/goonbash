@@ -3,6 +3,7 @@ import { ABILITY_IDS, AbilityId } from "../abilities";
 import { Entity } from "./Entity";
 import { AbilityState } from "./AbilityState";
 import { PLAYER_COLLISION_RADIUS } from "../collision";
+import { PLAYER_TOWER_FIRE_RANGE, STANDARD_SIGHT_RANGE } from "../roles";
 
 export class Tank extends Entity {
   @type("string") name: string = "Player";
@@ -18,8 +19,8 @@ export class Tank extends Entity {
   @type("string") state: "alive" | "dead" = "alive";
   @type("number") respawnAt: number = 0;
   @type("string") targetId: string = "";
-  @type("number") fireRange: number = 150;
-  @type("number") sightRange: number = 390;
+  @type("number") fireRange: number = PLAYER_TOWER_FIRE_RANGE;
+  @type("number") sightRange: number = STANDARD_SIGHT_RANGE;
   @type("number") fireCooldown: number = 0;
   @type("number") fireCooldownMax: number = 800;
   @type("number") fireDamage: number = 8;

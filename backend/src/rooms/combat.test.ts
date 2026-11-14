@@ -201,8 +201,8 @@ test("lane tower shots preserve tower damage and replicate the firing direction"
 
 test("scaled structure shots start at their cannon muzzles without changing combat parameters", () => {
   for (const [shooter, distance, damage, range, cooldown] of [
-    [new Base(), 43.2, 24, 250, 1200],
-    [new Tower(), 25.2, 12, 250, 1200]
+    [new Base(), 43.2, 24, 275, 1200],
+    [new Tower(), 25.2, 12, 275, 1200]
   ] as const) {
     shooter.id = "structure";
     shooter.team = "blue";
@@ -217,7 +217,7 @@ test("scaled structure shots start at their cannon muzzles without changing comb
       assert.equal(shot.speed, 400);
       assert.equal(shooter.fireRange, range);
       assert.equal(shooter.fireCooldownMax, cooldown);
-      assert.equal(shooter.sightRange, 390);
+      assert.equal(shooter.sightRange, 468);
     }
   }
 });
@@ -262,7 +262,7 @@ test("a main base does not fire at enemies beyond its range and clears its targe
   base.targetId = "old-target";
   let shots = 0;
 
-  assert.equal(tickShooter(base, [{ id: "distant-enemy", x: 251, y: 0, team: "red" }], 16, () => shots++), null);
+  assert.equal(tickShooter(base, [{ id: "distant-enemy", x: 276, y: 0, team: "red" }], 16, () => shots++), null);
   assert.equal(base.targetId, "");
   assert.equal(shots, 0);
 });

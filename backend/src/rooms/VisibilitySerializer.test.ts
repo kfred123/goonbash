@@ -30,9 +30,9 @@ function connection(id: string) {
 function setup() {
   const source = new GameState();
   source.phase = "started";
-  // All positions lie in grass: default tank vision is 390 / 4 = 97.5.
-  const blue = Object.assign(new Tank(), { id: "blue", team: "blue", x: 1000, y: 600 });
-  const red = Object.assign(new Tank(), { id: "red", team: "red", x: 1100, y: 600 });
+  // Keep the serializer fixture's grass vision budget at the pre-change value.
+  const blue = Object.assign(new Tank(), { id: "blue", team: "blue", x: 1000, y: 600, sightRange: 390 });
+  const red = Object.assign(new Tank(), { id: "red", team: "red", x: 1100, y: 600, sightRange: 390 });
   source.tanks.set(blue.id, blue);
   source.tanks.set(red.id, red);
   source.minions.set("concealed-initial-minion", Object.assign(new Minion(), { id: "concealed-initial-minion", team: "red", x: 1800, y: 600 }));

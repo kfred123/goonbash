@@ -106,6 +106,7 @@ test("paired towers retain separate cooldowns, health, shots, targets and ruins"
 test("roadside towers keep grass vision penalties and can use allied spotting without extending fire range", (t) => {
   const room = startMatch(t);
   const tower = room.state.towers.get("blue-tower-lane-1-0-left")!;
+  tower.sightRange = 390;
   room.state.bases.clear();
   room.state.towers.clear();
   room.state.towers.set(tower.id, tower);
