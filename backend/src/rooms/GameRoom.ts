@@ -13,7 +13,7 @@ import { applyTankProgressionStats, distributeKillXp, purchaseAbilityUpgrade } f
 import { endMatchAfterBaseDestroyed, recordPlayerDamage, recordPlayerKill, removeLeavingPlayerTank } from "./matchResults.js";
 import { VisibilitySerializer } from "./VisibilitySerializer.js";
 import { MORTAR_IMPACT_MESSAGE, mortarPointRejection } from "shared";
-import type { MortarImpactMessage, MortarRejectionReason } from "shared";
+import type { MortarImpactMessage, MortarRejectionReason, RescueImpulseRejectionReason } from "shared";
 import { mortarDamage } from "./ability.js";
 import { byId, COLLISION_TOLERANCE, findClearNearBase, findLaneSpawn, movementBlockers, resolveMovement } from "./collision.js";
 import { moveMinion, type MinionDetour } from "./minionMovement.js";
@@ -132,6 +132,10 @@ export class GameRoom extends Room<GameState> {
     });
     this.onMessage("activate_ability", (client, payload: { abilityId?: unknown; targetId?: unknown; targetX?: unknown; targetY?: unknown }) => {
       const tank = this.state.tanks.get(client.sessionId);
+      if (payload?.abilityId === "healer-rescue-impulse") {
+        this.activateRescueImpulse(client, tank, payload.targetId);
+        return;
+      }
       if (payload?.abilityId === "damagedealer-mortar") {
         this.activateMortar(client, tank, payload.targetX, payload.targetY);
         return;
@@ -449,6 +453,38 @@ export class GameRoom extends Room<GameState> {
     this.projectileLifetimes.set(projectile.id, 0);
   }
 
+  private activateRescueImpulse(client: Client, tank: Tank | undefined, targetId: unknown) {
+    const reject = (reason: RescueImpulseRejectionReason) => client.send(INVALID_TARGET_MESSAGE, { action: "rescue", reason });
+    if (!tank || !canUseGameplayActions(this.state.phase) || tank.state === "dead" || tank.hp <= 0) {
+      reject("inactive");
+      return;
+    }
+    if (tank.role !== "healer") {
+      reject("unavailable");
+      return;
+    }
+    const ability = tank.abilities.get("healer-rescue-impulse");
+    if (!ability || ability.level <= 0) {
+      reject("unlearned");
+      return;
+    }
+    const now = Date.now();
+    if (now < ability.cooldownEndsAt) {
+      reject("cooldown");
+      return;
+    }
+    const config = computeAbilityConfigForLevel("healer-rescue-impulse", ability.level);
+    const target = typeof targetId === "string"
+      ? this.state.tanks.get(targetId) ?? this.state.minions.get(targetId) : undefined;
+    if (!target || target.team !== tank.team || (target instanceof Tank && target.state === "dead") || target.hp <= 0
+      || !this.teamVision(tank.team).canSee(target) || !isWithinRange(tank, target, config.range!)) {
+      reject("invalid_target");
+      return;
+    }
+    target.hp = Math.min(target.maxHp, target.hp + config.magnitude);
+    Object.assign(ability, activateAbility(now, config), { activeUntil: 0 });
+  }
+
   private activateMortar(client: Client, tank: Tank | undefined, x: unknown, y: unknown) {
     const reject = (reason: MortarRejectionReason) => client.send(INVALID_TARGET_MESSAGE, { action: "mortar", reason });
     if (!tank || !canUseGameplayActions(this.state.phase) || tank.state === "dead" || tank.hp <= 0) {
@@ -698,7 +734,7 @@ export class GameRoom extends Room<GameState> {
     tank.hp = tank.maxHp;
   }
 
-  /** Heals every Healer with an active aura, and every allied tank within its radius, once per tick. */
+  /** Heals allied tanks and minions within each active Healer aura once per tick. */
   private resolveHealerAuras(elapsedSeconds: number, now: number) {
     this.state.tanks.forEach((healer) => {
       if (healer.role !== "healer" || healer.state === "dead") return;
@@ -707,6 +743,11 @@ export class GameRoom extends Room<GameState> {
       const config = computeAbilityConfigForLevel("healer-aura", aura?.level ?? 0);
       this.state.tanks.forEach((ally) => {
         if (ally.state === "dead" || ally.team !== healer.team) return;
+        if (!isWithinRange(healer, ally, config.radius ?? 0)) return;
+        ally.hp = healOverTick(ally.hp, ally.maxHp, config.magnitude, elapsedSeconds);
+      });
+      this.state.minions.forEach((ally) => {
+        if (ally.hp <= 0 || ally.team !== healer.team) return;
         if (!isWithinRange(healer, ally, config.radius ?? 0)) return;
         ally.hp = healOverTick(ally.hp, ally.maxHp, config.magnitude, elapsedSeconds);
       });

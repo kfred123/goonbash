@@ -1,12 +1,13 @@
 import type { WeaponSelection } from "./abilityControls";
-import type { MortarRejectionReason } from "shared";
+import type { MortarRejectionReason, RescueImpulseRejectionReason } from "shared";
 
 const crosshair = `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32"><g fill="none" stroke="#fff" stroke-width="5"><circle cx="16" cy="16" r="9"/><path d="M16 1v10m0 10v10M1 16h10m10 0h10"/></g><g fill="none" stroke="#e82030" stroke-width="3"><circle cx="16" cy="16" r="9"/><path d="M16 1v10m0 10v10M1 16h10m10 0h10"/></g><circle cx="16" cy="16" r="2" fill="#e82030"/></svg>`;
 const bomb = `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32"><path d="M19 10l3-5 5 1m-1-5v8m-4-4h8" fill="none" stroke="#fff" stroke-width="4"/><path d="M19 10l3-5 5 1m-1-5v8m-4-4h8" fill="none" stroke="#ffb52e" stroke-width="2"/><circle cx="15" cy="19" r="11" fill="#18212c" stroke="#fff" stroke-width="2"/><path d="M8 17q0-6 6-6" fill="none" stroke="#aabbd0" stroke-width="2"/><path d="M15 14v10m-5-5h10" stroke="#ff3545" stroke-width="2"/></svg>`;
+const rescueCross = `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32"><circle cx="16" cy="16" r="13" fill="#18212c" stroke="#fff" stroke-width="2"/><path d="M12 6h8v6h6v8h-6v6h-8v-6H6v-8h6z" fill="#44dd88" stroke="#fff" stroke-width="1"/></svg>`;
 
 export function getWeaponCursor(selection: WeaponSelection): string | null {
   if (!selection) return null;
-  const svg = selection === "mortar" ? bomb : crosshair;
+  const svg = selection === "mortar" ? bomb : selection === "rescue" ? rescueCross : crosshair;
   const hotspot = selection === "mortar" ? "15 19" : "16 16";
   return `url("data:image/svg+xml,${encodeURIComponent(svg)}") ${hotspot}, crosshair`;
 }
@@ -34,4 +35,12 @@ export const MORTAR_REJECTION_TEXT: Record<MortarRejectionReason, string> = {
   unlearned: "Learn Mortar before firing.",
   cooldown: "Mortar is still cooling down.",
   inactive: "Mortar requires a living tank in an active match."
+};
+
+export const RESCUE_REJECTION_TEXT: Record<RescueImpulseRejectionReason, string> = {
+  invalid_target: "Choose a visible living allied tank or minion within 250 range, including yourself.",
+  unavailable: "Rettungsimpuls is only available to the Healer.",
+  unlearned: "Learn Rettungsimpuls before using it.",
+  cooldown: "Rettungsimpuls is still cooling down.",
+  inactive: "Rettungsimpuls requires a living Healer in an active match."
 };

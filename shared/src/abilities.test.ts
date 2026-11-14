@@ -19,15 +19,31 @@ test("canUpgradeAbility permits upgrade only when having at least 1 point and be
   assert.equal(canUpgradeAbility(2, 11), false); // exceeds max
 });
 
-test("the ability catalog defines independent role abilities including three Scout skills", () => {
-  assert.equal(new Set(ABILITY_IDS).size, 10);
-  assert.deepEqual(ROLE_ABILITY_IDS.healer, ["healer-aura", "healer-speed"]);
+test("the ability catalog defines independent role abilities including three Healer and Scout skills", () => {
+  assert.equal(new Set(ABILITY_IDS).size, 11);
+  assert.deepEqual(ROLE_ABILITY_IDS.healer, ["healer-aura", "healer-speed", "healer-rescue-impulse"]);
   assert.deepEqual(ROLE_ABILITY_IDS.tank, ["tank-shield", "tank-entrench"]);
   assert.deepEqual(ROLE_ABILITY_IDS.damagedealer, ["damagedealer-rapidfire", "damagedealer-homing-rocket", "damagedealer-mortar"]);
   assert.deepEqual(ROLE_ABILITY_IDS.scout, ["scout-weitsicht", "scout-offroad", "scout-shockshot"]);
   for (const abilityId of ABILITY_IDS) {
     assert.equal(ABILITY_DEFINITIONS[abilityId].id, abilityId);
   }
+});
+
+test("Rescue Impulse scales instant healing and cooldown while preserving its target range", () => {
+  const first = computeAbilityConfigForLevel("healer-rescue-impulse", 1);
+  assert.deepEqual(first, { cooldownMs: 20000, durationMs: 0, magnitude: 18, range: 250 });
+  for (let level = 1; level <= MAX_ABILITY_LEVEL; level++) {
+    assert.deepEqual(computeAbilityConfigForLevel("healer-rescue-impulse", level), {
+      ...first,
+      magnitude: 18 + 3 * (level - 1),
+      cooldownMs: Math.round(20000 * (1 - 0.03 * (level - 1)))
+    });
+  }
+  assert.equal(computeAbilityConfigForLevel("healer-rescue-impulse", 10).magnitude, 45);
+  assert.equal(computeAbilityConfigForLevel("healer-rescue-impulse", 10).cooldownMs, 14600);
+  assert.deepEqual(computeAbilityConfigForLevel("healer-rescue-impulse", 11),
+    computeAbilityConfigForLevel("healer-rescue-impulse", 10));
 });
 
 test("Mortar rank endpoints preserve range, blast size, flight time and siege bonus", () => {

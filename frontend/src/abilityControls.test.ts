@@ -28,11 +28,12 @@ test("each role maps Space and E to its independent abilities", () => {
   assert.equal(getRoleAbilityAtIndex("unknown", 0), null);
 });
 
-test("Damagedealer has a third R slot without changing other roles or crowding layout", () => {
+test("Healer, Damagedealer and Scout have third R slots without crowding layout", () => {
   assert.deepEqual(ABILITY_KEYS, ["SPACE", "E", "R"]);
   assert.equal(getRoleAbilityAtIndex("damagedealer", 2), "damagedealer-mortar");
   assert.equal(getRoleAbilityAtIndex("tank", 2), null);
-  assert.equal(getRoleAbilityAtIndex("healer", 2), null);
+  assert.equal(getRoleAbilityAtIndex("healer", 2), "healer-rescue-impulse");
+  assert.equal(getRoleAbilityAtIndex("healer", 3), null);
   assert.equal(getRoleAbilityAtIndex("scout", 2), "scout-shockshot");
   assert.equal(getRoleAbilityAtIndex("scout", 3), null);
   for (const count of [2, 3]) {
@@ -51,6 +52,10 @@ test("weapon selection toggles or switches exclusively", () => {
   assert.equal(nextWeaponSelection("mortar", "mortar"), null);
   assert.equal(nextWeaponSelection(null, "shock"), "shock");
   assert.equal(nextWeaponSelection("shock", "shock"), null);
+  assert.equal(nextWeaponSelection(null, "rescue"), "rescue");
+  assert.equal(nextWeaponSelection("rescue", "rescue"), null);
+  assert.equal(nextWeaponSelection("rocket", "rescue"), "rescue");
+  assert.equal(nextWeaponSelection("rescue", "mortar"), "mortar");
 });
 
 test("Mortar consumes valid ground clicks regardless of occupants but never leaks movement on invalid points", () => {
@@ -131,4 +136,30 @@ test("Shockshot targeting accepts only living enemies in range without leaking m
   assert.deepEqual(resolveArenaClick("shock", shooter, { ...enemy, x: 651 }, { x: 400, y: 400 }, 900), { type: "ignore" });
   assert.deepEqual(resolveArenaClick("shock", shooter, { ...enemy, team: "blue" }, { x: 400, y: 400 }, 900), { type: "ignore" });
   assert.deepEqual(resolveArenaClick("shock", shooter, null, { x: 400, y: 400 }, 900), { type: "ignore" });
+});
+
+test("Rescue Impulse accepts allied tanks, minions and self at exact range, even at full health", () => {
+  const healer = { id: "healer", team: "blue", x: 1000, y: 900, hp: 90, state: "alive", kind: "tank" as const };
+  const ally = { ...healer, id: "ally", x: 1150, y: 1100, hp: 170 };
+  const minion = { ...ally, id: "minion", kind: "minion" as const };
+  for (const target of [healer, ally, minion]) {
+    assert.deepEqual(resolveArenaClick("rescue", healer, target, target, 900), {
+      type: "rescue", targetId: target.id
+    });
+  }
+});
+
+test("Rescue Impulse consumes invalid clicks without issuing movement, attacks or healing", () => {
+  const healer = { team: "blue", x: 1000, y: 900 };
+  const ally = { id: "ally", team: "blue", x: 1100, y: 900, hp: 40, kind: "tank" as const };
+  for (const target of [
+    null, { ...ally, id: "" }, { ...ally, team: "red" }, { ...ally, state: "dead" },
+    { ...ally, hp: 0 }, { ...ally, hp: undefined }, { ...ally, x: 1250.01 },
+    { ...ally, x: NaN }, { ...ally, x: Infinity },
+    { ...ally, kind: "minion" as const, team: "red" }, { ...ally, kind: "minion" as const, hp: 0 },
+    { ...ally, kind: "minion" as const, x: 1250.01 }, { ...ally, kind: "base" as const },
+    { ...ally, kind: "tower" as const }, { ...ally, kind: undefined }
+  ]) {
+    assert.deepEqual(resolveArenaClick("rescue", healer, target, { x: 500, y: 500 }, 900), { type: "ignore" });
+  }
 });

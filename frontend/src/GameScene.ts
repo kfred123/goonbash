@@ -24,14 +24,14 @@ import {
 } from 'shared';
 import { isPreMatch, LOBBY_ACTION_ERROR, LOBBY_NAME_ERROR, normalizeLobbyName } from 'shared';
 import { getLobbyControls } from './lobbyPresentation.js';
-import type { AbilityId, AbilityActivationRequest, Base, Minion, Tank, VisionEntity, InvalidTargetMessage, MortarImpactMessage, Projectile } from 'shared';
+import type { AbilityId, AbilityActivationRequest, Base, Minion, Tank, Tower, VisionEntity, InvalidTargetMessage, MortarImpactMessage, Projectile } from 'shared';
 import { MORTAR_IMPACT_MESSAGE, mortarPointRejection } from 'shared';
 import { FogPresentation } from './FogPresentation.js';
 import { isEntityPresented, isProjectilePresented, WORLD_FOG_DEPTH } from './visionPresentation.js';
 import { formatPlayerNameTag } from './nameFormatter.js';
 import { ABILITY_KEYS, getAbilitySlotDesignX, getAbilityHudStatus, getRoleAbilityAtIndex, nextWeaponSelection, resolveArenaClick, shouldCancelRocketTargetSelection, shouldHandleAbilityKeydown } from './abilityControls.js';
-import type { WeaponSelection } from './abilityControls.js';
-import { applyWeaponCursor, mortarShellHeight, MORTAR_REJECTION_TEXT } from './weaponTargeting.js';
+import type { RocketClickTarget, WeaponSelection } from './abilityControls.js';
+import { applyWeaponCursor, mortarShellHeight, MORTAR_REJECTION_TEXT, RESCUE_REJECTION_TEXT } from './weaponTargeting.js';
 import './weaponTargeting.css';
 import { getBaseCannonRotation, getBaseCannonShotFeedback } from './baseCannonVisuals.js';
 import { getTowerCannonRotation, getTowerCannonShotFeedback } from './towerCannonVisuals.js';
@@ -511,6 +511,10 @@ export class GameScene extends Phaser.Scene {
     });
     this.room.onMessage(INVALID_TARGET_MESSAGE, (message: InvalidTargetMessage) => {
       if (this.room !== connectedRoom) return;
+      if (message.action === 'rescue') {
+        this.statusText.setText(RESCUE_REJECTION_TEXT[message.reason]).setColor('#ffbb88');
+        return;
+      }
       if (message.action === 'mortar') {
         this.statusText.setText(MORTAR_REJECTION_TEXT[message.reason]).setColor('#ffbb88');
         return;
@@ -1394,6 +1398,8 @@ export class GameScene extends Phaser.Scene {
     this.minionSprites.get(id)?.destroy();
     this.minionSprites.delete(id);
     this.removeHealthBar(id);
+    this.healEffectIcons.get(id)?.destroy();
+    this.healEffectIcons.delete(id);
   }
 
   private removeTower(id: string) {
@@ -1525,31 +1531,34 @@ export class GameScene extends Phaser.Scene {
     this.healthBars.delete(id);
   }
 
-  private hitTestClick(worldX: number, worldY: number): { id: string; team: string; x: number; y: number } | null {
-    let closest: { id: string; team: string; x: number; y: number; distSq: number } | null = null;
-    const consider = (id: string, x: number, y: number, team: string, radius: number) => {
-      const displayed = this.findEntityPosition(id);
+  private hitTestClick(worldX: number, worldY: number, unitsOnly = false): RocketClickTarget | null {
+    let closest: (RocketClickTarget & { distSq: number }) | null = null;
+    const consider = (target: RocketClickTarget & { id: string }, radius: number) => {
+      const displayed = this.findEntityPosition(target.id);
       if (!displayed) return;
       const dx = displayed.x - worldX;
       const dy = displayed.y - worldY;
       const distSq = dx * dx + dy * dy;
       if (distSq > radius * radius) return;
-      if (!closest || distSq < closest.distSq) closest = { id, team, x, y, distSq };
+      if (!closest || distSq < closest.distSq) closest = { ...target, distSq };
     };
-    this.room.state.tanks.forEach((tank: any, sessionId: string) => {
-      if (tank.state === 'dead') return;
-      consider(sessionId, tank.x, tank.y, tank.team, GameScene.CLICK_HIT_RADIUS_TANK);
+    this.room.state.tanks.forEach((tank: Tank, sessionId: string) => {
+      if (tank.state === 'dead' || tank.hp <= 0) return;
+      consider({ id: sessionId, team: tank.team, x: tank.x, y: tank.y, hp: tank.hp, state: tank.state, kind: 'tank' },
+        GameScene.CLICK_HIT_RADIUS_TANK);
     });
-    this.room.state.minions.forEach((minion: any, id: string) => {
-      consider(id, minion.x, minion.y, minion.team, GameScene.CLICK_HIT_RADIUS_MINION);
+    this.room.state.minions.forEach((minion: Minion, id: string) => {
+      consider({ id, team: minion.team, x: minion.x, y: minion.y, hp: minion.hp, kind: 'minion' },
+        GameScene.CLICK_HIT_RADIUS_MINION);
     });
-    this.room.state.bases.forEach((base: any, id: string) => {
+    if (unitsOnly) return closest;
+    this.room.state.bases.forEach((base: Base, id: string) => {
       if (base.hp <= 0) return;
-      consider(id, base.x, base.y, base.team, GameScene.CLICK_HIT_RADIUS_BASE);
+      consider({ id, team: base.team, x: base.x, y: base.y, hp: base.hp, kind: 'base' }, GameScene.CLICK_HIT_RADIUS_BASE);
     });
-    this.room.state.towers.forEach((tower: any, id: string) => {
+    this.room.state.towers.forEach((tower: Tower, id: string) => {
       if (tower.hp <= 0) return;
-      consider(id, tower.x, tower.y, tower.team, GameScene.CLICK_HIT_RADIUS_TOWER);
+      consider({ id, team: tower.team, x: tower.x, y: tower.y, hp: tower.hp, kind: 'tower' }, GameScene.CLICK_HIT_RADIUS_TOWER);
     });
     return closest;
   }
@@ -1628,7 +1637,7 @@ export class GameScene extends Phaser.Scene {
     pointer.updateWorldPoint?.(this.cameras.main);
     const worldX = pointer.worldX;
     const worldY = pointer.worldY;
-    const hit = this.weaponSelection === 'mortar' ? null : this.hitTestClick(worldX, worldY);
+    const hit = this.weaponSelection === 'mortar' ? null : this.hitTestClick(worldX, worldY, this.weaponSelection === 'rescue');
     const action = resolveArenaClick(
       this.weaponSelection,
       { team: myTank.team, x: myTank.x, y: myTank.y },
@@ -1646,6 +1655,9 @@ export class GameScene extends Phaser.Scene {
     } else if (action.type === 'shock') {
       this.sendAbilityActivation({ abilityId: 'scout-shockshot', targetId: action.targetId });
       this.cancelRocketTargetSelection();
+    } else if (action.type === 'rescue') {
+      this.sendAbilityActivation({ abilityId: 'healer-rescue-impulse', targetId: action.targetId });
+      this.cancelRocketTargetSelection();
     } else if (action.type === 'attack') {
       this.room.send('command', { targetId: action.targetId });
       const displayed = this.findEntityPosition(action.targetId) ?? action;
@@ -1655,6 +1667,8 @@ export class GameScene extends Phaser.Scene {
       this.showClickMarker(action.x, action.y, 0x33ff55);
     } else if (this.weaponSelection === 'mortar') {
       this.statusText.setText('Choose an arena point within 900 range.').setColor('#ffbb88');
+    } else if (this.weaponSelection === 'rescue') {
+      this.statusText.setText(RESCUE_REJECTION_TEXT.invalid_target).setColor('#ffbb88');
     }
   }
 
@@ -1812,6 +1826,12 @@ export class GameScene extends Phaser.Scene {
         const dy = (allyTank.y ?? 0) - (healerTank.y ?? 0);
         if (dx * dx + dy * dy <= healRadius * healRadius) healedSessionIds.add(allyId);
       });
+      this.room.state.minions.forEach((minion: Minion, id: string) => {
+        if (minion.team !== healerTank.team || minion.hp <= 0) return;
+        const dx = minion.x - healerTank.x;
+        const dy = minion.y - healerTank.y;
+        if (dx * dx + dy * dy <= healRadius * healRadius) healedSessionIds.add(id);
+      });
     });
 
     this.room.state.tanks.forEach((tank: any, sessionId: string) => {
@@ -1827,7 +1847,8 @@ export class GameScene extends Phaser.Scene {
 
     healedSessionIds.forEach((sessionId) => {
       if (this.healEffectIcons.has(sessionId)) return;
-      const icon = this.add.graphics().setDepth(500).setScale(WORLD_SCALE.entity);
+      const icon = this.add.graphics().setDepth(500).setScale(WORLD_SCALE.entity)
+        .setVisible(this.visibleEntities.has(sessionId));
       drawWrench(icon, 0, 0, 22);
       this.healEffectIcons.set(sessionId, icon);
     });
@@ -1838,7 +1859,7 @@ export class GameScene extends Phaser.Scene {
     });
     const t = this.time.now;
     this.healEffectIcons.forEach((icon, sessionId) => {
-      const sprite = this.tankSprites.get(sessionId);
+      const sprite = this.tankSprites.get(sessionId) ?? this.minionSprites.get(sessionId);
       if (!sprite) return;
       const bob = Math.sin((t + sessionId.length * 137) / 260) * 5 * WORLD_SCALE.entity;
       icon.setPosition(sprite.x, sprite.y - 68 * WORLD_SCALE.entity + bob);
@@ -2029,7 +2050,12 @@ export class GameScene extends Phaser.Scene {
   private drawAbilityIcon(g: Phaser.GameObjects.Graphics, abilityId: AbilityId, cx: number, cy: number, size: number) {
     g.clear();
     if (abilityId === 'healer-aura') drawWrench(g, cx, cy, size);
-    else if (abilityId === 'healer-speed') {
+    else if (abilityId === 'healer-rescue-impulse') {
+      g.lineStyle(2, 0xffffff).strokeCircle(cx, cy, size * 0.38);
+      g.fillStyle(0x44dd88);
+      g.fillRect(cx - size * 0.08, cy - size * 0.26, size * 0.16, size * 0.52);
+      g.fillRect(cx - size * 0.26, cy - size * 0.08, size * 0.52, size * 0.16);
+    } else if (abilityId === 'healer-speed') {
       g.fillStyle(0xffffff, 1);
       g.beginPath();
       g.moveTo(cx + 2, cy - size * 0.45);
@@ -2088,8 +2114,11 @@ export class GameScene extends Phaser.Scene {
     if (!myTank || myTank.state === 'dead') return;
     const ability = myTank.abilities?.get(abilityId);
     if (!ability || ability.level <= 0 || Date.now() < ability.cooldownEndsAt) return;
-    if (abilityId === 'damagedealer-homing-rocket' || abilityId === 'damagedealer-mortar' || abilityId === 'scout-shockshot') {
-      const selection = abilityId === 'damagedealer-mortar' ? 'mortar' : abilityId === 'scout-shockshot' ? 'shock' : 'rocket';
+    if (abilityId === 'damagedealer-homing-rocket' || abilityId === 'damagedealer-mortar' || abilityId === 'scout-shockshot'
+      || abilityId === 'healer-rescue-impulse') {
+      const selection = abilityId === 'damagedealer-mortar' ? 'mortar'
+        : abilityId === 'scout-shockshot' ? 'shock'
+          : abilityId === 'healer-rescue-impulse' ? 'rescue' : 'rocket';
       this.weaponSelection = nextWeaponSelection(this.weaponSelection, selection);
       if (this.weaponSelection) this.refreshWeaponTargeting();
       else this.cancelRocketTargetSelection();
@@ -2118,7 +2147,9 @@ export class GameScene extends Phaser.Scene {
       ? 'Select Mortar ground point (Esc/right-click to cancel)'
       : this.weaponSelection === 'shock'
         ? 'Select an enemy within 650 range (Esc/right-click to cancel)'
-        : 'Select a rocket target (Esc/right-click to cancel)');
+        : this.weaponSelection === 'rescue'
+          ? 'Select an allied tank, minion, or yourself within 250 range (Esc/right-click to cancel)'
+          : 'Select a rocket target (Esc/right-click to cancel)');
     this.mortarPreview?.clear();
     if (this.weaponSelection !== 'mortar') return;
     const pointer = this.input.activePointer;

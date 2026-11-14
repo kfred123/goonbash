@@ -162,6 +162,39 @@ Clients can retain information they previously observed: this prevents new hidde
 state from being transmitted, not historical knowledge or deductions from visible
 projectile trajectories. In-flight tracking and damage still use canonical state.
 
+### Healer skills
+
+Learn and upgrade each ability separately with skill points (ranks 1-10).
+SPACE activates Heal Aura, E activates Speed, and **R** selects **Rettungsimpuls
+(Rescue Impulse)**. The HUD controls provide the same actions.
+
+While active, Heal Aura also heals living allied minions within its 120-unit
+radius at the same rank-based rate as allied player tanks, up to their maximum HP.
+
+Rettungsimpuls replaces the pointer with a green medical cross. Click a living,
+visible allied player tank or minion within **250 world units**, including your own Healer,
+to heal it immediately. Rank 1 restores **18 HP**, and each additional rank adds
+**3 HP**, reaching **45 HP** at rank 10. Healing is capped at the target's current
+maximum HP, including level bonuses. Towers, bases, enemies and dead units are
+not eligible.
+
+The **20-second** base cooldown decreases by 3 percent per rank above 1, reaching
+**14.6 seconds** at rank 10. Selecting a target at full HP still activates the
+ability and starts its cooldown. Activation does not spend skill points or
+change Heal Aura or Speed.
+
+Escape, right-click or selecting Rettungsimpuls again cancels without healing or
+starting cooldown. Invalid clicks retain selection and never issue movement or
+ordinary attack commands; HUD and minimap clicks never confirm healing. Using
+another ability, dying or leaving the match clears selection. HP and cooldown
+changes are confirmed by the server, with explicit feedback for rejected uses.
+
+After starting the frontend, `/tests/rescueImpulse.html` checks the third Healer
+HUD slot, ally/self targeting, cancellation, invalid inputs, camera zoom, resize
+and teardown in Phaser. Backend acceptance tests use two real Colyseus clients
+to verify learning, upgrades, allied HP replication, self-healing and full-HP
+activation.
+
 ### Damagedealer weapon skills
 
 Learn and upgrade each skill separately with skill points (ranks 1-10). Activation

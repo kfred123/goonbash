@@ -1,0 +1,234 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Rescue Impulse integration checks</title>
+<style>
+  body { background: #151c28; color: white; font: 14px system-ui; margin: 8px; }
+  canvas { display: block; touch-action: none; }
+  pre { white-space: pre-wrap; }
+</style>
+<h1>Healer Rettungsimpuls</h1>
+<pre id="result">Running...</pre>
+<div id="preview"></div>
+<script type="module">
+  import Phaser from 'phaser';
+  import { Client } from 'colyseus.js';
+  import { GameState, INVALID_TARGET_MESSAGE, Minion, Tank } from 'shared';
+  import { GameScene } from '../src/GameScene.ts';
+  import { getWeaponCursor } from '../src/weaponTargeting.ts';
+
+  const checks = [];
+  function check(condition, label) {
+    if (!condition) throw new Error(label);
+    checks.push(label);
+  }
+  const nextFrame = () => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  class RescueChecks extends GameScene {
+    showMainMenu() {}
+    showWaitingLobby() {}
+    async create() {
+      super.create();
+      try {
+        const state = new GameState();
+        state.phase = 'started';
+        const healer = Object.assign(new Tank(), {
+          id: 'healer', name: 'Healer', team: 'blue', role: 'healer', x: 1000, y: 900,
+          hp: 40, maxHp: 90, skillPoints: 1
+        });
+        const ally = Object.assign(new Tank(), { id: 'ally', name: 'Ally', team: 'blue', x: 1150, y: 900 });
+        const enemy = Object.assign(new Tank(), { id: 'enemy', name: 'Enemy', team: 'red', x: 1100, y: 800 });
+        const minion = Object.assign(new Minion(), { id: 'minion', team: 'blue', x: 1100, y: 1000 });
+        state.tanks.set(healer.id, healer);
+        state.tanks.set(ally.id, ally);
+        state.tanks.set(enemy.id, enemy);
+        state.minions.set(minion.id, minion);
+        const commands = [];
+        const messages = new Map();
+        const fixture = {
+          sessionId: healer.id, state, send: (...args) => commands.push(args),
+          removeAllListeners() {}, leave: async () => {}, onLeave() {}, onStateChange() {},
+          onMessage: (name, handler) => messages.set(name, handler)
+        };
+        const join = Client.prototype.joinOrCreate;
+        Client.prototype.joinOrCreate = async () => fixture;
+        try {
+          await this.connectToLobby({ id: 'fixture' });
+        } finally {
+          Client.prototype.joinOrCreate = join;
+        }
+        this.createArena('Rescue Impulse acceptance');
+        this.arenaStarted = true;
+        state.tanks.forEach((tank, id) => this.upsertTank(tank, id));
+        this.upsertMinion(minion, minion.id);
+        this.cameras.main.stopFollow().centerOn(healer.x, healer.y);
+        await nextFrame();
+        const key = (name, repeat = false) =>
+          this.input.keyboard.emit(`keydown-${name}`, { key: name === 'ESC' ? 'Escape' : name, repeat });
+        const cursorCleared = () => !this.game.canvas.classList.contains('goonbash-weapon-targeting');
+        const clickWorld = (x, y) =>
+          this.handlePointerClick({ x: 100, y: 150, worldX: x, worldY: y, button: 0 });
+        const rescue = healer.abilities.get('healer-rescue-impulse');
+        check(this.abilityHud.slots.length === 3 && this.abilityHud.slots[2].abilityId === 'healer-rescue-impulse',
+          'Healer has an independent third R slot');
+        check(this.abilityHud.slots[2].titleText.text === 'RETTUNGSIMPULS (R)'
+          && this.abilityHud.slots[2].icon.commandBuffer.length > 0,
+          'Third slot shows its R label and a drawn medical icon');
+        key('R');
+        check(commands.length === 0 && this.weaponSelection === null, 'Unlearned R does not activate or enter selection');
+        this.abilityHud.slots[2].upgradeButtonBg.emit('pointerdown', { button: 0 });
+        check(commands.at(-1)[0] === 'upgrade_ability' && this.weaponSelection === null,
+          'Learn control spends no activation and sends a separate purchase');
+        rescue.level = 1;
+        healer.skillPoints = 0;
+        healer.abilities.get('healer-aura').level = 1;
+        healer.abilities.get('healer-speed').level = 1;
+        this.upsertTank(healer, healer.id);
+        const image = new Image();
+        image.src = getWeaponCursor('rescue').match(/url\("([^"]+)"\)/)[1];
+        await image.decode();
+        check(image.naturalWidth === 32, 'Green medical cursor decodes as native cursor artwork');
+        key('R');
+        check(this.weaponSelection === 'rescue' && !cursorCleared() && this.rocketTargetHint.text.includes('yourself'),
+          'R enters ally selection with a self-targeting hint');
+        key('R', true);
+        check(this.weaponSelection === 'rescue', 'Held R never repeatedly toggles target selection');
+        const beforeInvalid = commands.length;
+        clickWorld(enemy.x, enemy.y);
+        clickWorld(700, 900);
+        ally.x = 1250.01;
+        this.upsertTank(ally, ally.id);
+        this.tankSprites.get(ally.id).setPosition(ally.x, ally.y);
+        clickWorld(ally.x, ally.y);
+        check(commands.length === beforeInvalid && this.weaponSelection === 'rescue',
+          'Enemy, ground and out-of-range clicks never leak movement, attacks or activation');
+        ally.x = 1150;
+        this.upsertTank(ally, ally.id);
+        this.tankSprites.get(ally.id).setPosition(ally.x, ally.y);
+        this.setEntityVisibility(ally.id, false);
+        clickWorld(ally.x, ally.y);
+        check(commands.length === beforeInvalid, 'Hidden target cannot be selected');
+        this.setEntityVisibility(ally.id, true);
+        const bounds = this.fog.bounds;
+        this.handlePointerClick({ x: bounds.x + 5, y: bounds.y + 5, worldX: ally.x, worldY: ally.y, button: 0 });
+        this.handlePointerClick({ x: 400, y: 580, worldX: ally.x, worldY: ally.y, button: 0 });
+        check(commands.length === beforeInvalid && this.weaponSelection === 'rescue',
+          'HUD and minimap clicks do not confirm a heal');
+        const hp = ally.hp;
+        clickWorld(ally.x, ally.y);
+        check(JSON.stringify(commands.at(-1)) === JSON.stringify([
+          'activate_ability', { abilityId: 'healer-rescue-impulse', targetId: ally.id }
+        ]), 'Ally confirmation sends only the targeted Rescue Impulse request');
+        check(ally.hp === hp && rescue.cooldownEndsAt === 0 && cursorCleared(),
+          'Confirmation restores cursor without optimistic HP or cooldown changes');
+        key('R');
+        const minionHp = minion.hp;
+        clickWorld(minion.x, minion.y);
+        check(JSON.stringify(commands.at(-1)) === JSON.stringify([
+          'activate_ability', { abilityId: 'healer-rescue-impulse', targetId: minion.id }
+        ]) && minion.hp === minionHp && rescue.cooldownEndsAt === 0 && cursorCleared(),
+          'Allied minion confirmation sends a targeted request without optimistic changes');
+        minion.x = 1080;
+        minion.y = 950;
+        this.upsertMinion(minion, minion.id);
+        healer.abilities.get('healer-aura').activeUntil = Date.now() + 60000;
+        this.applyRoleAbilityVisuals();
+        check(this.healEffectIcons.has(minion.id) && this.healEffectIcons.get(minion.id).visible,
+          'Active heal aura displays a wrench above an allied minion in range');
+        this.setEntityVisibility(minion.id, false);
+        check(!this.healEffectIcons.get(minion.id).visible, 'Hidden minion healing indicator stays hidden');
+        this.setEntityVisibility(minion.id, true);
+        minion.team = 'red';
+        this.applyRoleAbilityVisuals();
+        check(!this.healEffectIcons.has(minion.id), 'Enemy minion has no healing indicator');
+        minion.team = 'blue';
+        this.applyRoleAbilityVisuals();
+        this.removeMinion(minion.id);
+        check(!this.healEffectIcons.has(minion.id), 'Removing a minion clears its healing indicator');
+        state.minions.delete(minion.id);
+        healer.abilities.get('healer-aura').activeUntil = 0;
+        this.applyRoleAbilityVisuals();
+        messages.get(INVALID_TARGET_MESSAGE)({ action: 'rescue', reason: 'cooldown' });
+        check(this.statusText.text.includes('cooling down') && cursorCleared(),
+          'Authoritative rejection shows actionable feedback without reviving targeting');
+        for (const target of [healer, ally]) {
+          target.hp = target.maxHp;
+          this.upsertTank(target, target.id);
+          this.abilityHud.slots[2].slotBg.emit('pointerdown', { button: 0 });
+          clickWorld(target.x, target.y);
+          check(commands.at(-1)[1].targetId === target.id && cursorCleared(),
+            `Full-HP ${target.id} remains selectable through the HUD`);
+        }
+        for (const cancel of [
+          () => key('ESC'),
+          () => this.handlePointerClick({ button: 2 }),
+          () => key('R'),
+          () => key('SPACE'),
+          () => key('E')
+        ]) {
+          key('R');
+          cancel();
+          check(cursorCleared() && this.weaponSelection === null,
+            'Escape, right-click, repeated selection and other abilities clear rescue targeting');
+        }
+        for (const zoom of [0.5, 1, 2]) {
+          this.cameras.main.setZoom(zoom).centerOn(healer.x, healer.y);
+          await nextFrame();
+          const displayed = this.tankSprites.get(ally.id).setPosition(ally.x - 40, ally.y);
+          const pointer = this.input.activePointer;
+          pointer.position.set(
+            (displayed.x - this.cameras.main.scrollX - 400) * zoom + 400,
+            (displayed.y - this.cameras.main.scrollY - 300) * zoom + 300
+          );
+          key('R');
+          const beforeZoomClick = commands.length;
+          this.handlePointerClick(pointer);
+          check(commands.length === beforeZoomClick + 1 && commands.at(-1)[0] === 'activate_ability'
+            && commands.at(-1)[1].targetId === ally.id && cursorCleared(),
+            `Moving ally is targeted at the rendered position at ${zoom}x zoom`);
+          displayed.setPosition(ally.x, ally.y);
+        }
+        for (const [width, height] of [[800, 600], [320, 240], [1200, 800]]) {
+          this.scale.resize(width, height);
+          this.handleResize();
+          const regions = this.abilityHud.slots.map(slot => slot.upgradeButtonBg.getBounds());
+          check(regions.every((region, index) => region.left >= 0 && region.right <= width
+            && (index === 0 || region.left > regions[index - 1].right)),
+            `Three Healer purchase controls stay separate in a ${width}px viewport`);
+          const activations = this.abilityHud.slots.map(slot => slot.slotBg.getBounds());
+          check(activations.every(activation => regions.every(purchase =>
+            !Phaser.Geom.Intersects.RectangleToRectangle(activation, purchase))),
+            `Healer activation and purchase controls do not overlap in a ${width}px viewport`);
+        }
+        this.scale.resize(800, 600);
+        this.handleResize();
+        key('R');
+        healer.state = 'dead';
+        this.upsertTank(healer, healer.id);
+        check(cursorCleared(), 'Death clears Rescue Impulse targeting');
+        healer.state = 'alive';
+        this.upsertTank(healer, healer.id);
+        key('R');
+        state.phase = 'ended';
+        this.refreshWeaponTargeting();
+        check(cursorCleared(), 'Match end clears Rescue Impulse targeting');
+        state.phase = 'started';
+        key('R');
+        this.clearArenaPresentation();
+        check(cursorCleared(), 'Arena teardown clears Rescue Impulse targeting');
+        document.getElementById('result').textContent = `PASS (${checks.length} checks)\n` + checks.join('\n');
+        window.__rescueChecks = { passed: true, checks };
+      } catch (error) {
+        document.getElementById('result').textContent = `FAIL: ${error.stack}`;
+        window.__rescueChecks = { passed: false, error: String(error), checks };
+        console.error(error);
+      }
+    }
+  }
+  new Phaser.Game({
+    type: Phaser.AUTO, width: 800, height: 600, parent: 'preview',
+    backgroundColor: '#182230', scene: [RescueChecks],
+    input: { activePointers: 3 },
+    scale: { mode: Phaser.Scale.NONE }
+  });
+</script>
