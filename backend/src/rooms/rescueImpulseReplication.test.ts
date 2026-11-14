@@ -6,7 +6,7 @@ import { Server } from "colyseus";
 import type { Client as ServerClient } from "colyseus";
 import { Client } from "colyseus.js";
 import type { Room } from "colyseus.js";
-import { GameState, INVALID_TARGET_MESSAGE } from "shared";
+import { GameState, INVALID_TARGET_MESSAGE, Minion } from "shared";
 import type { InvalidTargetMessage } from "shared";
 import { lobbyRegistry } from "../lobbies/LobbyRegistry.js";
 import { GameRoom } from "./GameRoom.js";
@@ -33,6 +33,9 @@ class RescueFixtureRoom extends GameRoom {
       if (action === "begin") {
         this.state.phase = "started";
         this.state.bases.clear();
+        this.state.minions.set("allied-minion", Object.assign(new Minion(), {
+          id: "allied-minion", team: "blue", x: 1100, y: 1000, hp: 10, maxHp: 50
+        }));
       } else if (action === "reset-cooldown") {
         tank.abilities.get("healer-rescue-impulse")!.cooldownEndsAt = 0;
       } else throw new Error(`Unknown fixture action ${action}`);
@@ -52,7 +55,7 @@ class RescueFixtureRoom extends GameRoom {
   }
 }
 
-test("two live clients learn Rescue Impulse and replicate ally healing, self-healing and full-HP cooldowns", async (t) => {
+test("two live clients replicate Rescue Impulse healing for tanks and minions", async (t) => {
   const lobby = lobbyRegistry.create("Rescue Impulse socket acceptance");
   const http = createServer();
   const server = new Server({ server: http, greet: false, gracefullyShutdown: false });
@@ -117,6 +120,12 @@ test("two live clients learn Rescue Impulse and replicate ally healing, self-hea
   healer.send("activate_ability", { abilityId: "healer-rescue-impulse", targetId: ally.sessionId });
   await until(() => rescue().cooldownEndsAt > 0, "full-HP activation commits cooldown");
   assert.equal(ally.state.tanks.get(ally.sessionId)!.hp, 170);
+  healer.send("fixture", "reset-cooldown");
+  await until(() => rescue().cooldownEndsAt === 0, "minion cooldown reset");
+  healer.send("activate_ability", { abilityId: "healer-rescue-impulse", targetId: "allied-minion" });
+  await until(() => healer.state.minions.get("allied-minion")?.hp === 31
+    && ally.state.minions.get("allied-minion")?.hp === 31 && rescue().cooldownEndsAt > 0,
+    "allied minion healing replicated to both clients");
   assert.equal(local().abilities.get("healer-aura")!.cooldownEndsAt, 0);
   assert.equal(local().abilities.get("healer-speed")!.cooldownEndsAt, 0);
 });

@@ -169,11 +169,11 @@ SPACE activates Heal Aura, E activates Speed, and **R** selects **Rettungsimpuls
 (Rescue Impulse)**. The HUD controls provide the same actions.
 
 Rettungsimpuls replaces the pointer with a green medical cross. Click a living,
-visible allied player tank within **250 world units**, including your own Healer,
+visible allied player tank or minion within **250 world units**, including your own Healer,
 to heal it immediately. Rank 1 restores **18 HP**, and each additional rank adds
 **3 HP**, reaching **45 HP** at rank 10. Healing is capped at the target's current
-maximum HP, including level bonuses. Minions, towers, bases, enemies and dead
-players are not eligible.
+maximum HP, including level bonuses. Towers, bases, enemies and dead units are
+not eligible.
 
 The **20-second** base cooldown decreases by 3 percent per rank above 1, reaching
 **14.6 seconds** at rank 10. Selecting a target at full HP still activates the

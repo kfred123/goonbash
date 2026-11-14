@@ -14,16 +14,16 @@ See `proposal.md` for the user-facing motivation and behavior. The game already 
 
 **Non-Goals:**
 
-- Heal minions, towers, bases, enemies, or hidden allies.
+- Heal towers, bases, enemies, or hidden allies.
 - Add healing over time, area healing, or a revive effect.
 - Change general skill-point progression or cooldown scaling.
 
 ## Decisions
 
 - **Register Rescue Impulse as a normal role ability.** Add it to the shared ability definitions and append it to the Healer's ordered ability list. This preserves independent ranks, purchase validation, HUD progression, and the existing SPACE/E/R mapping; the third slot uses R.
-- **Select one allied player tank before activation.** Reuse the frontend's targeted-weapon selection flow, adding a Rescue Impulse selection mode and a clear ally-target prompt. Escape, right-click, or selecting the same ability again cancels; invalid clicks retain selection and do not issue movement or attack commands. A direct activation request carries the selected tank's ID.
-- **Validate and apply the heal in one server-authoritative step.** Require a started match, a living Healer, learned and off-cooldown ability state, and a living allied player tank visible to the Healer's team within 250 world units. The caster is also an eligible target. Reject invalid requests with explicit client feedback before changing health or cooldown. On success, add `18 + 3 * (rank - 1)` HP, capped at the target's current maximum HP, then start the normal rank-scaled 20-second cooldown even if the target already has full HP.
-- **Keep the new effect instantaneous.** Do not create a timed effect state or modify aura resolution; the existing target tank HP and normal state replication carry the result.
+- **Select one allied tank or minion before activation.** Reuse the frontend's targeted-weapon selection flow, adding a Rescue Impulse selection mode and a clear ally-target prompt. Escape, right-click, or selecting the same ability again cancels; invalid clicks retain selection and do not issue movement or attack commands. A direct activation request carries the selected unit's ID.
+- **Validate and apply the heal in one server-authoritative step.** Require a started match, a living Healer, learned and off-cooldown ability state, and a living allied player tank or minion visible to the Healer's team within 250 world units. The caster is also an eligible target. Reject invalid requests with explicit client feedback before changing health or cooldown. On success, add `18 + 3 * (rank - 1)` HP, capped at the target's current maximum HP, then start the normal rank-scaled 20-second cooldown even if the target already has full HP.
+- **Keep the new effect instantaneous.** Do not create a timed effect state or modify aura resolution; the existing target HP and normal state replication carry the result.
 
 ## Risks / Trade-offs
 

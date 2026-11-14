@@ -107,6 +107,51 @@ test("Rescue Impulse allows self-healing and still starts cooldown at full HP", 
   assert.ok(ability.cooldownEndsAt > Date.now());
 });
 
+test("Rescue Impulse heals allied minions at range, caps health, and starts cooldown at full health", (t) => {
+  const { room, healer, ability, replies, activate } = setup(t);
+  t.mock.method(Date, "now", () => 100000);
+  const minion = Object.assign(new Minion(), {
+    id: "minion", team: "blue", x: healer.x + 150, y: healer.y + 200, hp: 10, maxHp: 50
+  });
+  room.state.minions.set(minion.id, minion);
+  activate(minion.id);
+  assert.equal(minion.hp, 28);
+  assert.equal(ability.cooldownEndsAt, 120000);
+  ability.level = 10;
+  ability.cooldownEndsAt = 0;
+  activate(minion.id);
+  assert.equal(minion.hp, 50);
+  assert.equal(ability.cooldownEndsAt, 114600);
+  ability.cooldownEndsAt = 0;
+  activate(minion.id);
+  assert.equal(minion.hp, 50);
+  assert.equal(ability.cooldownEndsAt, 114600);
+  assert.deepEqual(replies, []);
+});
+
+test("Rescue Impulse rejects enemy, dead, hidden and out-of-range minions", (t) => {
+  const { room, healer, ability, replies, activate } = setup(t);
+  room.state.tanks.delete("ally");
+  const minion = Object.assign(new Minion(), { id: "minion", team: "blue", x: 1100, y: 900, hp: 10 });
+  room.state.minions.set(minion.id, minion);
+  const variants = [
+    () => { minion.team = "red"; },
+    () => { minion.hp = 0; },
+    () => { minion.x = healer.x + 250.01; },
+    () => { healer.sightRange = 0; minion.sightRange = 0; }
+  ];
+  for (const configure of variants) {
+    Object.assign(minion, { team: "blue", hp: 10, x: 1100, sightRange: 156 });
+    healer.sightRange = 390;
+    configure();
+    const hp = minion.hp;
+    activate(minion.id);
+    assert.deepEqual(replies.at(-1)?.message, { action: "rescue", reason: "invalid_target" });
+    assert.equal(minion.hp, hp);
+    assert.equal(ability.cooldownEndsAt, 0);
+  }
+});
+
 test("Rescue Impulse reports inactive, unavailable, unlearned and cooldown requests without mutations", (t) => {
   const { room, healer, ally, ability, replies, activate } = setup(t);
   const variants: Array<[() => void, RescueImpulseRejectionReason]> = [
@@ -142,10 +187,9 @@ test("Rescue Impulse reports inactive, unavailable, unlearned and cooldown reque
 
 test("Rescue Impulse rejects invalid, hidden and unsupported targets without leaking their details", (t) => {
   const { room, healer, ally, ability, replies, activate } = setup(t);
-  room.state.minions.set("minion", Object.assign(new Minion(), { id: "minion", team: "blue", x: 1100, y: 900 }));
   room.state.bases.set("base", Object.assign(new Base(), { id: "base", team: "blue", x: 1100, y: 900 }));
   room.state.towers.set("tower", Object.assign(new Tower(), { id: "tower", team: "blue", x: 1100, y: 900 }));
-  for (const targetId of ["missing", "", null, 123, {}, "minion", "base", "tower"]) {
+  for (const targetId of ["missing", "", null, 123, {}, "base", "tower"]) {
     activate(targetId);
     assert.deepEqual(replies.at(-1)?.message, { action: "rescue", reason: "invalid_target" });
     assert.equal(ability.cooldownEndsAt, 0);

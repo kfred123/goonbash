@@ -138,10 +138,11 @@ test("Shockshot targeting accepts only living enemies in range without leaking m
   assert.deepEqual(resolveArenaClick("shock", shooter, null, { x: 400, y: 400 }, 900), { type: "ignore" });
 });
 
-test("Rescue Impulse accepts allies and self at exact range, even at full health", () => {
+test("Rescue Impulse accepts allied tanks, minions and self at exact range, even at full health", () => {
   const healer = { id: "healer", team: "blue", x: 1000, y: 900, hp: 90, state: "alive", kind: "tank" as const };
   const ally = { ...healer, id: "ally", x: 1150, y: 1100, hp: 170 };
-  for (const target of [healer, ally]) {
+  const minion = { ...ally, id: "minion", kind: "minion" as const };
+  for (const target of [healer, ally, minion]) {
     assert.deepEqual(resolveArenaClick("rescue", healer, target, target, 900), {
       type: "rescue", targetId: target.id
     });
@@ -155,7 +156,8 @@ test("Rescue Impulse consumes invalid clicks without issuing movement, attacks o
     null, { ...ally, id: "" }, { ...ally, team: "red" }, { ...ally, state: "dead" },
     { ...ally, hp: 0 }, { ...ally, hp: undefined }, { ...ally, x: 1250.01 },
     { ...ally, x: NaN }, { ...ally, x: Infinity },
-    { ...ally, kind: "minion" as const }, { ...ally, kind: "base" as const },
+    { ...ally, kind: "minion" as const, team: "red" }, { ...ally, kind: "minion" as const, hp: 0 },
+    { ...ally, kind: "minion" as const, x: 1250.01 }, { ...ally, kind: "base" as const },
     { ...ally, kind: "tower" as const }, { ...ally, kind: undefined }
   ]) {
     assert.deepEqual(resolveArenaClick("rescue", healer, target, { x: 500, y: 500 }, 900), { type: "ignore" });

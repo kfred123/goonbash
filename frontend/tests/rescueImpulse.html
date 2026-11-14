@@ -95,14 +95,13 @@
         check(this.weaponSelection === 'rescue', 'Held R never repeatedly toggles target selection');
         const beforeInvalid = commands.length;
         clickWorld(enemy.x, enemy.y);
-        clickWorld(minion.x, minion.y);
         clickWorld(700, 900);
         ally.x = 1250.01;
         this.upsertTank(ally, ally.id);
         this.tankSprites.get(ally.id).setPosition(ally.x, ally.y);
         clickWorld(ally.x, ally.y);
         check(commands.length === beforeInvalid && this.weaponSelection === 'rescue',
-          'Enemy, minion, ground and out-of-range clicks never leak movement, attacks or activation');
+          'Enemy, ground and out-of-range clicks never leak movement, attacks or activation');
         ally.x = 1150;
         this.upsertTank(ally, ally.id);
         this.tankSprites.get(ally.id).setPosition(ally.x, ally.y);
@@ -122,6 +121,13 @@
         ]), 'Ally confirmation sends only the targeted Rescue Impulse request');
         check(ally.hp === hp && rescue.cooldownEndsAt === 0 && cursorCleared(),
           'Confirmation restores cursor without optimistic HP or cooldown changes');
+        key('R');
+        const minionHp = minion.hp;
+        clickWorld(minion.x, minion.y);
+        check(JSON.stringify(commands.at(-1)) === JSON.stringify([
+          'activate_ability', { abilityId: 'healer-rescue-impulse', targetId: minion.id }
+        ]) && minion.hp === minionHp && rescue.cooldownEndsAt === 0 && cursorCleared(),
+          'Allied minion confirmation sends a targeted request without optimistic changes');
         messages.get(INVALID_TARGET_MESSAGE)({ action: 'rescue', reason: 'cooldown' });
         check(this.statusText.text.includes('cooling down') && cursorCleared(),
           'Authoritative rejection shows actionable feedback without reviving targeting');

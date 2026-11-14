@@ -6,7 +6,7 @@
 
 ## 2. Authoritative Healing
 
-- [x] 2.1 Handle Rescue Impulse activation on the server by validating the active match, Healer role, learned ability, cooldown, and a living, visible allied player tank within 250 units; add tests proving invalid requests do not heal or start cooldown.
+- [x] 2.1 Handle Rescue Impulse activation on the server by validating the active match, Healer role, learned ability, cooldown, and a living, visible allied player tank or minion within 250 units; add tests proving invalid requests do not heal or start cooldown.
 - [x] 2.2 Apply rank-scaled instant healing without exceeding current maximum HP and start cooldown only after successful validation, including self-targeting and full-HP targets; add tests for exact-range targeting, rank scaling, health capping, and independent ability state.
 
 ## 3. Healer Target Selection and Documentation

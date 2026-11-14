@@ -79,7 +79,7 @@ export function resolveArenaClick(
   shockRange = 650
 ): ArenaClickAction {
   if (selection === "rescue") {
-    return target?.id && target.kind === "tank" && target.team === shooter.team
+    return target?.id && (target.kind === "tank" || target.kind === "minion") && target.team === shooter.team
       && target.hp !== undefined && target.hp > 0 && target.state !== "dead"
       && Math.hypot(target.x - shooter.x, target.y - shooter.y) <= getAbilityDefinition("healer-rescue-impulse").config.range!
       ? { type: "rescue", targetId: target.id }

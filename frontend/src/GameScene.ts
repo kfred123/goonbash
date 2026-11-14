@@ -1529,7 +1529,7 @@ export class GameScene extends Phaser.Scene {
     this.healthBars.delete(id);
   }
 
-  private hitTestClick(worldX: number, worldY: number, tanksOnly = false): RocketClickTarget | null {
+  private hitTestClick(worldX: number, worldY: number, unitsOnly = false): RocketClickTarget | null {
     let closest: (RocketClickTarget & { distSq: number }) | null = null;
     const consider = (target: RocketClickTarget & { id: string }, radius: number) => {
       const displayed = this.findEntityPosition(target.id);
@@ -1545,11 +1545,11 @@ export class GameScene extends Phaser.Scene {
       consider({ id: sessionId, team: tank.team, x: tank.x, y: tank.y, hp: tank.hp, state: tank.state, kind: 'tank' },
         GameScene.CLICK_HIT_RADIUS_TANK);
     });
-    if (tanksOnly) return closest;
     this.room.state.minions.forEach((minion: Minion, id: string) => {
       consider({ id, team: minion.team, x: minion.x, y: minion.y, hp: minion.hp, kind: 'minion' },
         GameScene.CLICK_HIT_RADIUS_MINION);
     });
+    if (unitsOnly) return closest;
     this.room.state.bases.forEach((base: Base, id: string) => {
       if (base.hp <= 0) return;
       consider({ id, team: base.team, x: base.x, y: base.y, hp: base.hp, kind: 'base' }, GameScene.CLICK_HIT_RADIUS_BASE);
@@ -2139,7 +2139,7 @@ export class GameScene extends Phaser.Scene {
       : this.weaponSelection === 'shock'
         ? 'Select an enemy within 650 range (Esc/right-click to cancel)'
         : this.weaponSelection === 'rescue'
-          ? 'Select an ally or yourself within 250 range (Esc/right-click to cancel)'
+          ? 'Select an allied tank, minion, or yourself within 250 range (Esc/right-click to cancel)'
           : 'Select a rocket target (Esc/right-click to cancel)');
     this.mortarPreview?.clear();
     if (this.weaponSelection !== 'mortar') return;

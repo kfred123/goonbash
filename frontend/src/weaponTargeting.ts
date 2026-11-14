@@ -38,7 +38,7 @@ export const MORTAR_REJECTION_TEXT: Record<MortarRejectionReason, string> = {
 };
 
 export const RESCUE_REJECTION_TEXT: Record<RescueImpulseRejectionReason, string> = {
-  invalid_target: "Choose a visible living allied player tank within 250 range, including yourself.",
+  invalid_target: "Choose a visible living allied tank or minion within 250 range, including yourself.",
   unavailable: "Rettungsimpuls is only available to the Healer.",
   unlearned: "Learn Rettungsimpuls before using it.",
   cooldown: "Rettungsimpuls is still cooling down.",

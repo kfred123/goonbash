@@ -52,7 +52,7 @@ The system SHALL let the local player activate a learned ability through its ded
 - **THEN** the client enters ally target-selection mode without applying healing or starting its cooldown
 
 #### Scenario: Healer confirms a valid Rescue Impulse target
-- **WHEN** the Healer clicks a living, visible allied player tank within Rescue Impulse range while target-selection mode is active
+- **WHEN** the Healer clicks a living, visible allied player tank or minion within Rescue Impulse range while target-selection mode is active
 - **THEN** the client sends an activation request identifying Rescue Impulse and the selected target
 - **AND** the click does not issue a move or ordinary attack command
 

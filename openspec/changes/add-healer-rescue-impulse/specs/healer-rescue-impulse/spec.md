@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Defines the Healer's targeted burst-healing ability for quickly restoring one endangered allied player tank, independently from the existing aura and movement skills.
+Defines the Healer's targeted burst-healing ability for quickly restoring one endangered allied player tank or minion, independently from the existing aura and movement skills.
 
 ## ADDED Requirements
 
@@ -18,14 +18,14 @@ The system SHALL offer Rescue Impulse only to Healers as an independently learne
 - **THEN** the server rejects the request without changing skill points or ability ranks
 
 ### Requirement: Rescue Impulse Targeting and Healing
-The system SHALL let a Healer activate learned Rescue Impulse on a living, visible allied player tank within 250 world units, including the Healer themselves, healing that target immediately up to its current maximum health.
+The system SHALL let a Healer activate learned Rescue Impulse on a living, visible allied player tank or minion within 250 world units, including the Healer themselves, healing that target immediately up to its current maximum health.
 
 #### Scenario: Healer confirms a valid target
-- **WHEN** a Healer confirms a living, visible allied player tank within 250 world units
+- **WHEN** a Healer confirms a living, visible allied player tank or minion within 250 world units
 - **THEN** the target's health increases by the amount for Rescue Impulse's current rank, capped at its current maximum health
 
 #### Scenario: Target is invalid
-- **WHEN** the selected target is an enemy, dead, not visible, not a player tank, or farther than 250 world units
+- **WHEN** the selected target is an enemy, dead, not visible, neither a player tank nor a minion, or farther than 250 world units
 - **THEN** Rescue Impulse does not heal the target or begin its cooldown
 - **AND** the server sends explicit rejection feedback without exposing hidden target information
 

@@ -474,8 +474,9 @@ export class GameRoom extends Room<GameState> {
       return;
     }
     const config = computeAbilityConfigForLevel("healer-rescue-impulse", ability.level);
-    const target = typeof targetId === "string" ? this.state.tanks.get(targetId) : undefined;
-    if (!target || target.team !== tank.team || target.state === "dead" || target.hp <= 0
+    const target = typeof targetId === "string"
+      ? this.state.tanks.get(targetId) ?? this.state.minions.get(targetId) : undefined;
+    if (!target || target.team !== tank.team || (target instanceof Tank && target.state === "dead") || target.hp <= 0
       || !this.teamVision(tank.team).canSee(target) || !isWithinRange(tank, target, config.range!)) {
       reject("invalid_target");
       return;
