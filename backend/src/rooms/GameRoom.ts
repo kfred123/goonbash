@@ -186,7 +186,7 @@ export class GameRoom extends Room<GameState> {
       ability.activeUntil = timing.activeUntil;
       if (abilityId === "tank-protection-dome") {
         const dome = new ProtectionDome();
-        dome.id = `dome-${tank.id}-${this.nextProtectionDomeId++}`;
+        dome.id = `dome-${this.nextProtectionDomeId++}`;
         dome.ownerId = tank.id;
         dome.team = tank.team;
         dome.x = tank.x;
