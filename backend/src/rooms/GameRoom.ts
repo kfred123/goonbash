@@ -1,5 +1,5 @@
 import { Room, Client } from "colyseus";
-import { Base, computeAbilityConfigForLevel, GameState, getLaneWaypoints, isAbilityId, MatchPlayerStats, Minion, Projectile, Tank, Tower } from "shared";
+import { Base, computeAbilityConfigForLevel, GameState, getLaneWaypoints, isAbilityId, MatchPlayerStats, Minion, ProtectionDome, Projectile, Tank, Tower } from "shared";
 import { isRole, resolveRoleStats } from "shared";
 import { BLUE_BASE_POSITION, RED_BASE_POSITION, WORLD_WIDTH, WORLD_HEIGHT, TeamVision, getVisionEntities, INVALID_TARGET_MESSAGE, TOWER_COLLISION_RADIUS } from "shared";
 import { lobbyRegistry } from "../lobbies/LobbyRegistry.js";
@@ -56,6 +56,7 @@ export class GameRoom extends Room<GameState> {
   private pendingMinions = new Map<string, PendingMinion>();
   private deferredTanks = new Set<string>();
   private nextMinionId = 0;
+  private nextProtectionDomeId = 0;
   private lobbyId!: string;
   private ownsLobby = false;
   private countdown?: { deadline: number; timer?: { clear(): void } };
@@ -183,6 +184,18 @@ export class GameRoom extends Room<GameState> {
       ability.cooldownEndsAt = timing.cooldownEndsAt;
       ability.cooldownMax = timing.cooldownMax;
       ability.activeUntil = timing.activeUntil;
+      if (abilityId === "tank-protection-dome") {
+        const dome = new ProtectionDome();
+        dome.id = `dome-${tank.id}-${this.nextProtectionDomeId++}`;
+        dome.ownerId = tank.id;
+        dome.team = tank.team;
+        dome.x = tank.x;
+        dome.y = tank.y;
+        dome.radius = abilityConfig.radius ?? 180;
+        dome.expiresAt = timing.activeUntil;
+        dome.damageReduction = abilityConfig.magnitude;
+        this.state.protectionDomes.set(dome.id, dome);
+      }
       if (abilityId === "tank-entrench") {
         tank.hasMoveTarget = false;
       }
@@ -269,6 +282,7 @@ export class GameRoom extends Room<GameState> {
     }
     const elapsedSeconds = deltaTime / 1000;
     const now = Date.now();
+    this.expireProtectionDomes(now);
     this.updateTemporaryAbilityEffects(now);
 
     // Resolve targeting/firing before movement so units that are engaged
@@ -287,6 +301,12 @@ export class GameRoom extends Room<GameState> {
       this.spawnWave();
       this.spawnTimer = 5000;
     }
+  }
+
+  private expireProtectionDomes(now: number) {
+    this.state.protectionDomes.forEach((dome, id) => {
+      if (dome.expiresAt <= now) this.state.protectionDomes.delete(id);
+    });
   }
 
   /**
@@ -662,6 +682,7 @@ export class GameRoom extends Room<GameState> {
   private applyDamage(entity: Tank | Minion | Base | Tower, damage: number, attackerId = "") {
     if (entity instanceof Tank && entity.state === "dead") return;
     let effectiveDamage = damage;
+    let reduction = 0;
     if (entity instanceof Tank && entity.role === "tank") {
       const now = Date.now();
       const shield = entity.abilities.get("tank-shield");
@@ -672,8 +693,17 @@ export class GameRoom extends Room<GameState> {
       const entrenchReduction = isAbilityActive(now, entrench)
         ? computeAbilityConfigForLevel("tank-entrench", entrench?.level ?? 0).magnitude
         : 0;
-      effectiveDamage = applyDamageReduction(damage, strongestReduction(shieldReduction, entrenchReduction));
+      reduction = strongestReduction(shieldReduction, entrenchReduction);
     }
+    if ((entity instanceof Tank || entity instanceof Minion) && entity.hp > 0) {
+      const now = Date.now();
+      this.state.protectionDomes.forEach((dome) => {
+        if (dome.team !== entity.team || dome.expiresAt <= now
+          || Math.hypot(entity.x - dome.x, entity.y - dome.y) > dome.radius) return;
+        reduction = Math.max(reduction, dome.damageReduction);
+      });
+    }
+    effectiveDamage = applyDamageReduction(damage, reduction);
     const hpBefore = entity.hp;
     entity.hp = computeDamagedHp(entity.hp, effectiveDamage);
     const attackerStats = this.state.playerStats.get(attackerId);
@@ -714,7 +744,9 @@ export class GameRoom extends Room<GameState> {
     tank.hasMoveTarget = false;
     tank.moveTargetX = position.x;
     tank.moveTargetY = position.y;
-    tank.abilities.forEach((ability) => { ability.activeUntil = 0; });
+    tank.abilities.forEach((ability, abilityId) => {
+      if (abilityId !== "tank-protection-dome") ability.activeUntil = 0;
+    });
     tank.sightRange = resolveRoleStats(tank.role).sightRange;
     tank.movementDisabledUntil = 0;
     tank.respawnAt = Date.now() + respawnDelayMs(tank.level);

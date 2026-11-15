@@ -28,10 +28,11 @@ test("each role maps Space and E to its independent abilities", () => {
   assert.equal(getRoleAbilityAtIndex("unknown", 0), null);
 });
 
-test("Healer, Damagedealer and Scout have third R slots without crowding layout", () => {
+test("Tank, Healer, Damagedealer and Scout have third R slots without crowding layout", () => {
   assert.deepEqual(ABILITY_KEYS, ["SPACE", "E", "R"]);
+  assert.equal(getRoleAbilityAtIndex("tank", 2), "tank-protection-dome");
+  assert.equal(getRoleAbilityAtIndex("tank", 3), null);
   assert.equal(getRoleAbilityAtIndex("damagedealer", 2), "damagedealer-mortar");
-  assert.equal(getRoleAbilityAtIndex("tank", 2), null);
   assert.equal(getRoleAbilityAtIndex("healer", 2), "healer-rescue-impulse");
   assert.equal(getRoleAbilityAtIndex("healer", 3), null);
   assert.equal(getRoleAbilityAtIndex("scout", 2), "scout-shockshot");
@@ -100,6 +101,18 @@ test("each ability HUD state is derived independently", () => {
   assert.deepEqual(first, { state: "cooldown", remainingMs: 10_000, cooldownFraction: 1 });
   assert.deepEqual(second, { state: "active", remainingMs: 0, cooldownFraction: 0 });
   assert.deepEqual(locked, { state: "locked", remainingMs: 0, cooldownFraction: 0 });
+});
+
+test("Protection Dome has independent locked, active and cooldown HUD state", () => {
+  const now = 10_000;
+  const dome = getAbilityHudStatus({
+    level: 1, cooldownEndsAt: 20_000, cooldownMax: 30_000, activeUntil: 15_000
+  }, now);
+  const entrench = getAbilityHudStatus({
+    level: 2, cooldownEndsAt: 0, cooldownMax: 24_000, activeUntil: 0
+  }, now);
+  assert.deepEqual(dome, { state: "active", remainingMs: 10_000, cooldownFraction: 1 / 3 });
+  assert.deepEqual(entrench, { state: "ready", remainingMs: 0, cooldownFraction: 0 });
 });
 
 test("rocket target clicks never turn into ordinary move or attack commands", () => {

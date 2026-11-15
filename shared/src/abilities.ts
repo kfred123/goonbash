@@ -8,6 +8,7 @@ export const ABILITY_IDS = [
   "healer-rescue-impulse",
   "tank-shield",
   "tank-entrench",
+  "tank-protection-dome",
   "damagedealer-rapidfire",
   "damagedealer-homing-rocket",
   "damagedealer-mortar",
@@ -60,6 +61,10 @@ export const ABILITY_DEFINITIONS: Record<AbilityId, AbilityDefinition> = {
     id: "tank-entrench", role: "tank", name: "Entrench",
     config: { cooldownMs: 24000, durationMs: 4000, magnitude: 0.85 }
   },
+  "tank-protection-dome": {
+    id: "tank-protection-dome", role: "tank", name: "Protection Dome",
+    config: { cooldownMs: 30000, durationMs: 5000, magnitude: 0.35, radius: 180 }
+  },
   "damagedealer-rapidfire": {
     id: "damagedealer-rapidfire", role: "damagedealer", name: "Rapid Fire",
     config: { cooldownMs: 12000, durationMs: 5000, magnitude: 2 }
@@ -88,7 +93,7 @@ export const ABILITY_DEFINITIONS: Record<AbilityId, AbilityDefinition> = {
 
 export const ROLE_ABILITY_IDS: Record<Role, readonly AbilityId[]> = {
   healer: ["healer-aura", "healer-speed", "healer-rescue-impulse"],
-  tank: ["tank-shield", "tank-entrench"],
+  tank: ["tank-shield", "tank-entrench", "tank-protection-dome"],
   damagedealer: ["damagedealer-rapidfire", "damagedealer-homing-rocket", "damagedealer-mortar"],
   scout: ["scout-weitsicht", "scout-offroad", "scout-shockshot"]
 };
@@ -135,6 +140,9 @@ export function computeAbilityConfigForLevel(
       break;
     case "tank-entrench":
       magnitude = Math.min(0.94, magnitude + rank * 0.01);
+      break;
+    case "tank-protection-dome":
+      magnitude = Math.min(0.44, magnitude + rank * 0.01);
       break;
     case "damagedealer-rapidfire":
       magnitude += rank * 0.1;

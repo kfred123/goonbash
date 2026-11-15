@@ -2,7 +2,7 @@ import { MapSchema, Schema } from "@colyseus/schema";
 import { ClientState, SchemaSerializer } from "colyseus";
 import type { Client, Serializer } from "colyseus";
 import {
-  Base, Entity, GameState, getVisionEntities, MatchPlayerStats, Minion,
+  Base, Entity, GameState, getVisionEntities, MatchPlayerStats, Minion, ProtectionDome,
   Projectile, Tank, TeamVision, Tower
 } from "shared";
 import { isPreMatch } from "shared";
@@ -144,6 +144,13 @@ export function updateClientView(view: GameState, source: GameState, sessionId: 
       destination.blastRadius = projectile.blastRadius;
       destination.landingX = projectile.team === team ? projectile.landingX : 0;
       destination.landingY = projectile.team === team ? projectile.landingY : 0;
+    });
+  syncMap(view.protectionDomes, source.protectionDomes, () => new ProtectionDome(),
+    (dome) => !waiting && !!team && (dome.team === team || vision.canSee(dome)),
+    (destination, dome) => {
+      copyEntity(destination, dome);
+      destination.ownerId = visibleReference(dome.ownerId);
+      destination.expiresAt = dome.expiresAt;
     });
   syncMap(view.playerStats, source.playerStats, () => new MatchPlayerStats(), () => true,
     (destination, stats) => {

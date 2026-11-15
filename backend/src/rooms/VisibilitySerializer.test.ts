@@ -4,7 +4,7 @@ import { performance } from "node:perf_hooks";
 import { test } from "node:test";
 import { ClientState, Protocol } from "colyseus";
 import type { Client } from "colyseus";
-import { Base, computeAbilityConfigForLevel, GameState, MatchPlayerStats, Minion, Projectile, Tank, Tower } from "shared";
+import { Base, computeAbilityConfigForLevel, GameState, MatchPlayerStats, Minion, ProtectionDome, Projectile, Tank, Tower } from "shared";
 import { VisibilitySerializer } from "./VisibilitySerializer.js";
 import { activateAbility } from "./ability.js";
 
@@ -121,6 +121,37 @@ test("initial snapshots exclude concealed spatial entities for both teams and ke
     assert.equal(Buffer.from(initialBlue).includes(Buffer.from(id)), false);
   }
   assert.notDeepEqual(initialBlue, initialRed);
+});
+
+test("Protection Domes replicate to allies and visible enemies, redact hidden owners, then disappear when concealed", () => {
+  const { source, blue, red, first, patch } = setup();
+  red.x = 1800;
+  const friendly = Object.assign(new ProtectionDome(), {
+    id: "blue-dome", ownerId: blue.id, team: "blue", x: 500, y: 600, radius: 180, expiresAt: 5000, damageReduction: 0.44
+  });
+  const visibleEnemy = Object.assign(new ProtectionDome(), {
+    id: "visible-red-dome", ownerId: "red", team: "red", x: 1010, y: 600, radius: 180, expiresAt: 5000
+  });
+  const hiddenEnemy = Object.assign(new ProtectionDome(), {
+    id: "hidden-red-dome", ownerId: "red", team: "red", x: 1300, y: 600, radius: 180, expiresAt: 5000
+  });
+  source.protectionDomes.set(friendly.id, friendly);
+  source.protectionDomes.set(visibleEnemy.id, visibleEnemy);
+  source.protectionDomes.set(hiddenEnemy.id, hiddenEnemy);
+  patch();
+
+  assert.equal(first.decoded.protectionDomes.has(friendly.id), true);
+  assert.equal(first.decoded.protectionDomes.get(friendly.id)?.ownerId, blue.id);
+  assert.equal(first.decoded.protectionDomes.get(friendly.id)?.damageReduction, 0);
+  assert.equal(first.decoded.protectionDomes.has(visibleEnemy.id), true);
+  assert.equal(first.decoded.protectionDomes.get(visibleEnemy.id)?.ownerId, "");
+  assert.equal(first.decoded.protectionDomes.has(hiddenEnemy.id), false);
+
+  blue.x = 500;
+  patch();
+  assert.equal(first.decoded.protectionDomes.has(friendly.id), true);
+  assert.equal(first.decoded.protectionDomes.has(visibleEnemy.id), false);
+  assert.equal(first.decoded.protectionDomes.has(hiddenEnemy.id), false);
 });
 
 test("Mortar full snapshots and patches keep allied endpoints but redact hostile trajectories and hidden victims", () => {
