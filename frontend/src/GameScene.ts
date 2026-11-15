@@ -66,6 +66,7 @@ export class GameScene extends Phaser.Scene {
   private towerMuzzleFlashes: Map<string, Phaser.GameObjects.Arc> = new Map();
   private towerShotCounts: Map<string, number> = new Map();
   private projectileSprites: Map<string, Phaser.GameObjects.Arc> = new Map();
+  private protectionDomeGraphics = new Map<string, Phaser.GameObjects.Graphics>();
   private mortarShadows = new Map<string, Phaser.GameObjects.Ellipse>();
   private mortarLandingMarkers = new Map<string, Phaser.GameObjects.Arc>();
   private mortarImpacts = new Map<string, Phaser.GameObjects.Arc>();
@@ -575,6 +576,12 @@ export class GameScene extends Phaser.Scene {
     this.room.state.projectiles.onRemove((_projectile, id) => {
       if (this.room === connectedRoom && this.arenaStarted) this.removeProjectile(id);
     });
+    this.room.state.protectionDomes.onAdd((dome, id) => {
+      if (this.room === connectedRoom && this.arenaStarted) this.upsertProtectionDome(dome, id);
+    });
+    this.room.state.protectionDomes.onRemove((_dome, id) => {
+      if (this.room === connectedRoom && this.arenaStarted) this.removeProtectionDome(id);
+    });
     this.room.onStateChange((state) => {
       if (this.room !== connectedRoom) return;
       if (this.resultsShown) return;
@@ -602,6 +609,9 @@ export class GameScene extends Phaser.Scene {
       }
       if (this.arenaStarted && state.projectiles && typeof state.projectiles.forEach === 'function') {
         state.projectiles.forEach((projectile: any, id: string) => this.upsertProjectile(projectile, id));
+      }
+      if (this.arenaStarted && state.protectionDomes && typeof state.protectionDomes.forEach === 'function') {
+        state.protectionDomes.forEach((dome: any, id: string) => this.upsertProtectionDome(dome, id));
       }
       if (this.arenaStarted && state.bases && typeof state.bases.forEach === 'function') {
         state.bases.forEach((base: any, id: string) => this.upsertBase(base, id));
@@ -742,6 +752,7 @@ export class GameScene extends Phaser.Scene {
     this.projectileSprites.forEach((sprite) => sprite.destroy());
     this.projectileSprites.clear();
     this.clearMortarPresentation();
+    this.clearProtectionDomePresentation();
     this.healthBars.forEach(({ bg, fill }) => {
       bg.destroy();
       fill.destroy();
@@ -762,6 +773,7 @@ export class GameScene extends Phaser.Scene {
     this.resetCamera();
     this.destroyAbilityHud();
     this.clearMortarPresentation();
+    this.clearProtectionDomePresentation();
     this.fog?.destroy();
     this.fog = undefined;
     this.destroyMenuElements();
@@ -1171,6 +1183,27 @@ export class GameScene extends Phaser.Scene {
     this.healthBars.delete(sessionId);
     this.healEffectIcons.get(sessionId)?.destroy();
     this.healEffectIcons.delete(sessionId);
+  }
+
+  private upsertProtectionDome(dome: { x: number; y: number; radius: number; team: string }, id: string) {
+    if (this.protectionDomeGraphics.has(id)) return;
+    const color = dome.team === 'blue' ? 0x4d8dff : 0xff4444;
+    const graphic = this.add.graphics()
+      .setPosition(dome.x, dome.y)
+      .setDepth(-0.25);
+    graphic.fillStyle(color, 0.13).fillCircle(0, 0, dome.radius);
+    graphic.lineStyle(4, color, 0.8).strokeCircle(0, 0, dome.radius);
+    this.protectionDomeGraphics.set(id, graphic);
+  }
+
+  private removeProtectionDome(id: string) {
+    this.protectionDomeGraphics.get(id)?.destroy();
+    this.protectionDomeGraphics.delete(id);
+  }
+
+  private clearProtectionDomePresentation() {
+    this.protectionDomeGraphics.forEach((graphic) => graphic.destroy());
+    this.protectionDomeGraphics.clear();
   }
 
   private upsertMinion(minion: Minion, id: string) {
@@ -2072,6 +2105,10 @@ export class GameScene extends Phaser.Scene {
         g.lineStyle(3, 0xffffff, 1);
         g.lineBetween(cx - size * 0.25, cy + size * 0.25, cx + size * 0.25, cy + size * 0.25);
       }
+    } else if (abilityId === 'tank-protection-dome') {
+      g.fillStyle(0x71d9ff, 0.22).fillCircle(cx, cy, size * 0.36);
+      g.lineStyle(3, 0xffffff, 1).strokeCircle(cx, cy, size * 0.36);
+      g.lineStyle(2, 0xffffff, 0.9).lineBetween(cx - size * 0.28, cy + size * 0.2, cx + size * 0.28, cy + size * 0.2);
     } else if (abilityId === 'damagedealer-mortar') {
       const scale = size / 42;
       g.fillStyle(0x202632).fillCircle(cx, cy + 2 * scale, size * 0.3);

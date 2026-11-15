@@ -8,6 +8,7 @@ export type { BaseCannonPoint } from "./baseCannon";
 export { TOWER_CANNON_MUZZLE_DISTANCE } from "./towerCannon";
 export { TOWER_COLLISION_RADIUS, TOWER_FOOTPRINT_RADIUS } from "./towerGeometry";
 export { Projectile } from "./state/Projectile";
+export { ProtectionDome } from "./state/ProtectionDome";
 export { Tower } from "./state/Tower";
 export { GameState } from "./state/GameState";
 export { MatchPlayerStats } from "./state/MatchPlayerStats";

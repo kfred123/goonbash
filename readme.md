@@ -162,6 +162,19 @@ Clients can retain information they previously observed: this prevents new hidde
 state from being transmitted, not historical knowledge or deductions from visible
 projectile trajectories. In-flight tracking and damage still use canonical state.
 
+### Tank skills
+
+Learn and upgrade each ability separately with skill points (ranks 1-10).
+SPACE activates Shield, E activates Entrench, and **R** places Protection Dome
+at the Tank's current position. The dome stays at that fixed location for **5
+seconds** in a **180-world-unit radius** and reduces incoming damage to allied
+player tanks and minions inside it by **35%** at rank 1, increasing to **44%**
+at rank 10. Enemies and structures are not protected. If multiple domes or Tank
+defensive abilities protect the same Tank, only the strongest reduction applies.
+The **30-second** base cooldown decreases by 3 percent per rank above 1, reaching
+**21.9 seconds** at rank 10. The HUD control provides the same activation and
+independently displays its learned, active, and cooldown states.
+
 ### Healer skills
 
 Learn and upgrade each ability separately with skill points (ranks 1-10).

@@ -5,6 +5,7 @@ import { Base } from "./Base";
 import { Projectile } from "./Projectile";
 import { Tower } from "./Tower";
 import { MatchPlayerStats } from "./MatchPlayerStats";
+import { ProtectionDome } from "./ProtectionDome";
 import type { LobbyTeam, MatchPhase } from "../lobby";
 
 export class GameState extends Schema {
@@ -19,5 +20,6 @@ export class GameState extends Schema {
   @type({ map: Base }) bases = new MapSchema<Base>();
   @type({ map: Tower }) towers = new MapSchema<Tower>();
   @type({ map: Projectile }) projectiles = new MapSchema<Projectile>();
+  @type({ map: ProtectionDome }) protectionDomes = new MapSchema<ProtectionDome>();
   @type({ map: MatchPlayerStats }) playerStats = new MapSchema<MatchPlayerStats>();
 }

@@ -20,9 +20,9 @@ test("canUpgradeAbility permits upgrade only when having at least 1 point and be
 });
 
 test("the ability catalog defines independent role abilities including three Healer and Scout skills", () => {
-  assert.equal(new Set(ABILITY_IDS).size, 11);
+  assert.equal(new Set(ABILITY_IDS).size, 12);
   assert.deepEqual(ROLE_ABILITY_IDS.healer, ["healer-aura", "healer-speed", "healer-rescue-impulse"]);
-  assert.deepEqual(ROLE_ABILITY_IDS.tank, ["tank-shield", "tank-entrench"]);
+  assert.deepEqual(ROLE_ABILITY_IDS.tank, ["tank-shield", "tank-entrench", "tank-protection-dome"]);
   assert.deepEqual(ROLE_ABILITY_IDS.damagedealer, ["damagedealer-rapidfire", "damagedealer-homing-rocket", "damagedealer-mortar"]);
   assert.deepEqual(ROLE_ABILITY_IDS.scout, ["scout-weitsicht", "scout-offroad", "scout-shockshot"]);
   for (const abilityId of ABILITY_IDS) {
@@ -77,6 +77,14 @@ test("tank damage reduction and cooldown scaling remain bounded at level 10", ()
   assert.equal(shield.magnitude, 0.68);
   assert.equal(entrench.magnitude, 0.94);
   assert.ok(entrench.cooldownMs >= 12000, "cooldown does not fall below half its base");
+});
+
+test("Tank Protection Dome scales reduction independently and preserves duration and radius", () => {
+  const first = computeAbilityConfigForLevel("tank-protection-dome", 1);
+  const last = computeAbilityConfigForLevel("tank-protection-dome", MAX_ABILITY_LEVEL);
+  assert.deepEqual(first, { cooldownMs: 30000, durationMs: 5000, magnitude: 0.35, radius: 180 });
+  assert.deepEqual(last, { cooldownMs: 21900, durationMs: 5000, magnitude: 0.44, radius: 180 });
+  assert.deepEqual(computeAbilityConfigForLevel("tank-protection-dome", 11), last);
 });
 
 test("Scout abilities scale sight, grass speed and immobilization duration independently", () => {
