@@ -31,7 +31,7 @@ test("active aura heals living allied minions at the same rate as tanks, up to m
   const { room, healer } = setup(t);
   const tank = Object.assign(new Tank(), { id: "ally", team: "blue", x: 1072, y: 996, hp: 10 });
   const minion = Object.assign(new Minion(), { id: "minion", team: "blue", x: 1072, y: 996, hp: 10 });
-  const nearMax = Object.assign(new Minion(), { id: "capped", team: "blue", x: 1000, y: 900, hp: 49 });
+  const nearMax = Object.assign(new Minion(), { id: "capped", team: "blue", x: 1000, y: 900, hp: 49, maxHp: 50 });
   room.state.tanks.set(tank.id, tank);
   room.state.minions.set(minion.id, minion);
   room.state.minions.set(nearMax.id, nearMax);
