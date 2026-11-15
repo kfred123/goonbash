@@ -1190,7 +1190,6 @@ export class GameScene extends Phaser.Scene {
     const color = dome.team === 'blue' ? 0x4d8dff : 0xff4444;
     const graphic = this.add.graphics()
       .setPosition(dome.x, dome.y)
-      .setScale(WORLD_SCALE.entity)
       .setDepth(-0.25);
     graphic.fillStyle(color, 0.13).fillCircle(0, 0, dome.radius);
     graphic.lineStyle(4, color, 0.8).strokeCircle(0, 0, dome.radius);
