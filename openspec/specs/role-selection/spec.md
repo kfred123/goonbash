@@ -5,23 +5,23 @@ Defines waiting-lobby role selection, synchronized role changes, and application
 ## Requirements
 
 ### Requirement: Select a Role in the Lobby
-The system SHALL allow every player in a waiting lobby to select one of three roles: Healer, Tank, or Damagedealer.
+The system SHALL allow every not-ready player in a waiting lobby to select one of four roles: Healer, Tank, Damagedealer, or Scout. A ready player or a player in countdown SHALL NOT be allowed to select another role.
 
 #### Scenario: Player selects a role
-- **WHEN** a player picks the "Healer", "Tank", or "Damagedealer" role card while the lobby is waiting
+- **WHEN** a not-ready player picks the "Healer", "Tank", "Damagedealer", or "Scout" role card while the lobby is waiting
 - **THEN** the system assigns that role to the player
 - **AND** synchronizes the updated role to all lobby participants
 
 #### Scenario: Player has not yet chosen a role
 - **WHEN** a player joins a waiting lobby and has not picked a role
-- **THEN** the system assigns them a default role
-- **AND** the player can still change it before the match starts
+- **THEN** the system assigns them a default role and not-ready status
+- **AND** the player can change it while waiting and not ready
 
 ### Requirement: Change Role Before Match Start
-The system SHALL allow a player to change their own role at any time while the lobby is waiting, and SHALL reject role changes for another player, invalid role values, or role changes after the match has started.
+The system SHALL allow a player to change their own role only while the lobby is waiting and that player is not ready. It SHALL reject role changes for another player, invalid role values, role changes by ready players, and role changes during countdown or after match start.
 
 #### Scenario: Player switches role while waiting
-- **WHEN** a player selects a different valid role while the lobby is waiting
+- **WHEN** a not-ready player selects a different valid role while the lobby is waiting
 - **THEN** the system updates that player's role
 - **AND** synchronizes the change to all lobby participants
 
@@ -30,8 +30,20 @@ The system SHALL allow a player to change their own role at any time while the l
 - **THEN** the system leaves that player's role unchanged
 
 #### Scenario: Invalid role requested
-- **WHEN** a player requests a role value other than Healer, Tank, or Damagedealer
+- **WHEN** a player requests a role value other than Healer, Tank, Damagedealer, or Scout
 - **THEN** the system leaves that player's role unchanged
+
+#### Scenario: Ready player attempts a role change
+- **WHEN** a ready player requests another role while waiting
+- **THEN** the system rejects the request and leaves that player's role unchanged
+
+#### Scenario: Player becomes not ready again
+- **WHEN** a ready player becomes not ready while the lobby is waiting and then requests a valid role
+- **THEN** the system accepts and synchronizes the role change
+
+#### Scenario: Player attempts a role change during countdown
+- **WHEN** any player requests another role during countdown
+- **THEN** the system rejects the request and leaves that player's role unchanged
 
 ### Requirement: Role Determines Spawn Stats
 The system SHALL apply role-specific base stats to a player's tank when the match starts or the tank spawns/respawns, based on the player's selected role. Current combat stats SHALL derive from those role bases plus player-progression bonuses without compounding or resetting progression on respawn. Base movement speeds SHALL reflect the backend's halved role baselines.
@@ -40,3 +52,4 @@ The system SHALL apply role-specific base stats to a player's tank when the matc
 - **WHEN** a player's tank spawns or respawns
 - **THEN** its base health, movement, and combat values reflect the selected role
 - **AND** its current maximum HP and fire damage include any existing level bonuses exactly once
+- **AND** a Scout receives the Scout-specific base stats

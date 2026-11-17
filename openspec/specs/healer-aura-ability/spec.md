@@ -13,22 +13,27 @@ The system SHALL allow a player whose role is Healer to activate their learned a
 - **THEN** the system begins healing the Healer and starts the ability's cooldown
 
 ### Requirement: Heal Aura Affects Nearby Allies
-While active, the Healer Aura SHALL heal the Healer and every allied tank within a fixed radius of the Healer's current position at a rate per second derived from the ability's current learned level, for a fixed duration.
+While active, the Healer Aura SHALL heal the Healer and every living allied tank and minion within a fixed radius of the Healer's current position at a rate per second derived from the ability's current learned level, for a fixed duration.
 
 #### Scenario: Ally within radius is healed
 - **WHEN** the Healer Aura is active
-- **AND** an allied tank is within the aura's radius of the Healer
+- **AND** a living allied tank or minion is within the aura's radius of the Healer
 - **THEN** that ally's health increases by the aura's heal rate at its current learned level each second, up to the ally's current maximum health including progression bonuses
 
 #### Scenario: Ally leaves the radius
 - **WHEN** the Healer Aura is active
-- **AND** an allied tank moves outside the aura's radius
+- **AND** an allied tank or minion moves outside the aura's radius
 - **THEN** that ally stops receiving healing from the aura until it re-enters the radius
 
 #### Scenario: Enemy tanks are unaffected
 - **WHEN** the Healer Aura is active
 - **AND** an enemy tank is within the aura's radius
 - **THEN** the enemy tank does not receive healing from the aura
+
+#### Scenario: Enemy and dead minions are unaffected
+- **WHEN** the Healer Aura is active
+- **AND** an enemy unit or dead minion is within the aura's radius
+- **THEN** that unit does not receive healing from the aura
 
 ### Requirement: Heal Aura Duration and Cooldown
 The Healer Aura SHALL stop healing once its fixed duration elapses, and SHALL be unavailable to reactivate until its cooldown elapses.
