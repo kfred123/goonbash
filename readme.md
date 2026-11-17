@@ -58,6 +58,7 @@ The game features two teams (Blue vs. Red). Each player chooses a tank with a sp
 
 ### 2. Automatic Minions (Mobs)
 Strategic depth is added by "Goons" (minions) that spawn automatically from each base:
+- The first wave spawns when the match starts; subsequent waves spawn every 10 seconds.
 - They move along predefined paths toward the enemy base.
 - They automatically target enemy minions, players, and structures.
 - Their primary purpose is to soak up turret fire and deal chip damage to the enemy base.
