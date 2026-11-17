@@ -47,7 +47,7 @@ import { createMinionBeetle, MinionBeetle } from './minionBeetle.js';
 import { getRespawnCountdown, getTankPresentation } from './respawnPresentation.js';
 import { clampZoom, DEFAULT_ZOOM, wheelZoom } from './cameraZoom.js';
 import { TouchZoomController } from './cameraZoomInput.js';
-import { getBarricadeSegment, isBarricadePresented } from './barricadeVisuals.js';
+import { drawBarricade, isBarricadePresented } from './barricadeVisuals.js';
 
 const ROLE_ORDER: Role[] = ['healer', 'tank', 'damagedealer', 'scout'];
 
@@ -1236,25 +1236,8 @@ export class GameScene extends Phaser.Scene {
       this.barricadeGraphics.set(id, graphic);
     }
     const teamColor = barricade.team === 'blue' ? 0x4d8dff : 0xff4444;
-    const segment = getBarricadeSegment(barricade);
-    const startX = segment.start.x - barricade.x;
-    const startY = segment.start.y - barricade.y;
-    const endX = segment.end.x - barricade.x;
-    const endY = segment.end.y - barricade.y;
-    graphic.clear().setPosition(barricade.x, barricade.y).setRotation(0);
-    graphic.lineStyle(BARRICADE_THICKNESS, 0x65727a, 1)
-      .lineBetween(startX, startY, endX, endY);
-    graphic.lineStyle(2, teamColor, 1)
-      .lineBetween(startX, startY, endX, endY);
-    const alongX = Math.cos(barricade.angle);
-    const alongY = Math.sin(barricade.angle);
-    const acrossX = -alongY;
-    const acrossY = alongX;
-    for (let x = -barricade.length / 2 + 10; x < barricade.length / 2; x += 20) {
-      const start = { x: alongX * x - acrossX * BARRICADE_THICKNESS / 2, y: alongY * x - acrossY * BARRICADE_THICKNESS / 2 };
-      const end = { x: alongX * (x + 7) + acrossX * BARRICADE_THICKNESS / 2, y: alongY * (x + 7) + acrossY * BARRICADE_THICKNESS / 2 };
-      graphic.lineStyle(2, 0xe9c765, 0.9).lineBetween(start.x, start.y, end.x, end.y);
-    }
+    graphic.clear().setPosition(barricade.x, barricade.y).setRotation(barricade.angle);
+    drawBarricade(graphic, barricade.length, teamColor);
     const team = this.room?.state.tanks.get(this.room.sessionId)?.team ?? '';
     const visible = isBarricadePresented(barricade, team, this.vision);
     this.updateHealthBar(id, barricade.x, barricade.y - 20, barricade.hp, barricade.maxHp, visible);
