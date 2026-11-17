@@ -302,7 +302,7 @@ export class GameRoom extends Room<GameState> {
     this.spawnTimer -= deltaTime;
     if (this.spawnTimer <= 0) {
       this.spawnWave();
-      this.spawnTimer = 5000;
+      this.spawnTimer = 10000;
     }
   }
 
