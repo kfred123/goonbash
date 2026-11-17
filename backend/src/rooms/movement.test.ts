@@ -43,18 +43,14 @@ function tank(room: GameRoom, id: string, x: number, y: number, team = "blue") {
 
 function assertSeparated(room: GameRoom) {
   for (const unit of [...room.state.tanks.values()].filter(other => other.state === "alive")) {
-    for (const blocker of movementBlockers(unit, room.state)) {
-      assert.ok(Math.hypot(unit.x - blocker.x, unit.y - blocker.y) >= unit.radius + blocker.radius - COLLISION_TOLERANCE,
-        `${unit.id} overlaps ${blocker.id}`);
-    }
+    assert.ok(isClearPosition(unit, unit.radius, movementBlockers(unit, room.state), bounds),
+      `${unit.id} overlaps a blocker`);
   }
   for (const unit of room.state.minions.values()) {
     assert.ok(unit.x >= bounds.minX + unit.radius && unit.x <= bounds.maxX - unit.radius);
     assert.ok(unit.y >= bounds.minY + unit.radius && unit.y <= bounds.maxY - unit.radius);
-    for (const blocker of movementBlockers(unit, room.state)) {
-      assert.ok(Math.hypot(unit.x - blocker.x, unit.y - blocker.y) >= unit.radius + blocker.radius - COLLISION_TOLERANCE,
-        `${unit.id} overlaps ${blocker.id}`);
-    }
+    assert.ok(isClearPosition(unit, unit.radius, movementBlockers(unit, room.state), bounds),
+      `${unit.id} overlaps a blocker`);
   }
 }
 
@@ -149,20 +145,17 @@ test("dead previews and minions are passable; living players ignore minion occup
   close(minion.y, 900);
 });
 
-test("Entrench is immobile and speed modifiers, grass and zero delta do not gain collision distance", (t) => {
+test("speed modifiers, grass and zero delta do not gain collision distance", (t) => {
   const { room } = setup(t);
   const healer = tank(room, "a", 800, 900);
   Object.assign(healer, { role: "healer", hasMoveTarget: true, moveTargetX: 1200, moveTargetY: 900 });
   const speed = healer.abilities.get("healer-speed")!;
   Object.assign(speed, { level: 1, activeUntil: Date.now() + 60000 });
-  const entrenched = tank(room, "b", 900, 900);
-  Object.assign(entrenched, { hasMoveTarget: true, moveTargetX: 1100, moveTargetY: 900 });
-  Object.assign(entrenched.abilities.get("tank-entrench")!, { level: 1, activeUntil: Date.now() + 60000 });
+  const blocker = tank(room, "b", 900, 900);
   room["updateTankMovement"](1);
   close(healer.x, 852);
-  close(entrenched.x, 900);
-  entrenched.state = "dead";
   healer.x = 800;
+  blocker.state = "dead";
   room["updateTankMovement"](1);
   close(healer.x, 915);
   healer.x = 1000;

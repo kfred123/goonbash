@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 import { Client, Room } from 'colyseus.js';
 import {
   GameState,
+  BARRICADE_THICKNESS,
   ARENA_LANES,
   LANE_BORDER_WIDTH,
   WORLD_WIDTH,
@@ -13,6 +14,8 @@ import {
   INVALID_TARGET_MESSAGE,
   LANE_ROAD_WIDTH,
   getAbilityDefinition,
+  barricadePlacementAt,
+  barricadePointRejection,
   getRequiredXpForNextLevel,
   LobbyInfo,
   MatchPlayerStats,
@@ -24,14 +27,14 @@ import {
 } from 'shared';
 import { isPreMatch, LOBBY_ACTION_ERROR, LOBBY_NAME_ERROR, normalizeLobbyName } from 'shared';
 import { getLobbyControls } from './lobbyPresentation.js';
-import type { AbilityId, AbilityActivationRequest, Base, Minion, Tank, Tower, VisionEntity, InvalidTargetMessage, MortarImpactMessage, Projectile } from 'shared';
+import type { AbilityId, AbilityActivationRequest, Barricade, Base, Minion, Tank, Tower, VisionEntity, InvalidTargetMessage, MortarImpactMessage, Projectile } from 'shared';
 import { MORTAR_IMPACT_MESSAGE, mortarPointRejection } from 'shared';
 import { FogPresentation } from './FogPresentation.js';
 import { isEntityPresented, isProjectilePresented, WORLD_FOG_DEPTH } from './visionPresentation.js';
 import { formatPlayerNameTag } from './nameFormatter.js';
 import { ABILITY_KEYS, getAbilitySlotDesignX, getAbilityHudStatus, getRoleAbilityAtIndex, nextWeaponSelection, resolveArenaClick, shouldCancelRocketTargetSelection, shouldHandleAbilityKeydown } from './abilityControls.js';
 import type { RocketClickTarget, WeaponSelection } from './abilityControls.js';
-import { applyWeaponCursor, mortarShellHeight, MORTAR_REJECTION_TEXT, RESCUE_REJECTION_TEXT } from './weaponTargeting.js';
+import { applyWeaponCursor, mortarShellHeight, BARRICADE_REJECTION_TEXT, MORTAR_REJECTION_TEXT, RESCUE_REJECTION_TEXT } from './weaponTargeting.js';
 import './weaponTargeting.css';
 import { getBaseCannonRotation, getBaseCannonShotFeedback } from './baseCannonVisuals.js';
 import { getTowerCannonRotation, getTowerCannonShotFeedback } from './towerCannonVisuals.js';
@@ -44,6 +47,7 @@ import { createMinionBeetle, MinionBeetle } from './minionBeetle.js';
 import { getRespawnCountdown, getTankPresentation } from './respawnPresentation.js';
 import { clampZoom, DEFAULT_ZOOM, wheelZoom } from './cameraZoom.js';
 import { TouchZoomController } from './cameraZoomInput.js';
+import { getBarricadeSegment, isBarricadePresented } from './barricadeVisuals.js';
 
 const ROLE_ORDER: Role[] = ['healer', 'tank', 'damagedealer', 'scout'];
 
@@ -67,6 +71,7 @@ export class GameScene extends Phaser.Scene {
   private towerShotCounts: Map<string, number> = new Map();
   private projectileSprites: Map<string, Phaser.GameObjects.Arc> = new Map();
   private protectionDomeGraphics = new Map<string, Phaser.GameObjects.Graphics>();
+  private barricadeGraphics = new Map<string, Phaser.GameObjects.Graphics>();
   private mortarShadows = new Map<string, Phaser.GameObjects.Ellipse>();
   private mortarLandingMarkers = new Map<string, Phaser.GameObjects.Arc>();
   private mortarImpacts = new Map<string, Phaser.GameObjects.Arc>();
@@ -143,6 +148,7 @@ export class GameScene extends Phaser.Scene {
   private static readonly CLICK_HIT_RADIUS_MINION = 14 * WORLD_SCALE.entity;
   private static readonly CLICK_HIT_RADIUS_BASE = 40 * WORLD_SCALE.entity;
   private static readonly CLICK_HIT_RADIUS_TOWER = 20 * WORLD_SCALE.entity;
+  private static readonly CLICK_HIT_RADIUS_BARRICADE = 18 * WORLD_SCALE.entity;
   private static readonly TANK_NAME_OFFSET = 38 * WORLD_SCALE.entity;
   private static readonly TANK_HEALTH_OFFSET = 49 * WORLD_SCALE.entity;
   private static readonly MINION_HEALTH_OFFSET = 16 * WORLD_SCALE.entity;
@@ -520,6 +526,10 @@ export class GameScene extends Phaser.Scene {
         this.statusText.setText(MORTAR_REJECTION_TEXT[message.reason]).setColor('#ffbb88');
         return;
       }
+      if (message.action === 'barricade') {
+        this.statusText.setText(BARRICADE_REJECTION_TEXT[message.reason]).setColor('#ffbb88');
+        return;
+      }
       if (message.action === 'shockshot') {
         this.statusText.setText('Choose a visible living enemy within 650 range.').setColor('#ffbb88');
         return;
@@ -582,6 +592,13 @@ export class GameScene extends Phaser.Scene {
     this.room.state.protectionDomes.onRemove((_dome, id) => {
       if (this.room === connectedRoom && this.arenaStarted) this.removeProtectionDome(id);
     });
+    this.room.state.barricades.forEach((barricade, id) => this.upsertBarricade(barricade, id));
+    this.room.state.barricades.onAdd((barricade, id) => {
+      if (this.room === connectedRoom && this.arenaStarted) this.upsertBarricade(barricade, id);
+    });
+    this.room.state.barricades.onRemove((_barricade, id) => {
+      if (this.room === connectedRoom && this.arenaStarted) this.removeBarricade(id);
+    });
     this.room.onStateChange((state) => {
       if (this.room !== connectedRoom) return;
       if (this.resultsShown) return;
@@ -600,6 +617,7 @@ export class GameScene extends Phaser.Scene {
         state.tanks?.forEach((tank: any, sessionId: string) => this.upsertTank(tank, sessionId));
         state.bases?.forEach((base: any, id: string) => this.upsertBase(base, id));
         state.towers?.forEach((tower: any, id: string) => this.upsertTower(tower, id));
+        state.barricades?.forEach((barricade: Barricade, id: string) => this.upsertBarricade(barricade, id));
       }
       if (this.arenaStarted && state.tanks && typeof state.tanks.forEach === 'function') {
         state.tanks.forEach((tank: any, sessionId: string) => this.upsertTank(tank, sessionId));
@@ -612,6 +630,9 @@ export class GameScene extends Phaser.Scene {
       }
       if (this.arenaStarted && state.protectionDomes && typeof state.protectionDomes.forEach === 'function') {
         state.protectionDomes.forEach((dome: any, id: string) => this.upsertProtectionDome(dome, id));
+      }
+      if (this.arenaStarted && state.barricades && typeof state.barricades.forEach === 'function') {
+        state.barricades.forEach((barricade: Barricade, id: string) => this.upsertBarricade(barricade, id));
       }
       if (this.arenaStarted && state.bases && typeof state.bases.forEach === 'function') {
         state.bases.forEach((base: any, id: string) => this.upsertBase(base, id));
@@ -753,6 +774,7 @@ export class GameScene extends Phaser.Scene {
     this.projectileSprites.clear();
     this.clearMortarPresentation();
     this.clearProtectionDomePresentation();
+    this.clearBarricadePresentation();
     this.healthBars.forEach(({ bg, fill }) => {
       bg.destroy();
       fill.destroy();
@@ -774,6 +796,7 @@ export class GameScene extends Phaser.Scene {
     this.destroyAbilityHud();
     this.clearMortarPresentation();
     this.clearProtectionDomePresentation();
+    this.clearBarricadePresentation();
     this.fog?.destroy();
     this.fog = undefined;
     this.destroyMenuElements();
@@ -1206,6 +1229,50 @@ export class GameScene extends Phaser.Scene {
     this.protectionDomeGraphics.clear();
   }
 
+  private upsertBarricade(barricade: Barricade, id: string) {
+    let graphic = this.barricadeGraphics.get(id);
+    if (!graphic) {
+      graphic = this.add.graphics().setDepth(0.2);
+      this.barricadeGraphics.set(id, graphic);
+    }
+    const teamColor = barricade.team === 'blue' ? 0x4d8dff : 0xff4444;
+    const segment = getBarricadeSegment(barricade);
+    const startX = segment.start.x - barricade.x;
+    const startY = segment.start.y - barricade.y;
+    const endX = segment.end.x - barricade.x;
+    const endY = segment.end.y - barricade.y;
+    graphic.clear().setPosition(barricade.x, barricade.y).setRotation(0);
+    graphic.lineStyle(BARRICADE_THICKNESS, 0x65727a, 1)
+      .lineBetween(startX, startY, endX, endY);
+    graphic.lineStyle(2, teamColor, 1)
+      .lineBetween(startX, startY, endX, endY);
+    const alongX = Math.cos(barricade.angle);
+    const alongY = Math.sin(barricade.angle);
+    const acrossX = -alongY;
+    const acrossY = alongX;
+    for (let x = -barricade.length / 2 + 10; x < barricade.length / 2; x += 20) {
+      const start = { x: alongX * x - acrossX * BARRICADE_THICKNESS / 2, y: alongY * x - acrossY * BARRICADE_THICKNESS / 2 };
+      const end = { x: alongX * (x + 7) + acrossX * BARRICADE_THICKNESS / 2, y: alongY * (x + 7) + acrossY * BARRICADE_THICKNESS / 2 };
+      graphic.lineStyle(2, 0xe9c765, 0.9).lineBetween(start.x, start.y, end.x, end.y);
+    }
+    const team = this.room?.state.tanks.get(this.room.sessionId)?.team ?? '';
+    const visible = isBarricadePresented(barricade, team, this.vision);
+    this.updateHealthBar(id, barricade.x, barricade.y - 20, barricade.hp, barricade.maxHp, visible);
+    this.setEntityVisibility(id, visible);
+  }
+
+  private removeBarricade(id: string) {
+    this.barricadeGraphics.get(id)?.destroy();
+    this.barricadeGraphics.delete(id);
+    this.removeHealthBar(id);
+    this.visibleEntities.delete(id);
+  }
+
+  private clearBarricadePresentation() {
+    for (const id of this.barricadeGraphics.keys()) this.removeBarricade(id);
+    this.barricadeGraphics.clear();
+  }
+
   private upsertMinion(minion: Minion, id: string) {
     if (!minion) return;
     const x = minion.x ?? 0;
@@ -1593,6 +1660,21 @@ export class GameScene extends Phaser.Scene {
       if (tower.hp <= 0) return;
       consider({ id, team: tower.team, x: tower.x, y: tower.y, hp: tower.hp, kind: 'tower' }, GameScene.CLICK_HIT_RADIUS_TOWER);
     });
+    this.room.state.barricades.forEach((barricade: Barricade, id: string) => {
+      if (barricade.hp <= 0) return;
+      const displayed = this.findEntityPosition(id);
+      if (!displayed) return;
+      const dx = worldX - displayed.x;
+      const dy = worldY - displayed.y;
+      const along = dx * Math.cos(barricade.angle) + dy * Math.sin(barricade.angle);
+      const across = -dx * Math.sin(barricade.angle) + dy * Math.cos(barricade.angle);
+      const outsideLength = Math.max(0, Math.abs(along) - barricade.length / 2);
+      const distSq = outsideLength * outsideLength + across * across;
+      if (distSq <= GameScene.CLICK_HIT_RADIUS_BARRICADE ** 2
+        && (!closest || distSq < closest.distSq)) {
+        closest = { id, team: barricade.team, x: barricade.x, y: barricade.y, hp: barricade.hp, kind: 'barricade', distSq };
+      }
+    });
     return closest;
   }
 
@@ -1614,6 +1696,8 @@ export class GameScene extends Phaser.Scene {
     if (base && base.hp > 0) return { x: base.x, y: base.y };
     const tower = this.room.state.towers.get(id) as any;
     if (tower && tower.hp > 0) return { x: tower.x, y: tower.y };
+    const barricade = this.room.state.barricades.get(id) as any;
+    if (barricade && barricade.hp > 0) return { x: barricade.x, y: barricade.y };
     return null;
   }
 
@@ -1670,7 +1754,8 @@ export class GameScene extends Phaser.Scene {
     pointer.updateWorldPoint?.(this.cameras.main);
     const worldX = pointer.worldX;
     const worldY = pointer.worldY;
-    const hit = this.weaponSelection === 'mortar' ? null : this.hitTestClick(worldX, worldY, this.weaponSelection === 'rescue');
+    const hit = this.weaponSelection === 'mortar' || this.weaponSelection === 'barricade'
+      ? null : this.hitTestClick(worldX, worldY, this.weaponSelection === 'rescue' || this.weaponSelection === 'shock');
     const action = resolveArenaClick(
       this.weaponSelection,
       { team: myTank.team, x: myTank.x, y: myTank.y },
@@ -1684,6 +1769,9 @@ export class GameScene extends Phaser.Scene {
       this.cancelRocketTargetSelection();
     } else if (action.type === 'mortar') {
       this.sendAbilityActivation({ abilityId: 'damagedealer-mortar', targetX: action.x, targetY: action.y });
+      this.cancelRocketTargetSelection();
+    } else if (action.type === 'barricade') {
+      this.sendAbilityActivation({ abilityId: 'tank-barricade', targetX: action.x, targetY: action.y });
       this.cancelRocketTargetSelection();
     } else if (action.type === 'shock') {
       this.sendAbilityActivation({ abilityId: 'scout-shockshot', targetId: action.targetId });
@@ -1700,6 +1788,10 @@ export class GameScene extends Phaser.Scene {
       this.showClickMarker(action.x, action.y, 0x33ff55);
     } else if (this.weaponSelection === 'mortar') {
       this.statusText.setText('Choose an arena point within 900 range.').setColor('#ffbb88');
+    } else if (this.weaponSelection === 'barricade') {
+      const reason = barricadePointRejection(myTank, worldX, worldY,
+        getAbilityDefinition('tank-barricade').config.placementRange ?? 0);
+      if (reason) this.statusText.setText(BARRICADE_REJECTION_TEXT[reason]).setColor('#ffbb88');
     } else if (this.weaponSelection === 'rescue') {
       this.statusText.setText(RESCUE_REJECTION_TEXT.invalid_target).setColor('#ffbb88');
     }
@@ -1805,6 +1897,7 @@ export class GameScene extends Phaser.Scene {
     bar?.bg.setVisible(visible);
     bar?.fill.setVisible(visible);
     this.healEffectIcons.get(id)?.setVisible(visible);
+    this.barricadeGraphics.get(id)?.setVisible(visible);
     this.baseMuzzleFlashes.get(id)?.setVisible(visible);
     this.towerMuzzleFlashes.get(id)?.setVisible(visible);
     if (!visible) {
@@ -1827,6 +1920,9 @@ export class GameScene extends Phaser.Scene {
     state.minions.forEach((minion, id) => this.setEntityVisibility(id, this.canPresent(minion, this.minionSprites.get(id))));
     state.bases.forEach((base, id) => this.setEntityVisibility(id, this.canPresent(base)));
     state.towers.forEach((tower, id) => this.setEntityVisibility(id, this.canPresent(tower, undefined, tower.hp <= 0)));
+    const team = state.tanks.get(this.room.sessionId)?.team ?? '';
+    state.barricades.forEach((barricade, id) =>
+      this.setEntityVisibility(id, isBarricadePresented(barricade, team, this.vision)));
     state.projectiles.forEach((projectile, id) => {
       const visible = isProjectilePresented(projectile, this.vision);
       this.projectileSprites.get(id)?.setVisible(visible);
@@ -2099,12 +2195,15 @@ export class GameScene extends Phaser.Scene {
       g.lineTo(cx + 3, cy - 4);
       g.closePath();
       g.fillPath();
-    } else if (abilityId === 'tank-shield' || abilityId === 'tank-entrench') {
+    } else if (abilityId === 'tank-shield') {
       this.drawShieldIcon(g, cx, cy, size);
-      if (abilityId === 'tank-entrench') {
-        g.lineStyle(3, 0xffffff, 1);
-        g.lineBetween(cx - size * 0.25, cy + size * 0.25, cx + size * 0.25, cy + size * 0.25);
-      }
+    } else if (abilityId === 'tank-barricade') {
+      g.fillStyle(0x9aa7ad, 1);
+      g.fillRect(cx - size * 0.36, cy - size * 0.18, size * 0.72, size * 0.36);
+      g.lineStyle(2, 0xffffff, 1);
+      g.lineBetween(cx - size * 0.2, cy - size * 0.16, cx - size * 0.2, cy + size * 0.16);
+      g.lineBetween(cx, cy - size * 0.16, cx, cy + size * 0.16);
+      g.lineBetween(cx + size * 0.2, cy - size * 0.16, cx + size * 0.2, cy + size * 0.16);
     } else if (abilityId === 'tank-protection-dome') {
       g.fillStyle(0x71d9ff, 0.22).fillCircle(cx, cy, size * 0.36);
       g.lineStyle(3, 0xffffff, 1).strokeCircle(cx, cy, size * 0.36);
@@ -2151,11 +2250,12 @@ export class GameScene extends Phaser.Scene {
     if (!myTank || myTank.state === 'dead') return;
     const ability = myTank.abilities?.get(abilityId);
     if (!ability || ability.level <= 0 || Date.now() < ability.cooldownEndsAt) return;
-    if (abilityId === 'damagedealer-homing-rocket' || abilityId === 'damagedealer-mortar' || abilityId === 'scout-shockshot'
-      || abilityId === 'healer-rescue-impulse') {
+    if (abilityId === 'damagedealer-homing-rocket' || abilityId === 'damagedealer-mortar'
+      || abilityId === 'tank-barricade' || abilityId === 'scout-shockshot' || abilityId === 'healer-rescue-impulse') {
       const selection = abilityId === 'damagedealer-mortar' ? 'mortar'
-        : abilityId === 'scout-shockshot' ? 'shock'
-          : abilityId === 'healer-rescue-impulse' ? 'rescue' : 'rocket';
+        : abilityId === 'tank-barricade' ? 'barricade'
+          : abilityId === 'scout-shockshot' ? 'shock'
+            : abilityId === 'healer-rescue-impulse' ? 'rescue' : 'rocket';
       this.weaponSelection = nextWeaponSelection(this.weaponSelection, selection);
       if (this.weaponSelection) this.refreshWeaponTargeting();
       else this.cancelRocketTargetSelection();
@@ -2182,24 +2282,42 @@ export class GameScene extends Phaser.Scene {
     applyWeaponCursor(this.game.canvas, this.weaponSelection);
     this.rocketTargetHint?.setVisible(true).setText(this.weaponSelection === 'mortar'
       ? 'Select Mortar ground point (Esc/right-click to cancel)'
+      : this.weaponSelection === 'barricade'
+        ? 'Select a road point within 180 range (Esc/right-click to cancel)'
       : this.weaponSelection === 'shock'
         ? 'Select an enemy within 650 range (Esc/right-click to cancel)'
         : this.weaponSelection === 'rescue'
           ? 'Select an allied tank, minion, or yourself within 250 range (Esc/right-click to cancel)'
           : 'Select a rocket target (Esc/right-click to cancel)');
     this.mortarPreview?.clear();
-    if (this.weaponSelection !== 'mortar') return;
+    if (this.weaponSelection !== 'mortar' && this.weaponSelection !== 'barricade') return;
     const pointer = this.input.activePointer;
     const point = pointer.updateWorldPoint(this.cameras.main);
-    const config = getAbilityDefinition('damagedealer-mortar').config;
+    const barricadeSelection = this.weaponSelection === 'barricade';
+    const config = getAbilityDefinition(barricadeSelection ? 'tank-barricade' : 'damagedealer-mortar').config;
+    const range = barricadeSelection ? config.placementRange ?? 0 : config.range ?? 0;
     const preview = this.mortarPreview ?? this.add.graphics().setDepth(950);
     this.mortarPreview = preview;
-    preview.lineStyle(2, 0xffdd88, 0.5).strokeCircle(tank.x, tank.y, config.range!);
+    preview.lineStyle(2, barricadeSelection ? 0x9ca9ad : 0xffdd88, 0.5).strokeCircle(tank.x, tank.y, range);
     if (!this.input.manager.isOver || this.fog?.contains(pointer) || pointer.y >= this.scale.height - GameScene.HUD_BAR_HEIGHT) return;
-    const valid = mortarPointRejection(tank, point.worldX, point.worldY, config.range!) === null;
+    if (barricadeSelection) {
+      const valid = barricadePointRejection(tank, point.worldX, point.worldY, range) === null;
+      const placement = barricadePlacementAt({ x: point.worldX, y: point.worldY });
+      if (!placement) return;
+      const color = valid ? 0x8de0ad : 0xff3344;
+      const halfLength = placement.length / 2;
+      const dx = Math.cos(placement.angle) * halfLength;
+      const dy = Math.sin(placement.angle) * halfLength;
+      preview.lineStyle(BARRICADE_THICKNESS, color, 0.55)
+        .lineBetween(point.worldX - dx, point.worldY - dy, point.worldX + dx, point.worldY + dy);
+      preview.lineStyle(2, 0xffffff, 0.9)
+        .lineBetween(point.worldX - dx, point.worldY - dy, point.worldX + dx, point.worldY + dy);
+      return;
+    }
+    const valid = mortarPointRejection(tank, point.worldX, point.worldY, range) === null;
     const color = valid ? 0xffaa44 : 0xff3344;
-    preview.fillStyle(color, 0.12).fillCircle(point.worldX, point.worldY, config.radius!);
-    preview.lineStyle(2, color).strokeCircle(point.worldX, point.worldY, config.radius!);
+    preview.fillStyle(color, 0.12).fillCircle(point.worldX, point.worldY, config.radius ?? 0);
+    preview.lineStyle(2, color).strokeCircle(point.worldX, point.worldY, config.radius ?? 0);
   }
 
   /** Redraws each role ability's independent level, cooldown, and activation state. */

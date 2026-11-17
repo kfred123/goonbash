@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { buildLanePath, getLaneWaypoints, isPointOnLane, pointAlongPath, samplePathWithTangent, LANE_EDGE_Y, LANE_TURN_X, LANE_ROAD_WIDTH } from "./lanes.js";
+import { buildLanePath, getLaneWaypoints, isPointOnLane, nearestLaneTangent, pointAlongPath, samplePathWithTangent, LANE_EDGE_Y, LANE_TURN_X, LANE_ROAD_WIDTH } from "./lanes.js";
 import { ARENA_LANES, BLUE_BASE_POSITION, RED_BASE_POSITION, WORLD_WIDTH, WORLD_HEIGHT, LANE_BORDER_WIDTH } from "./arena.js";
 
 const blueBase = { x: 240, y: 900 };
@@ -86,6 +86,14 @@ test("classifies points inside the rendered lane width as lane terrain", () => {
   assert.equal(isPointOnLane({ x: 1200, y: 977 }, lanes), true);
   assert.equal(isPointOnLane({ x: 1200, y: 978 }, lanes), false);
   assert.equal(isPointOnLane({ x: 1200, y: 700 }, lanes), false);
+});
+
+test("finds the nearest lane tangent for straight, diagonal, and repeated segments", () => {
+  const lanes = [[{ x: 0, y: 0 }, { x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }]];
+  assert.deepEqual(nearestLaneTangent({ x: 5, y: 2 }, lanes), { x: 1, y: 0 });
+  assert.deepEqual(nearestLaneTangent({ x: 12, y: 8 }, lanes), { x: 0, y: 1 });
+  assert.deepEqual(nearestLaneTangent({ x: 2, y: 2 }, [[{ x: 0, y: 0 }, { x: 3, y: 4 }]]), { x: 0.6, y: 0.8 });
+  assert.equal(nearestLaneTangent({ x: 0, y: 0 }, [[{ x: 0, y: 0 }, { x: 0, y: 0 }]]), undefined);
 });
 
 test("default lane geometry preserves bounds, anchors, turns, and mirrored traversal", () => {

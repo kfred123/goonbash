@@ -4,9 +4,10 @@ import type { AbilityId } from "./abilities";
 export type AbilityActivationRequest =
   | { abilityId: "damagedealer-homing-rocket"; targetId: string }
   | { abilityId: "damagedealer-mortar"; targetX: number; targetY: number }
+  | { abilityId: "tank-barricade"; targetX: number; targetY: number }
   | { abilityId: "scout-shockshot"; targetId: string }
   | { abilityId: "healer-rescue-impulse"; targetId: string }
-  | { abilityId: Exclude<AbilityId, "damagedealer-homing-rocket" | "damagedealer-mortar" | "scout-shockshot" | "healer-rescue-impulse"> };
+  | { abilityId: Exclude<AbilityId, "damagedealer-homing-rocket" | "damagedealer-mortar" | "tank-barricade" | "scout-shockshot" | "healer-rescue-impulse"> };
 
 export type MortarRejectionReason =
   | "invalid_point" | "out_of_range" | "unavailable" | "unlearned" | "cooldown" | "inactive";

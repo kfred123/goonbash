@@ -125,7 +125,7 @@ test("Protection Dome reduces damage to living allies inside its inclusive radiu
   assert.equal(ally.hp, 90);
 });
 
-test("Protection Dome damage reduction does not stack with Shield, Entrench, or overlapping domes", (t) => {
+test("Protection Dome damage reduction does not stack with Shield or overlapping domes", (t) => {
   const { room, tank, activate } = setup(t);
   activate();
   const dome = [...room.state.protectionDomes.values()][0];
@@ -135,17 +135,9 @@ test("Protection Dome damage reduction does not stack with Shield, Entrench, or 
   });
   room.state.protectionDomes.set(strongerDome.id, strongerDome);
   const shield = tank.abilities.get("tank-shield")!;
-  const entrench = tank.abilities.get("tank-entrench")!;
   shield.level = 1;
   shield.activeUntil = Date.now() + 5000;
-  entrench.level = 1;
-  entrench.activeUntil = Date.now() + 5000;
 
-  room["applyDamage"](tank, 100);
-  assert.equal(tank.hp, 85);
-
-  entrench.activeUntil = 0;
-  tank.hp = 100;
   room["applyDamage"](tank, 100);
   assert.equal(tank.hp, 50);
 

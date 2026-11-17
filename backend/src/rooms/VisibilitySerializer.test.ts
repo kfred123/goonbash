@@ -4,7 +4,7 @@ import { performance } from "node:perf_hooks";
 import { test } from "node:test";
 import { ClientState, Protocol } from "colyseus";
 import type { Client } from "colyseus";
-import { Base, computeAbilityConfigForLevel, GameState, MatchPlayerStats, Minion, ProtectionDome, Projectile, Tank, Tower } from "shared";
+import { Base, Barricade, computeAbilityConfigForLevel, GameState, MatchPlayerStats, Minion, ProtectionDome, Projectile, Tank, Tower } from "shared";
 import { VisibilitySerializer } from "./VisibilitySerializer.js";
 import { activateAbility } from "./ability.js";
 
@@ -85,7 +85,7 @@ test("both teams receive only lobby metadata through countdown and cancellation 
       assert.equal(connection.decoded.tanks.get(red.id)?.ready, true);
       assert.equal(connection.decoded.tanks.get(blue.id)?.x, 0);
       assert.equal(connection.decoded.tanks.get(red.id)?.x, 0);
-      for (const map of [connection.decoded.minions, connection.decoded.bases, connection.decoded.towers, connection.decoded.projectiles]) {
+      for (const map of [connection.decoded.minions, connection.decoded.bases, connection.decoded.towers, connection.decoded.projectiles, connection.decoded.barricades]) {
         assert.equal(map.size, 0);
       }
     }
@@ -152,6 +152,36 @@ test("Protection Domes replicate to allies and visible enemies, redact hidden ow
   assert.equal(first.decoded.protectionDomes.has(friendly.id), true);
   assert.equal(first.decoded.protectionDomes.has(visibleEnemy.id), false);
   assert.equal(first.decoded.protectionDomes.has(hiddenEnemy.id), false);
+});
+
+test("barricades replicate to allies and visible enemies but disappear when concealed", () => {
+  const { source, blue, first, patch } = setup();
+  const friendly = Object.assign(new Barricade(), {
+    id: "blue-barricade", ownerId: blue.id, team: "blue", x: 500, y: 600, expiresAt: 5000
+  });
+  const visibleEnemy = Object.assign(new Barricade(), {
+    id: "visible-red-barricade", ownerId: "red", team: "red", x: 1010, y: 600, angle: Math.PI / 2, hp: 80
+  });
+  const hiddenEnemy = Object.assign(new Barricade(), {
+    id: "hidden-red-barricade", ownerId: "red", team: "red", x: 1300, y: 600
+  });
+  source.barricades.set(friendly.id, friendly);
+  source.barricades.set(visibleEnemy.id, visibleEnemy);
+  source.barricades.set(hiddenEnemy.id, hiddenEnemy);
+  patch();
+
+  assert.equal(first.decoded.barricades.has(friendly.id), true);
+  assert.equal(first.decoded.barricades.get(friendly.id)?.ownerId, blue.id);
+  assert.equal(first.decoded.barricades.has(visibleEnemy.id), true);
+  assert.equal(first.decoded.barricades.get(visibleEnemy.id)?.ownerId, "");
+  assert.equal(first.decoded.barricades.get(visibleEnemy.id)?.hp, 80);
+  assert.equal(first.decoded.barricades.has(hiddenEnemy.id), false);
+
+  blue.x = 500;
+  patch();
+  assert.equal(first.decoded.barricades.has(friendly.id), true);
+  assert.equal(first.decoded.barricades.has(visibleEnemy.id), false);
+  assert.equal(first.decoded.barricades.has(hiddenEnemy.id), false);
 });
 
 test("Mortar full snapshots and patches keep allied endpoints but redact hostile trajectories and hidden victims", () => {
@@ -230,7 +260,7 @@ test("hidden changes produce no enemy bytes or patches and do not mutate canonic
   red.x = 1300.125;
   red.hp = 37;
   red.xp = 987;
-  red.abilities.get("tank-entrench")!.activeUntil = 987654321;
+  red.abilities.get("tank-barricade")!.activeUntil = 987654321;
   const secret = "concealed-projectile-unique-id";
   source.projectiles.set(secret, Object.assign(new Projectile(), { id: secret, team: "red", x: red.x, y: red.y }));
   patch();
@@ -239,7 +269,7 @@ test("hidden changes produce no enemy bytes or patches and do not mutate canonic
   assert.equal(first.packets.length, 0);
   assert.equal(red.hp, 37);
   assert.equal(red.xp, 987);
-  assert.equal(red.abilities.get("tank-entrench")!.activeUntil, 987654321);
+  assert.equal(red.abilities.get("tank-barricade")!.activeUntil, 987654321);
   assert.equal(blue.x, 1000);
   assert.equal(source.projectiles.has(secret), true);
 });
@@ -293,7 +323,7 @@ test("enemy and allied movement goals, waypoints and private ability data stay p
     tank.moveTargetY = 1678.5;
     tank.xp = 987;
     tank.skillPoints = 3;
-    const ability = tank.abilities.get("tank-entrench")!;
+    const ability = tank.abilities.get("tank-barricade")!;
     ability.level = 2;
     ability.activeUntil = 5678;
     ability.cooldownEndsAt = 123456789;
@@ -307,14 +337,14 @@ test("enemy and allied movement goals, waypoints and private ability data stay p
     assert.equal(projected.moveTargetY, 0);
     assert.equal(projected.xp, 0);
     assert.equal(projected.skillPoints, 0);
-    assert.equal(projected.abilities.get("tank-entrench")!.cooldownEndsAt, 0);
-    assert.equal(projected.abilities.get("tank-entrench")!.activeUntil, 0);
+    assert.equal(projected.abilities.get("tank-barricade")!.cooldownEndsAt, 0);
+    assert.equal(projected.abilities.get("tank-barricade")!.activeUntil, 0);
   }
   assert.equal(first.decoded.tanks.get("blue")!.moveTargetX, blue.moveTargetX);
   assert.equal(second.decoded.tanks.get("red")!.moveTargetY, red.moveTargetY);
-  assert.equal(second.decoded.tanks.get("red")!.abilities.get("tank-entrench")!.cooldownEndsAt, 123456789);
-  assert.equal(first.decoded.tanks.get("blue")!.abilities.get("tank-entrench")!.activeUntil, 5678);
-  assert.equal(second.decoded.tanks.get("red")!.abilities.get("tank-entrench")!.activeUntil, 5678);
+  assert.equal(second.decoded.tanks.get("red")!.abilities.get("tank-barricade")!.cooldownEndsAt, 123456789);
+  assert.equal(first.decoded.tanks.get("blue")!.abilities.get("tank-barricade")!.activeUntil, 5678);
+  assert.equal(second.decoded.tanks.get("red")!.abilities.get("tank-barricade")!.activeUntil, 5678);
   assert.equal(first.decoded.minions.get("minion")!.waypointX, 0);
 });
 
@@ -332,24 +362,24 @@ test("a concealed rocket cast is private on revelation, while only unexpired eff
 
   now += 100;
   red.x = 1020;
-  const effect = red.abilities.get("tank-entrench")!;
-  Object.assign(effect, activateAbility(now, computeAbilityConfigForLevel("tank-entrench", 1)));
+  const effect = red.abilities.get("tank-barricade")!;
+  Object.assign(effect, activateAbility(now, computeAbilityConfigForLevel("tank-barricade", 1)));
   assert.ok(effect.activeUntil > now);
   patch();
   const revealed = first.decoded.tanks.get(red.id)!;
   assert.equal(revealed.abilities.get(rocketId)!.activeUntil, 0);
   assert.equal(revealed.abilities.get(rocketId)!.cooldownEndsAt, 0);
-  assert.equal(revealed.abilities.get("tank-entrench")!.activeUntil, effect.activeUntil);
+  assert.equal(revealed.abilities.get("tank-barricade")!.activeUntil, effect.activeUntil);
 
   const late = connection("blue");
   join(late);
   assert.equal(late.decoded.tanks.get(red.id)!.abilities.get(rocketId)!.activeUntil, 0);
-  assert.equal(late.decoded.tanks.get(red.id)!.abilities.get("tank-entrench")!.activeUntil, effect.activeUntil);
+  assert.equal(late.decoded.tanks.get(red.id)!.abilities.get("tank-barricade")!.activeUntil, effect.activeUntil);
 
   now = effect.activeUntil;
   patch();
-  assert.equal(revealed.abilities.get("tank-entrench")!.activeUntil, 0);
-  assert.equal(second.decoded.tanks.get(red.id)!.abilities.get("tank-entrench")!.activeUntil, now);
+  assert.equal(revealed.abilities.get("tank-barricade")!.activeUntil, 0);
+  assert.equal(second.decoded.tanks.get(red.id)!.abilities.get("tank-barricade")!.activeUntil, now);
   assert.equal(rocket.activeUntil, 1000000);
   assert.equal(second.decoded.tanks.get(red.id)!.abilities.get(rocketId)!.activeUntil, rocket.activeUntil);
 });
