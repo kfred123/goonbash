@@ -15,7 +15,7 @@ export interface RoleStats {
   fireDamage: number;
 }
 
-export const PLAYER_TOWER_FIRE_RANGE = 275;
+export const PLAYER_TOWER_FIRE_RANGE = 187.5;
 export const STANDARD_SIGHT_RANGE = 468;
 export const MINION_SIGHT_RANGE = 187.2;
 

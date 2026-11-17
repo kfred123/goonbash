@@ -249,6 +249,23 @@ test("initial joins and match start respect occupied spawns and changed lobby te
   assertSeparated(room);
 });
 
+test("mob waves start immediately and repeat every ten seconds", (t) => {
+  const { room } = setup(t);
+  room["spawnTimer"] = 0;
+  room.update(1);
+  assert.equal(room.state.minions.size, 6);
+
+  for (let wave = 0; wave < 2; wave++) {
+    room.state.minions.clear();
+    room.update(5000);
+    assert.equal(room.state.minions.size, 0);
+    room.update(4999);
+    assert.equal(room.state.minions.size, 0);
+    room.update(1);
+    assert.equal(room.state.minions.size, 6);
+  }
+});
+
 test("saturated waves retain lane identities, retry without duplicates and clean up on match end", (t) => {
   const { room } = setup(t);
   const warnings: unknown[][] = [];
@@ -268,8 +285,8 @@ test("saturated waves retain lane identities, retry without duplicates and clean
   assert.equal(room["pendingMinions"].size, 0);
   assertSeparated(room);
   for (const minion of room.state.minions.values()) {
-    assert.equal(minion.hp, 75);
-    assert.equal(minion.maxHp, 75);
+    assert.equal(minion.hp, 150);
+    assert.equal(minion.maxHp, 150);
   }
   for (const team of ["red", "blue"]) {
     const units = [...room.state.minions.values()].filter(unit => unit.team === team);
