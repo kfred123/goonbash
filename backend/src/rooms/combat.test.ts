@@ -201,8 +201,8 @@ test("lane tower shots preserve tower damage and replicate the firing direction"
 
 test("scaled structure shots start at their cannon muzzles without changing combat parameters", () => {
   for (const [shooter, distance, damage, range, cooldown] of [
-    [new Base(), 43.2, 24, 275, 1200],
-    [new Tower(), 25.2, 12, 275, 1200]
+    [new Base(), 43.2, 24, 187.5, 1200],
+    [new Tower(), 25.2, 12, 187.5, 1200]
   ] as const) {
     shooter.id = "structure";
     shooter.team = "blue";

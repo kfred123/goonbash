@@ -52,7 +52,7 @@ test("serializes main-base cannon stats and target for clients", () => {
 
   const decodedBase = decoded.bases.get("blue-base");
   assert.ok(decodedBase);
-  assert.equal(decodedBase.fireRange, 275);
+  assert.equal(decodedBase.fireRange, 187.5);
   assert.equal(decodedBase.fireCooldown, 600);
   assert.equal(decodedBase.fireCooldownMax, 1200);
   assert.equal(decodedBase.fireDamage, 24);

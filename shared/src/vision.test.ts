@@ -14,7 +14,7 @@ const observer = (overrides: Partial<VisionEntity> = {}): VisionEntity => ({
 
 test("absolute sight defaults are independent of combat stats", () => {
   assert.deepEqual(Object.values(ROLE_STATS).map((stats) => stats.sightRange), [468, 468, 468, 468]);
-  assert.deepEqual(Object.values(ROLE_STATS).map((stats) => stats.fireRange), [275, 275, 275, 275]);
+  assert.deepEqual(Object.values(ROLE_STATS).map((stats) => stats.fireRange), [187.5, 187.5, 187.5, 187.5]);
   for (const [unit, sight] of [
     [new Tank(), STANDARD_SIGHT_RANGE],
     [new Minion(), MINION_SIGHT_RANGE],
