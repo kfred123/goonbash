@@ -113,7 +113,7 @@ test("purchaseAbilityUpgrade learns or upgrades an available ability independent
   assert.equal(rejected, false);
   assert.equal(tank.abilities.get("tank-shield")?.level, 2);
   assert.equal(tank.skillPoints, 0);
-  assert.equal(tank.abilities.get("tank-entrench")?.level, 0);
+  assert.equal(tank.abilities.get("tank-barricade")?.level, 0);
 });
 
 test("Scout purchases are role restricted and each ability upgrades independently", () => {

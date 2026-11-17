@@ -19,10 +19,10 @@ test("canUpgradeAbility permits upgrade only when having at least 1 point and be
   assert.equal(canUpgradeAbility(2, 11), false); // exceeds max
 });
 
-test("the ability catalog defines independent role abilities including three Healer and Scout skills", () => {
+test("the ability catalog defines independent role abilities including three Healer, Tank, and Scout skills", () => {
   assert.equal(new Set(ABILITY_IDS).size, 12);
   assert.deepEqual(ROLE_ABILITY_IDS.healer, ["healer-aura", "healer-speed", "healer-rescue-impulse"]);
-  assert.deepEqual(ROLE_ABILITY_IDS.tank, ["tank-shield", "tank-entrench", "tank-protection-dome"]);
+  assert.deepEqual(ROLE_ABILITY_IDS.tank, ["tank-shield", "tank-barricade", "tank-protection-dome"]);
   assert.deepEqual(ROLE_ABILITY_IDS.damagedealer, ["damagedealer-rapidfire", "damagedealer-homing-rocket", "damagedealer-mortar"]);
   assert.deepEqual(ROLE_ABILITY_IDS.scout, ["scout-weitsicht", "scout-offroad", "scout-shockshot"]);
   for (const abilityId of ABILITY_IDS) {
@@ -71,12 +71,19 @@ test("ability level scales cooldown and ability-specific magnitudes", () => {
   assert.equal(rocketLvl10.projectileSpeed, 450);
 });
 
-test("tank damage reduction and cooldown scaling remain bounded at level 10", () => {
+test("Tank Barricade cooldown remains longer than its lifetime at every rank", () => {
   const shield = computeAbilityConfigForLevel("tank-shield", MAX_ABILITY_LEVEL);
-  const entrench = computeAbilityConfigForLevel("tank-entrench", MAX_ABILITY_LEVEL);
+  const barricadeFirst = computeAbilityConfigForLevel("tank-barricade", 1);
+  const barricadeLast = computeAbilityConfigForLevel("tank-barricade", MAX_ABILITY_LEVEL);
   assert.equal(shield.magnitude, 0.68);
-  assert.equal(entrench.magnitude, 0.94);
-  assert.ok(entrench.cooldownMs >= 12000, "cooldown does not fall below half its base");
+  assert.equal(barricadeFirst.durationMs, 60000);
+  assert.equal(barricadeFirst.cooldownMs, 90000);
+  assert.equal(barricadeFirst.placementRange, 180);
+  assert.equal(barricadeLast.cooldownMs, 65700);
+  for (let level = 1; level <= MAX_ABILITY_LEVEL; level++) {
+    const config = computeAbilityConfigForLevel("tank-barricade", level);
+    assert.ok(config.cooldownMs > config.durationMs, `rank ${level} cooldown exceeds lifetime`);
+  }
 });
 
 test("Tank Protection Dome scales reduction independently and preserves duration and radius", () => {

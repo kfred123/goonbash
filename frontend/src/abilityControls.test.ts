@@ -20,7 +20,7 @@ test("each role maps Space and E to its independent abilities", () => {
     ]),
     [
       ["healer-aura", "healer-speed"],
-      ["tank-shield", "tank-entrench"],
+      ["tank-shield", "tank-barricade"],
       ["damagedealer-rapidfire", "damagedealer-homing-rocket"],
       ["scout-weitsicht", "scout-offroad"]
     ]
@@ -57,6 +57,9 @@ test("weapon selection toggles or switches exclusively", () => {
   assert.equal(nextWeaponSelection("rescue", "rescue"), null);
   assert.equal(nextWeaponSelection("rocket", "rescue"), "rescue");
   assert.equal(nextWeaponSelection("rescue", "mortar"), "mortar");
+  assert.equal(nextWeaponSelection(null, "barricade"), "barricade");
+  assert.equal(nextWeaponSelection("barricade", "barricade"), null);
+  assert.equal(nextWeaponSelection("barricade", "rocket"), "rocket");
 });
 
 test("Mortar consumes valid ground clicks regardless of occupants but never leaks movement on invalid points", () => {
@@ -70,6 +73,19 @@ test("Mortar consumes valid ground clicks regardless of occupants but never leak
     { type: "mortar", x: 1900, y: 600 });
   for (const point of [{ x: 1900.01, y: 600 }, { x: -1, y: 600 }, { x: NaN, y: 600 }]) {
     assert.deepEqual(resolveArenaClick("mortar", shooter, null, point, 900), { type: "ignore" });
+  }
+});
+
+test("Barricade selection sends only valid nearby road points and consumes invalid clicks", () => {
+  const shooter = { team: "blue", x: 1000, y: 800 };
+  const enemy = { id: "enemy", team: "red", x: 1000, y: 900 };
+  assert.deepEqual(resolveArenaClick("barricade", shooter, enemy, { x: 1000, y: 900 }, 900), {
+    type: "barricade", x: 1000, y: 900
+  });
+  for (const point of [{ x: 1000, y: 1000 }, { x: 1200, y: 900 }, { x: -1, y: 900 }, { x: NaN, y: 900 }]) {
+    assert.deepEqual(resolveArenaClick("barricade", shooter, null, point, 900), { type: "ignore" });
+    assert.notEqual(resolveArenaClick("barricade", shooter, enemy, point, 900).type, "attack");
+    assert.notEqual(resolveArenaClick("barricade", shooter, null, point, 900).type, "move");
   }
 });
 

@@ -47,20 +47,12 @@ export function applyDamageReduction(damage: number, reductionRatio: number): nu
   return damage * (1 - reductionRatio);
 }
 
-export function strongestReduction(shield: number, entrench: number): number {
-  return Math.max(shield, entrench);
-}
-
 export function effectiveFireCooldown(baseCooldownMax: number, active: boolean, fireRateMultiplier: number): number {
   return active ? baseCooldownMax / fireRateMultiplier : baseCooldownMax;
 }
 
 export function effectiveMoveSpeed(baseMoveSpeed: number, speedActive: boolean, multiplier: number): number {
   return speedActive ? baseMoveSpeed * multiplier : baseMoveSpeed;
-}
-
-export function isMovementLocked(role: string, entrenchActive: boolean): boolean {
-  return role === "tank" && entrenchActive;
 }
 
 export function healOverTick(hp: number, maxHp: number, healPerSecond: number, elapsedSeconds: number): number {

@@ -7,7 +7,7 @@ export const ABILITY_IDS = [
   "healer-speed",
   "healer-rescue-impulse",
   "tank-shield",
-  "tank-entrench",
+  "tank-barricade",
   "tank-protection-dome",
   "damagedealer-rapidfire",
   "damagedealer-homing-rocket",
@@ -28,6 +28,7 @@ export interface AbilityConfig {
   magnitude: number;
   radius?: number;
   range?: number;
+  placementRange?: number;
   projectileSpeed?: number;
   flightDurationMs?: number;
   buildingMultiplier?: number;
@@ -57,9 +58,9 @@ export const ABILITY_DEFINITIONS: Record<AbilityId, AbilityDefinition> = {
     id: "tank-shield", role: "tank", name: "Shield",
     config: { cooldownMs: 18000, durationMs: 5000, magnitude: 0.5 }
   },
-  "tank-entrench": {
-    id: "tank-entrench", role: "tank", name: "Entrench",
-    config: { cooldownMs: 24000, durationMs: 4000, magnitude: 0.85 }
+  "tank-barricade": {
+    id: "tank-barricade", role: "tank", name: "Barricade",
+    config: { cooldownMs: 90000, durationMs: 60000, magnitude: 0, placementRange: 180 }
   },
   "tank-protection-dome": {
     id: "tank-protection-dome", role: "tank", name: "Protection Dome",
@@ -93,7 +94,7 @@ export const ABILITY_DEFINITIONS: Record<AbilityId, AbilityDefinition> = {
 
 export const ROLE_ABILITY_IDS: Record<Role, readonly AbilityId[]> = {
   healer: ["healer-aura", "healer-speed", "healer-rescue-impulse"],
-  tank: ["tank-shield", "tank-entrench", "tank-protection-dome"],
+  tank: ["tank-shield", "tank-barricade", "tank-protection-dome"],
   damagedealer: ["damagedealer-rapidfire", "damagedealer-homing-rocket", "damagedealer-mortar"],
   scout: ["scout-weitsicht", "scout-offroad", "scout-shockshot"]
 };
@@ -137,9 +138,6 @@ export function computeAbilityConfigForLevel(
       break;
     case "tank-shield":
       magnitude = Math.min(0.8, magnitude + rank * 0.02);
-      break;
-    case "tank-entrench":
-      magnitude = Math.min(0.94, magnitude + rank * 0.01);
       break;
     case "tank-protection-dome":
       magnitude = Math.min(0.44, magnitude + rank * 0.01);

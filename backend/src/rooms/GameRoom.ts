@@ -1,19 +1,19 @@
 import { Room, Client } from "colyseus";
-import { Base, computeAbilityConfigForLevel, GameState, getLaneWaypoints, isAbilityId, MatchPlayerStats, Minion, ProtectionDome, Projectile, Tank, Tower } from "shared";
+import { Base, Barricade, barricadeOverlapsCircle, barricadePlacementAt, barricadePointRejection, barricadesOverlap, computeAbilityConfigForLevel, GameState, getLaneWaypoints, isAbilityId, MatchPlayerStats, Minion, ProtectionDome, Projectile, Tank, Tower } from "shared";
 import { isRole, resolveRoleStats } from "shared";
 import { BLUE_BASE_POSITION, RED_BASE_POSITION, WORLD_WIDTH, WORLD_HEIGHT, TeamVision, getVisionEntities, INVALID_TARGET_MESSAGE, TOWER_COLLISION_RADIUS } from "shared";
 import { lobbyRegistry } from "../lobbies/LobbyRegistry.js";
 import { canChangeRole, canChangeTeam, canJoinRoom, canManageLobby, canUseGameplayActions, normalizePlayerName, resolveHostAfterLeave, selectBalancedTeam } from "./lobbyControls.js";
 import { allPlayersReady, COUNTDOWN_DURATION_MS, LOBBY_ACTION_ERROR } from "shared";
 import { clampToBounds, createShotProjectile, findNearestEnemyInRange, getLivingTowers, hasDied, hasProjectileReachedTarget, isReadyToRespawn, isWithinRange, stepHomingProjectile, stepProjectileTowardTarget, stepToward, applyDamage as computeDamagedHp, nearBasePosition, respawnDelayMs, respawnTank, tickShooter } from "./combat.js";
-import { activateAbility, applyDamageReduction, applyMovementDisable, canActivateRoleAbility, effectiveFireCooldown, effectiveMoveSpeed, healOverTick, homingRocketDamage, isAbilityActive, isMovementDisabled, isMovementLocked, isValidRocketTarget, isValidShockTarget, strongestReduction } from "./ability.js";
+import { activateAbility, applyDamageReduction, applyMovementDisable, canActivateRoleAbility, effectiveFireCooldown, effectiveMoveSpeed, healOverTick, homingRocketDamage, isAbilityActive, isMovementDisabled, isValidRocketTarget, isValidShockTarget } from "./ability.js";
 import { getLaneTowerPlacements } from "./towerPlacement.js";
 import { effectiveScoutTerrainMoveSpeed, effectiveTerrainMoveSpeed } from "./terrain.js";
 import { applyTankProgressionStats, distributeKillXp, purchaseAbilityUpgrade } from "./progressionService.js";
 import { endMatchAfterBaseDestroyed, recordPlayerDamage, recordPlayerKill, removeLeavingPlayerTank } from "./matchResults.js";
 import { VisibilitySerializer } from "./VisibilitySerializer.js";
 import { MORTAR_IMPACT_MESSAGE, mortarPointRejection } from "shared";
-import type { MortarImpactMessage, MortarRejectionReason, RescueImpulseRejectionReason } from "shared";
+import type { BarricadePlacementRejectionReason, MortarImpactMessage, MortarRejectionReason, RescueImpulseRejectionReason } from "shared";
 import { mortarDamage } from "./ability.js";
 import { byId, COLLISION_TOLERANCE, findClearNearBase, findLaneSpawn, movementBlockers, resolveMovement } from "./collision.js";
 import { moveMinion, type MinionDetour } from "./minionMovement.js";
@@ -57,6 +57,7 @@ export class GameRoom extends Room<GameState> {
   private deferredTanks = new Set<string>();
   private nextMinionId = 0;
   private nextProtectionDomeId = 0;
+  private nextBarricadeId = 0;
   private lobbyId!: string;
   private ownsLobby = false;
   private countdown?: { deadline: number; timer?: { clear(): void } };
@@ -141,6 +142,10 @@ export class GameRoom extends Room<GameState> {
         this.activateMortar(client, tank, payload.targetX, payload.targetY);
         return;
       }
+      if (payload?.abilityId === "tank-barricade") {
+        this.activateBarricade(client, tank, payload.targetX, payload.targetY);
+        return;
+      }
       if (!tank || !canUseGameplayActions(this.state.phase) || tank.state === "dead") return;
       if (!isAbilityId(payload?.abilityId) || !isRole(tank.role)) return;
       const abilityId = payload.abilityId;
@@ -195,9 +200,6 @@ export class GameRoom extends Room<GameState> {
         dome.expiresAt = timing.activeUntil;
         dome.damageReduction = abilityConfig.magnitude;
         this.state.protectionDomes.set(dome.id, dome);
-      }
-      if (abilityId === "tank-entrench") {
-        tank.hasMoveTarget = false;
       }
       if (abilityId === "scout-weitsicht") {
         tank.sightRange = resolveRoleStats(tank.role).sightRange + abilityConfig.magnitude;
@@ -275,14 +277,15 @@ export class GameRoom extends Room<GameState> {
   }
 
   update(deltaTime: number) {
+    const now = Date.now();
+    this.expireProtectionDomes(now);
+    this.expireBarricades(now);
     if (!canUseGameplayActions(this.state.phase)) {
       this.clearMortarFlights();
       if (this.state.phase === "ended") this.clearMovementState();
       return;
     }
     const elapsedSeconds = deltaTime / 1000;
-    const now = Date.now();
-    this.expireProtectionDomes(now);
     this.updateTemporaryAbilityEffects(now);
 
     // Resolve targeting/firing before movement so units that are engaged
@@ -306,6 +309,12 @@ export class GameRoom extends Room<GameState> {
   private expireProtectionDomes(now: number) {
     this.state.protectionDomes.forEach((dome, id) => {
       if (dome.expiresAt <= now) this.state.protectionDomes.delete(id);
+    });
+  }
+
+  private expireBarricades(now: number) {
+    this.state.barricades.forEach((barricade, id) => {
+      if (barricade.expiresAt <= now || barricade.hp <= 0) this.state.barricades.delete(id);
     });
   }
 
@@ -381,8 +390,11 @@ export class GameRoom extends Room<GameState> {
     const minions = [...this.state.minions.values()];
     const bases = [...this.state.bases.values()].filter((base) => !hasDied(base.hp));
     const towers = getLivingTowers(this.state.towers.values());
-    const enemyCandidates: Array<Tank | Minion | Base | Tower> = [...aliveTanks, ...minions, ...bases, ...towers];
-    const visibleCandidates = new Map<string, Array<Tank | Minion | Base | Tower>>();
+    const barricades = [...this.state.barricades.values()]
+      .filter((barricade) => barricade.hp > 0 && barricade.expiresAt > Date.now());
+    const enemyCandidates: Array<Tank | Minion | Base | Tower | Barricade> =
+      [...aliveTanks, ...minions, ...bases, ...towers, ...barricades];
+    const visibleCandidates = new Map<string, Array<Tank | Minion | Base | Tower | Barricade>>();
     for (const team of ["blue", "red"]) {
       const vision = this.teamVision(team);
       visibleCandidates.set(team, enemyCandidates.filter((candidate) => candidate.team !== team && vision.canSee(candidate)));
@@ -407,7 +419,9 @@ export class GameRoom extends Room<GameState> {
    * move the tank into range, it only opportunistically fires at whatever enemy is
    * already nearby.
    */
-  private updateLockedShooter(tank: Tank, enemyCandidates: Array<Tank | Minion | Base | Tower>, deltaTime: number) {
+  private updateLockedShooter(
+    tank: Tank, enemyCandidates: Array<Tank | Minion | Base | Tower | Barricade>, deltaTime: number
+  ) {
     if (tank.fireCooldown > 0) tank.fireCooldown = Math.max(0, tank.fireCooldown - deltaTime);
     if (tank.lockedTargetId) {
       const target = this.findLivingEntity(tank.lockedTargetId);
@@ -448,11 +462,18 @@ export class GameRoom extends Room<GameState> {
   }
 
   /** Acquires the nearest enemy target -- including enemy bases -- (ignoring all friendly units) and fires when ready. */
-  private updateShooter(unit: Tank | Minion | Tower | Base, enemyCandidates: Array<Tank | Minion | Base | Tower>, deltaTime: number) {
+  private updateShooter(
+    unit: Tank | Minion | Tower | Base,
+    enemyCandidates: Array<Tank | Minion | Base | Tower | Barricade>,
+    deltaTime: number
+  ) {
     tickShooter(unit, enemyCandidates, deltaTime, (shooter, target) => this.spawnProjectile(shooter, target));
   }
 
-  private spawnProjectile(shooter: Tank | Minion | Tower | Base, target: { id: string; x: number; y: number; team: string }) {
+  private spawnProjectile(
+    shooter: Tank | Minion | Tower | Base,
+    target: { id: string; x: number; y: number; team: string }
+  ) {
     const projectile = createShotProjectile(shooter, target, `shot-${Date.now()}-${Math.random()}`);
     this.state.projectiles.set(projectile.id, projectile);
     this.projectileLifetimes.set(projectile.id, 0);
@@ -549,6 +570,61 @@ export class GameRoom extends Room<GameState> {
       durationMs: config.flightDurationMs!, buildingMultiplier: config.buildingMultiplier!
     });
     this.state.projectiles.set(projectile.id, projectile);
+    Object.assign(ability, activateAbility(now, config));
+  }
+
+  private activateBarricade(client: Client, tank: Tank | undefined, x: unknown, y: unknown) {
+    const reject = (reason: BarricadePlacementRejectionReason) =>
+      client.send(INVALID_TARGET_MESSAGE, { action: "barricade", reason });
+    if (!tank || !canUseGameplayActions(this.state.phase) || tank.state === "dead" || tank.hp <= 0) {
+      reject("inactive");
+      return;
+    }
+    if (tank.role !== "tank") {
+      reject("unavailable");
+      return;
+    }
+    const ability = tank.abilities.get("tank-barricade");
+    if (!ability || ability.level <= 0) {
+      reject("unlearned");
+      return;
+    }
+    const now = Date.now();
+    if (now < ability.cooldownEndsAt) {
+      reject("cooldown");
+      return;
+    }
+    const config = computeAbilityConfigForLevel("tank-barricade", ability.level);
+    const reason = barricadePointRejection(tank, x, y, config.placementRange!);
+    if (reason) {
+      reject(reason);
+      return;
+    }
+    if (typeof x !== "number" || typeof y !== "number") throw new Error("Validated Barricade point is not numeric");
+    const placement = barricadePlacementAt({ x, y });
+    if (!placement) {
+      reject("invalid_point");
+      return;
+    }
+    const overlapsStructure = [...this.state.bases.values(), ...this.state.towers.values()]
+      .some((structure) => structure.hp > 0 && barricadeOverlapsCircle(placement, structure));
+    const overlapsBarricade = [...this.state.barricades.values()]
+      .some((barricade) => barricade.hp > 0 && barricadesOverlap(placement, barricade));
+    if (overlapsStructure || overlapsBarricade) {
+      reject("overlap");
+      return;
+    }
+    const barricade = new Barricade();
+    barricade.id = `barricade-${this.nextBarricadeId++}`;
+    barricade.ownerId = tank.id;
+    barricade.team = tank.team;
+    barricade.x = x;
+    barricade.y = y;
+    barricade.angle = placement.angle;
+    barricade.length = placement.length;
+    barricade.hp = barricade.maxHp;
+    barricade.expiresAt = now + config.durationMs;
+    this.state.barricades.set(barricade.id, barricade);
     Object.assign(ability, activateAbility(now, config));
   }
 
@@ -667,7 +743,7 @@ export class GameRoom extends Room<GameState> {
   }
 
   /** Looks up a still-alive tank, minion, or not-yet-destroyed base by id. */
-  private findLivingEntity(id: string): Tank | Minion | Base | Tower | undefined {
+  private findLivingEntity(id: string): Tank | Minion | Base | Tower | Barricade | undefined {
     const tank = this.state.tanks.get(id);
     if (tank) return tank.state === "dead" ? undefined : tank;
     const minion = this.state.minions.get(id);
@@ -676,24 +752,22 @@ export class GameRoom extends Room<GameState> {
     if (base) return hasDied(base.hp) ? undefined : base;
     const tower = this.state.towers.get(id);
     if (tower) return hasDied(tower.hp) ? undefined : tower;
+    const barricade = this.state.barricades.get(id);
+    if (barricade) return hasDied(barricade.hp) ? undefined : barricade;
     return undefined;
   }
 
-  private applyDamage(entity: Tank | Minion | Base | Tower, damage: number, attackerId = "") {
+  private applyDamage(entity: Tank | Minion | Base | Tower | Barricade, damage: number, attackerId = "") {
     if (entity instanceof Tank && entity.state === "dead") return;
     let effectiveDamage = damage;
     let reduction = 0;
     if (entity instanceof Tank && entity.role === "tank") {
       const now = Date.now();
       const shield = entity.abilities.get("tank-shield");
-      const entrench = entity.abilities.get("tank-entrench");
       const shieldReduction = isAbilityActive(now, shield)
         ? computeAbilityConfigForLevel("tank-shield", shield?.level ?? 0).magnitude
         : 0;
-      const entrenchReduction = isAbilityActive(now, entrench)
-        ? computeAbilityConfigForLevel("tank-entrench", entrench?.level ?? 0).magnitude
-        : 0;
-      reduction = strongestReduction(shieldReduction, entrenchReduction);
+      reduction = shieldReduction;
     }
     if ((entity instanceof Tank || entity instanceof Minion) && entity.hp > 0) {
       const now = Date.now();
@@ -722,6 +796,8 @@ export class GameRoom extends Room<GameState> {
       distributeKillXp(victimPos, false, this.state.tanks.values());
     } else if (entity instanceof Tower) {
       entity.targetId = "";
+    } else if (entity instanceof Barricade) {
+      this.state.barricades.delete(entity.id);
     } else if (entity instanceof Base) {
       if (endMatchAfterBaseDestroyed(this.state, entity.team)) {
         this.projectileLifetimes.clear();
@@ -787,8 +863,7 @@ export class GameRoom extends Room<GameState> {
   }
 
   private isTankMovementLocked(tank: Tank, now: number): boolean {
-    return isMovementLocked(tank.role, isAbilityActive(now, tank.abilities.get("tank-entrench")))
-      || isMovementDisabled(now, tank.movementDisabledUntil);
+    return isMovementDisabled(now, tank.movementDisabledUntil);
   }
 
   private updateTemporaryAbilityEffects(now: number) {

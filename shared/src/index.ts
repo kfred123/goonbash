@@ -9,13 +9,19 @@ export { TOWER_CANNON_MUZZLE_DISTANCE } from "./towerCannon";
 export { TOWER_COLLISION_RADIUS, TOWER_FOOTPRINT_RADIUS } from "./towerGeometry";
 export { Projectile } from "./state/Projectile";
 export { ProtectionDome } from "./state/ProtectionDome";
+export { Barricade } from "./state/Barricade";
 export { Tower } from "./state/Tower";
 export { GameState } from "./state/GameState";
 export { MatchPlayerStats } from "./state/MatchPlayerStats";
 export { AbilityState } from "./state/AbilityState";
-export { LANE_EDGE_Y, LANE_ROAD_WIDTH, LANE_TURN_X, buildLanePath, getLaneWaypoints, isPointOnLane, pointAlongPath, samplePathWithTangent } from "./lanes";
+export { LANE_EDGE_Y, LANE_ROAD_WIDTH, LANE_TURN_X, buildLanePath, getLaneWaypoints, isPointOnLane, nearestLaneTangent, pointAlongPath, samplePathWithTangent } from "./lanes";
 export type { LanePoint } from "./lanes";
 export { WORLD_WIDTH, WORLD_HEIGHT, BLUE_BASE_POSITION, RED_BASE_POSITION, LANE_BORDER_WIDTH, ARENA_LANES } from "./arena";
+export {
+  BARRICADE_LENGTH, BARRICADE_THICKNESS, barricadeOverlapsCircle, barricadesOverlap,
+  barricadePlacementAt, barricadePointRejection
+} from "./barricade";
+export type { BarricadePlacement, BarricadePlacementRejectionReason } from "./barricade";
 export { WORLD_SCALE, WORLD_BASELINE, WORLD_DIMENSIONS, deriveWorldDimensions } from "./worldScale";
 export type { WorldScaleFactors } from "./worldScale";
 export { VisionTerrain, ARENA_VISION_TERRAIN, TeamVision, getVisionEntities, INVALID_TARGET_MESSAGE } from "./vision";

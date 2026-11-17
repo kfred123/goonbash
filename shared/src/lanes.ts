@@ -25,6 +25,33 @@ export function isPointOnLane(point: LanePoint, lanes: LanePoint[][], roadWidth 
   }));
 }
 
+/** Returns the unit tangent of the lane segment nearest to a point. */
+export function nearestLaneTangent(point: LanePoint, lanes: LanePoint[][]): LanePoint | undefined {
+  let nearest: LanePoint | undefined;
+  let nearestDistanceSquared = Infinity;
+  for (const lane of lanes) {
+    for (let index = 1; index < lane.length; index += 1) {
+      const from = lane[index - 1];
+      const to = lane[index];
+      const segmentX = to.x - from.x;
+      const segmentY = to.y - from.y;
+      const segmentLengthSquared = segmentX * segmentX + segmentY * segmentY;
+      if (segmentLengthSquared === 0) continue;
+      const projection = Math.max(0, Math.min(1,
+        ((point.x - from.x) * segmentX + (point.y - from.y) * segmentY) / segmentLengthSquared));
+      const offsetX = point.x - from.x - projection * segmentX;
+      const offsetY = point.y - from.y - projection * segmentY;
+      const distanceSquared = offsetX * offsetX + offsetY * offsetY;
+      if (distanceSquared < nearestDistanceSquared) {
+        const segmentLength = Math.sqrt(segmentLengthSquared);
+        nearest = { x: segmentX / segmentLength, y: segmentY / segmentLength };
+        nearestDistanceSquared = distanceSquared;
+      }
+    }
+  }
+  return nearest;
+}
+
 /**
  * Builds the original lane waypoints from one base to its opponent.
  * The source base is intentionally omitted because moving units start there.

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { Base } from "./Base.js";
+import { Barricade } from "./Barricade.js";
 import { GameState } from "./GameState.js";
 import { MatchPlayerStats } from "./MatchPlayerStats.js";
 
@@ -56,4 +57,35 @@ test("serializes main-base cannon stats and target for clients", () => {
   assert.equal(decodedBase.fireCooldownMax, 1200);
   assert.equal(decodedBase.fireDamage, 24);
   assert.equal(decodedBase.targetId, "enemy-minion");
+});
+
+test("serializes barricade position, ownership, orientation, health and lifetime", () => {
+  const state = new GameState();
+  const barricade = Object.assign(new Barricade(), {
+    id: "barricade-1",
+    ownerId: "tank-1",
+    team: "blue",
+    x: 1200,
+    y: 900,
+    angle: Math.PI / 2,
+    length: 154.56,
+    hp: 100,
+    maxHp: 150,
+    expiresAt: 123456
+  });
+  state.barricades.set(barricade.id, barricade);
+
+  const decoded = new GameState();
+  decoded.decode(state.encodeAll());
+
+  const decodedBarricade = decoded.barricades.get("barricade-1");
+  assert.ok(decodedBarricade);
+  assert.equal(decodedBarricade.ownerId, "tank-1");
+  assert.equal(decodedBarricade.team, "blue");
+  assert.deepEqual([decodedBarricade.x, decodedBarricade.y], [1200, 900]);
+  assert.equal(decodedBarricade.angle, Math.PI / 2);
+  assert.equal(decodedBarricade.length, 154.56);
+  assert.equal(decodedBarricade.hp, 100);
+  assert.equal(decodedBarricade.maxHp, 150);
+  assert.equal(decodedBarricade.expiresAt, 123456);
 });

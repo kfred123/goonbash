@@ -1,7 +1,7 @@
 import type { AbilityId, Role } from "shared";
-import { ROLE_ABILITY_IDS, mortarPointRejection, getAbilityDefinition } from "shared";
+import { ROLE_ABILITY_IDS, barricadePointRejection, mortarPointRejection, getAbilityDefinition } from "shared";
 
-export type WeaponSelection = "rocket" | "mortar" | "shock" | "rescue" | null;
+export type WeaponSelection = "rocket" | "mortar" | "barricade" | "shock" | "rescue" | null;
 export const ABILITY_KEYS = ["SPACE", "E", "R"] as const;
 
 export function getAbilitySlotDesignX(index: number, count: number): number {
@@ -24,7 +24,7 @@ export interface RocketClickTarget {
   y: number;
   hp?: number;
   state?: string;
-  kind?: "tank" | "minion" | "base" | "tower";
+  kind?: "tank" | "minion" | "base" | "tower" | "barricade";
 }
 
 export interface AbilityHudProgress {
@@ -66,6 +66,7 @@ export type ArenaClickAction =
   | { type: "shock"; targetId: string }
   | { type: "rescue"; targetId: string }
   | { type: "mortar"; x: number; y: number }
+  | { type: "barricade"; x: number; y: number }
   | { type: "attack"; targetId: string; x: number; y: number }
   | { type: "move"; x: number; y: number }
   | { type: "ignore" };
@@ -88,6 +89,12 @@ export function resolveArenaClick(
   if (selection === "mortar") {
     return mortarPointRejection(shooter, worldPoint.x, worldPoint.y, getAbilityDefinition("damagedealer-mortar").config.range!) === null
       ? { type: "mortar", x: worldPoint.x, y: worldPoint.y }
+      : { type: "ignore" };
+  }
+  if (selection === "barricade") {
+    const config = getAbilityDefinition("tank-barricade").config;
+    return barricadePointRejection(shooter, worldPoint.x, worldPoint.y, config.placementRange!) === null
+      ? { type: "barricade", x: worldPoint.x, y: worldPoint.y }
       : { type: "ignore" };
   }
   if (selection === "shock") {

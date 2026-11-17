@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import { test, type TestContext } from "node:test";
 import type { Client } from "colyseus";
-import { Base, BLUE_BASE_POSITION, GameState, Minion, RED_BASE_POSITION, Tank, Tower } from "shared";
+import { Base, Barricade, BLUE_BASE_POSITION, GameState, Minion, RED_BASE_POSITION, Tank, Tower } from "shared";
 import { GameRoom } from "./GameRoom.js";
 import { COLLISION_TOLERANCE, isClearPosition, movementBlockers, type CollisionBody } from "./collision.js";
 import { moveMinion, type MinionDetour } from "./minionMovement.js";
@@ -43,18 +43,14 @@ function tank(room: GameRoom, id: string, x: number, y: number, team = "blue") {
 
 function assertSeparated(room: GameRoom) {
   for (const unit of [...room.state.tanks.values()].filter(other => other.state === "alive")) {
-    for (const blocker of movementBlockers(unit, room.state)) {
-      assert.ok(Math.hypot(unit.x - blocker.x, unit.y - blocker.y) >= unit.radius + blocker.radius - COLLISION_TOLERANCE,
-        `${unit.id} overlaps ${blocker.id}`);
-    }
+    assert.ok(isClearPosition(unit, unit.radius, movementBlockers(unit, room.state), bounds),
+      `${unit.id} overlaps a blocker`);
   }
   for (const unit of room.state.minions.values()) {
     assert.ok(unit.x >= bounds.minX + unit.radius && unit.x <= bounds.maxX - unit.radius);
     assert.ok(unit.y >= bounds.minY + unit.radius && unit.y <= bounds.maxY - unit.radius);
-    for (const blocker of movementBlockers(unit, room.state)) {
-      assert.ok(Math.hypot(unit.x - blocker.x, unit.y - blocker.y) >= unit.radius + blocker.radius - COLLISION_TOLERANCE,
-        `${unit.id} overlaps ${blocker.id}`);
-    }
+    assert.ok(isClearPosition(unit, unit.radius, movementBlockers(unit, room.state), bounds),
+      `${unit.id} overlaps a blocker`);
   }
 }
 
@@ -149,20 +145,17 @@ test("dead previews and minions are passable; living players ignore minion occup
   close(minion.y, 900);
 });
 
-test("Entrench is immobile and speed modifiers, grass and zero delta do not gain collision distance", (t) => {
+test("speed modifiers, grass and zero delta do not gain collision distance", (t) => {
   const { room } = setup(t);
   const healer = tank(room, "a", 800, 900);
   Object.assign(healer, { role: "healer", hasMoveTarget: true, moveTargetX: 1200, moveTargetY: 900 });
   const speed = healer.abilities.get("healer-speed")!;
   Object.assign(speed, { level: 1, activeUntil: Date.now() + 60000 });
-  const entrenched = tank(room, "b", 900, 900);
-  Object.assign(entrenched, { hasMoveTarget: true, moveTargetX: 1100, moveTargetY: 900 });
-  Object.assign(entrenched.abilities.get("tank-entrench")!, { level: 1, activeUntil: Date.now() + 60000 });
+  const blocker = tank(room, "b", 900, 900);
   room["updateTankMovement"](1);
   close(healer.x, 852);
-  close(entrenched.x, 900);
-  entrenched.state = "dead";
   healer.x = 800;
+  blocker.state = "dead";
   room["updateTankMovement"](1);
   close(healer.x, 915);
   healer.x = 1000;
@@ -366,6 +359,29 @@ test("removing a cluster cancels its escape route and immediately restores direc
   const next = moveMinion(unit, 1, [], bounds, detours);
   close(next.x, 976);
   close(next.y, 900);
+  assert.equal(detours.size, 0);
+});
+
+test("minions detour around barricade endpoints and reach their waypoint", () => {
+  const unit = Object.assign(new Minion(), {
+    id: "moving", x: 800, y: 900, waypointX: 1200, waypointY: 900
+  });
+  const barricade = Object.assign(new Barricade(), {
+    id: "barricade", x: 1000, y: 900, angle: Math.PI / 2, length: 150, radius: 10
+  });
+  const blockers = [barricade];
+  const detours = new Map<string, MinionDetour>();
+
+  for (let tick = 0; tick < 800; tick++) {
+    const next = moveMinion(unit, 1, blockers, bounds, detours);
+    assert.ok(next.pathDistance <= 1 + COLLISION_TOLERANCE);
+    assert.ok(isClearPosition(next, unit.radius, blockers, bounds));
+    unit.x = next.x;
+    unit.y = next.y;
+  }
+
+  close(unit.x, 1200);
+  close(unit.y, 900);
   assert.equal(detours.size, 0);
 });
 

@@ -2,7 +2,7 @@ import { MapSchema, Schema } from "@colyseus/schema";
 import { ClientState, SchemaSerializer } from "colyseus";
 import type { Client, Serializer } from "colyseus";
 import {
-  Base, Entity, GameState, getVisionEntities, MatchPlayerStats, Minion, ProtectionDome,
+  Base, Barricade, Entity, GameState, getVisionEntities, MatchPlayerStats, Minion, ProtectionDome,
   Projectile, Tank, TeamVision, Tower
 } from "shared";
 import { isPreMatch } from "shared";
@@ -74,6 +74,7 @@ export function updateClientView(view: GameState, source: GameState, sessionId: 
     source.minions.forEach((value, id) => { if (unitAllowed(value)) visibleIds.add(id); });
     source.towers.forEach((value, id) => { if (spatialAllowed(value)) visibleIds.add(id); });
     source.bases.forEach((value, id) => { if (spatialAllowed(value)) visibleIds.add(id); });
+    source.barricades.forEach((value, id) => { if (spatialAllowed(value)) visibleIds.add(id); });
   }
   const visibleReference = (id: string) => visibleIds.has(id) ? id : "";
 
@@ -151,6 +152,17 @@ export function updateClientView(view: GameState, source: GameState, sessionId: 
       copyEntity(destination, dome);
       destination.ownerId = visibleReference(dome.ownerId);
       destination.expiresAt = dome.expiresAt;
+    });
+  syncMap(view.barricades, source.barricades, () => new Barricade(),
+    (barricade) => !waiting && !!team && (barricade.team === team || vision.canSee(barricade)),
+    (destination, barricade) => {
+      copyEntity(destination, barricade);
+      destination.ownerId = visibleReference(barricade.ownerId);
+      destination.angle = barricade.angle;
+      destination.length = barricade.length;
+      destination.hp = barricade.hp;
+      destination.maxHp = barricade.maxHp;
+      destination.expiresAt = barricade.expiresAt;
     });
   syncMap(view.playerStats, source.playerStats, () => new MatchPlayerStats(), () => true,
     (destination, stats) => {

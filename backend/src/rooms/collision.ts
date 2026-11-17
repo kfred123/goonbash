@@ -6,6 +6,17 @@ export interface CollisionBody extends Point {
   radius: number;
 }
 
+export interface BarricadeBody extends CollisionBody {
+  angle: number;
+  length: number;
+}
+
+export type MovementBlocker = CollisionBody | BarricadeBody;
+
+export function isBarricadeBody(body: MovementBlocker): body is BarricadeBody {
+  return "angle" in body && "length" in body;
+}
+
 export interface MovementResult extends Point {
   pathDistance: number;
 }
@@ -13,7 +24,7 @@ export interface MovementResult extends Point {
 interface Contact {
   time: number;
   normal: Point;
-  body?: CollisionBody;
+  body?: MovementBlocker;
 }
 
 // Separation assertions tolerate 1e-4 world units; keep the solver well below it.
@@ -27,23 +38,34 @@ export function byId(a: { id: string }, b: { id: string }): number {
 
 export function movementBlockers(
   unit: Tank | Minion,
-  world: Pick<GameState, "tanks" | "minions" | "towers" | "bases">
-): CollisionBody[] {
+  world: Pick<GameState, "tanks" | "minions" | "towers" | "bases" | "barricades">
+): MovementBlocker[] {
   const mobile = unit instanceof Tank
     ? [...world.tanks.values()].filter(tank => tank.state === "alive" && tank.hp > 0)
     : [...world.minions.values()].filter(minion => minion.hp > 0);
   return [
     ...mobile.filter(other => other.id !== unit.id),
-    ...[...world.towers.values(), ...world.bases.values()].filter(structure => structure.hp > 0)
+    ...[...world.towers.values(), ...world.bases.values()].filter(structure => structure.hp > 0),
+    ...[...world.barricades.values()].filter(barricade => barricade.hp > 0)
   ].sort(byId);
 }
 
 export function isClearPosition(
-  point: Point, radius: number, blockers: readonly CollisionBody[], bounds: WorldBounds
+  point: Point, radius: number, blockers: readonly MovementBlocker[], bounds: WorldBounds
 ): boolean {
   return point.x >= bounds.minX + radius && point.x <= bounds.maxX - radius
     && point.y >= bounds.minY + radius && point.y <= bounds.maxY - radius
-    && blockers.every(body => Math.hypot(point.x - body.x, point.y - body.y) >= radius + body.radius);
+    && blockers.every(body => {
+      if (!isBarricadeBody(body)) return Math.hypot(point.x - body.x, point.y - body.y) >= radius + body.radius;
+      const axisX = Math.cos(body.angle);
+      const axisY = Math.sin(body.angle);
+      const relativeX = point.x - body.x;
+      const relativeY = point.y - body.y;
+      const along = Math.max(-body.length / 2, Math.min(body.length / 2, relativeX * axisX + relativeY * axisY));
+      const closestX = body.x + along * axisX;
+      const closestY = body.y + along * axisY;
+      return Math.hypot(point.x - closestX, point.y - closestY) >= radius + body.radius;
+    });
 }
 
 export function circleContact(
@@ -68,9 +90,57 @@ export function circleContact(
   return { time, normal: { x: nx / distance, y: ny / distance }, body };
 }
 
+function barricadeContact(
+  point: Point, displacement: Point, unitRadius: number, barricade: BarricadeBody
+): Contact | undefined {
+  const axisX = Math.cos(barricade.angle);
+  const axisY = Math.sin(barricade.angle);
+  const normalX = -axisY;
+  const normalY = axisX;
+  const relativeX = point.x - barricade.x;
+  const relativeY = point.y - barricade.y;
+  const along = relativeX * axisX + relativeY * axisY;
+  const across = relativeX * normalX + relativeY * normalY;
+  const alongStep = displacement.x * axisX + displacement.y * axisY;
+  const acrossStep = displacement.x * normalX + displacement.y * normalY;
+  const combinedRadius = unitRadius + barricade.radius;
+  const halfLength = barricade.length / 2;
+  let first: Contact | undefined;
+  const consider = (time: number, normal: Point) => {
+    if (time < 0 || time > 1 || displacement.x * normal.x + displacement.y * normal.y >= 0) return;
+    if (!first || time < first.time) first = { time, normal, body: barricade };
+  };
+
+  if (Math.abs(along) <= halfLength && Math.abs(across) < combinedRadius) {
+    const side = across > 0 ? 1 : across < 0 ? -1 : acrossStep > 0 ? -1 : 1;
+    consider(0, { x: normalX * side, y: normalY * side });
+  }
+  if (acrossStep !== 0) {
+    for (const side of [-1, 1]) {
+      if (acrossStep * side >= 0) continue;
+      const time = (side * combinedRadius - across) / acrossStep;
+      if (Math.abs(along + alongStep * time) <= halfLength + COLLISION_TOLERANCE) {
+        consider(time, { x: normalX * side, y: normalY * side });
+      }
+    }
+  }
+
+  const endpoint = (alongOffset: number) => ({
+    id: barricade.id,
+    x: barricade.x + axisX * alongOffset,
+    y: barricade.y + axisY * alongOffset,
+    radius: combinedRadius
+  });
+  for (const offset of [-halfLength, halfLength]) {
+    const contact = circleContact(point, displacement, 0, endpoint(offset));
+    if (contact) consider(contact.time, contact.normal);
+  }
+  return first;
+}
+
 export function firstContact(
   point: Point, displacement: Point, radius: number,
-  blockers: readonly CollisionBody[], bounds: WorldBounds
+  blockers: readonly MovementBlocker[], bounds: WorldBounds
 ): Contact | undefined {
   let first: Contact | undefined;
   const consider = (contact: Contact | undefined) => {
@@ -78,7 +148,11 @@ export function firstContact(
       first = contact;
     }
   };
-  for (const body of blockers) consider(circleContact(point, displacement, radius, body));
+  for (const body of blockers) {
+    consider(isBarricadeBody(body)
+      ? barricadeContact(point, displacement, radius, body)
+      : circleContact(point, displacement, radius, body));
+  }
   if (displacement.x < 0) {
     consider({ time: (bounds.minX + radius - point.x) / displacement.x, normal: { x: 1, y: 0 } });
   } else if (displacement.x > 0) {
@@ -94,7 +168,7 @@ export function firstContact(
 
 export function resolveMovement(
   start: Point, displacement: Point, radius: number,
-  blockers: readonly CollisionBody[], bounds: WorldBounds
+  blockers: readonly MovementBlocker[], bounds: WorldBounds
 ): MovementResult {
   const point = { x: start.x, y: start.y, pathDistance: 0 };
   let remaining = { ...displacement };
@@ -118,7 +192,7 @@ export function resolveMovement(
 }
 
 export function findClearNearBase(
-  base: Point, radius: number, blockers: readonly CollisionBody[], bounds: WorldBounds,
+  base: Point, radius: number, blockers: readonly MovementBlocker[], bounds: WorldBounds,
   preferred?: Point
 ): Point | undefined {
   const valid = (point: Point) => {
@@ -143,7 +217,7 @@ export function findClearNearBase(
 
 export function findLaneSpawn(
   base: CollisionBody, waypoint: Point, radius: number,
-  blockers: readonly CollisionBody[], bounds: WorldBounds
+  blockers: readonly MovementBlocker[], bounds: WorldBounds
 ): Point | undefined {
   const angle = Math.atan2(waypoint.y - base.y, waypoint.x - base.x);
   for (const distance of [base.radius + radius + 8, 90, 115, 140]) {

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { Base, GameState, Minion, Tank, Tower } from "shared";
+import { Base, Barricade, GameState, Minion, Tank, Tower } from "shared";
 import {
   COLLISION_TOLERANCE, findClearNearBase, findLaneSpawn, isClearPosition,
   movementBlockers, resolveMovement, type CollisionBody
@@ -37,6 +37,38 @@ test("sweep stops a large step before a blocker even if its endpoint is beyond i
   close(next.y, 300);
   close(next.pathDistance, 252);
   assert.ok(Math.hypot(next.x - blocker.x, next.y - blocker.y) >= 48 - COLLISION_TOLERANCE);
+});
+
+test("barricades block both teams and unit types while leaving their endpoints traversable", () => {
+  const world = new GameState();
+  const barricade = Object.assign(new Barricade(), {
+    id: "barricade", team: "red", x: 500, y: 500, angle: Math.PI / 2, length: 100
+  });
+  world.barricades.set(barricade.id, barricade);
+
+  for (const [index, unit] of [
+    Object.assign(new Tank(), { id: "blue-tank", team: "blue", radius: 24 }),
+    Object.assign(new Tank(), { id: "red-tank", team: "red", radius: 24 }),
+    Object.assign(new Minion(), { id: "blue-minion", team: "blue", radius: 11 }),
+    Object.assign(new Minion(), { id: "red-minion", team: "red", radius: 11 })
+  ].entries()) {
+    const start = { x: 400, y: 500 + index * 10 };
+    const next = resolveMovement(start, { x: 200, y: 0 }, unit.radius, movementBlockers(unit, world), bounds);
+    close(next.x, 500 - unit.radius - barricade.radius);
+  }
+
+  const aroundEnd = resolveMovement(
+    { x: 400, y: 571 }, { x: 200, y: 0 }, 10, [barricade], bounds
+  );
+  close(aroundEnd.x, 600);
+});
+
+test("clear spawn and respawn positions use the full barricade segment", () => {
+  const barricade = Object.assign(new Barricade(), {
+    id: "barricade", x: 500, y: 500, angle: Math.PI / 2, length: 100
+  });
+  assert.equal(isClearPosition({ x: 500, y: 550 }, 10, [barricade], bounds), false);
+  assert.equal(isClearPosition({ x: 500, y: 580 }, 10, [barricade], bounds), true);
 });
 
 test("zero movement, exact tangent and contact moving away remain unblocked", () => {

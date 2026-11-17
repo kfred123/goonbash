@@ -14,9 +14,7 @@ import {
   isValidShockTarget,
   applyMovementDisable,
   isMovementDisabled,
-  isMovementLocked,
-  isAbilityActive,
-  strongestReduction
+  isAbilityActive
 } from "./ability.js";
 
 test("an ability is activatable once the cooldown timestamp has passed", () => {
@@ -30,7 +28,7 @@ test("role ability activation requires an ability belonging to the role and its 
   const ready = { level: 1, cooldownEndsAt: 1000, activeUntil: 0 };
   for (const [role, abilityId] of [
     ["healer", "healer-aura"], ["healer", "healer-speed"],
-    ["tank", "tank-shield"], ["tank", "tank-entrench"],
+    ["tank", "tank-shield"], ["tank", "tank-barricade"],
     ["damagedealer", "damagedealer-rapidfire"], ["damagedealer", "damagedealer-homing-rocket"],
     ["scout", "scout-weitsicht"], ["scout", "scout-offroad"], ["scout", "scout-shockshot"]
   ] as const) {
@@ -54,10 +52,8 @@ test("an ability's timed effect is active only until its active-until timestamp"
   assert.equal(isAbilityActive(1500, ability), false);
 });
 
-test("the strongest active defensive reduction is applied without stacking", () => {
-  const reduction = strongestReduction(0.5, 0.85);
-  assert.equal(reduction, 0.85);
-  assert.ok(Math.abs(applyDamageReduction(100, reduction) - 15) < 1e-9);
+test("damage reduction applies the configured fraction", () => {
+  assert.ok(Math.abs(applyDamageReduction(100, 0.5) - 50) < 1e-9);
   assert.equal(applyDamageReduction(100, 0), 100);
 });
 
@@ -69,12 +65,6 @@ test("rapid fire shortens the effective fire cooldown only while active", () => 
 test("Healer Speed changes movement only while active", () => {
   assert.ok(Math.abs(effectiveMoveSpeed(95, true, 1.15) - 109.25) < 1e-9);
   assert.equal(effectiveMoveSpeed(95, false, 1.6), 95);
-});
-
-test("Entrench locks movement only for an active Tank ability", () => {
-  assert.equal(isMovementLocked("tank", true), true);
-  assert.equal(isMovementLocked("tank", false), false);
-  assert.equal(isMovementLocked("healer", true), false);
 });
 
 test("rocket target validation accepts living enemies in range and rejects invalid targets", () => {

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { getWeaponCursor, mortarShellHeight, MORTAR_REJECTION_TEXT, RESCUE_REJECTION_TEXT } from "./weaponTargeting";
+import { getWeaponCursor, mortarShellHeight, BARRICADE_REJECTION_TEXT, MORTAR_REJECTION_TEXT, RESCUE_REJECTION_TEXT } from "./weaponTargeting";
 
 test("Rocket red crosshair and Mortar bomb replace pointers with explicit aiming hotspots", () => {
   const rocket = getWeaponCursor("rocket")!;
@@ -35,4 +35,10 @@ test("Rescue Impulse uses a distinct green medical cursor and complete rejection
   assert.deepEqual(Object.keys(RESCUE_REJECTION_TEXT).sort(),
     ["cooldown", "inactive", "invalid_target", "unavailable", "unlearned"]);
   assert.ok(Object.values(RESCUE_REJECTION_TEXT).every(text => text.length > 10));
+});
+
+test("Barricade placement has actionable feedback for every server rejection", () => {
+  assert.deepEqual(Object.keys(BARRICADE_REJECTION_TEXT).sort(),
+    ["cooldown", "inactive", "invalid_point", "off_lane", "out_of_range", "overlap", "unavailable", "unlearned"]);
+  assert.ok(Object.values(BARRICADE_REJECTION_TEXT).every(text => text.length > 10));
 });
