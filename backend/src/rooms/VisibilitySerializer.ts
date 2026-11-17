@@ -74,6 +74,7 @@ export function updateClientView(view: GameState, source: GameState, sessionId: 
     source.minions.forEach((value, id) => { if (unitAllowed(value)) visibleIds.add(id); });
     source.towers.forEach((value, id) => { if (spatialAllowed(value)) visibleIds.add(id); });
     source.bases.forEach((value, id) => { if (spatialAllowed(value)) visibleIds.add(id); });
+    source.barricades.forEach((value, id) => { if (spatialAllowed(value)) visibleIds.add(id); });
   }
   const visibleReference = (id: string) => visibleIds.has(id) ? id : "";
 

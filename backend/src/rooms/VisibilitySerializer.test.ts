@@ -168,6 +168,11 @@ test("barricades replicate to allies and visible enemies but disappear when conc
   source.barricades.set(friendly.id, friendly);
   source.barricades.set(visibleEnemy.id, visibleEnemy);
   source.barricades.set(hiddenEnemy.id, hiddenEnemy);
+  blue.targetId = visibleEnemy.id;
+  blue.lockedTargetId = visibleEnemy.id;
+  source.minions.set("blue-minion", Object.assign(new Minion(), {
+    id: "blue-minion", team: "blue", x: 1000, y: 610, targetId: visibleEnemy.id
+  }));
   patch();
 
   assert.equal(first.decoded.barricades.has(friendly.id), true);
@@ -176,12 +181,19 @@ test("barricades replicate to allies and visible enemies but disappear when conc
   assert.equal(first.decoded.barricades.get(visibleEnemy.id)?.ownerId, "");
   assert.equal(first.decoded.barricades.get(visibleEnemy.id)?.hp, 80);
   assert.equal(first.decoded.barricades.has(hiddenEnemy.id), false);
+  assert.equal(first.decoded.tanks.get(blue.id)?.targetId, visibleEnemy.id);
+  assert.equal(first.decoded.tanks.get(blue.id)?.lockedTargetId, visibleEnemy.id);
+  assert.equal(first.decoded.minions.get("blue-minion")?.targetId, visibleEnemy.id);
 
   blue.x = 500;
+  source.minions.get("blue-minion")!.x = 500;
   patch();
   assert.equal(first.decoded.barricades.has(friendly.id), true);
   assert.equal(first.decoded.barricades.has(visibleEnemy.id), false);
   assert.equal(first.decoded.barricades.has(hiddenEnemy.id), false);
+  assert.equal(first.decoded.tanks.get(blue.id)?.targetId, "");
+  assert.equal(first.decoded.tanks.get(blue.id)?.lockedTargetId, "");
+  assert.equal(first.decoded.minions.get("blue-minion")?.targetId, "");
 });
 
 test("Mortar full snapshots and patches keep allied endpoints but redact hostile trajectories and hidden victims", () => {

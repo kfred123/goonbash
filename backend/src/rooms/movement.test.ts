@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import { test, type TestContext } from "node:test";
 import type { Client } from "colyseus";
-import { Base, BLUE_BASE_POSITION, GameState, Minion, RED_BASE_POSITION, Tank, Tower } from "shared";
+import { Base, Barricade, BLUE_BASE_POSITION, GameState, Minion, RED_BASE_POSITION, Tank, Tower } from "shared";
 import { GameRoom } from "./GameRoom.js";
 import { COLLISION_TOLERANCE, isClearPosition, movementBlockers, type CollisionBody } from "./collision.js";
 import { moveMinion, type MinionDetour } from "./minionMovement.js";
@@ -359,6 +359,29 @@ test("removing a cluster cancels its escape route and immediately restores direc
   const next = moveMinion(unit, 1, [], bounds, detours);
   close(next.x, 976);
   close(next.y, 900);
+  assert.equal(detours.size, 0);
+});
+
+test("minions detour around barricade endpoints and reach their waypoint", () => {
+  const unit = Object.assign(new Minion(), {
+    id: "moving", x: 800, y: 900, waypointX: 1200, waypointY: 900
+  });
+  const barricade = Object.assign(new Barricade(), {
+    id: "barricade", x: 1000, y: 900, angle: Math.PI / 2, length: 150, radius: 10
+  });
+  const blockers = [barricade];
+  const detours = new Map<string, MinionDetour>();
+
+  for (let tick = 0; tick < 800; tick++) {
+    const next = moveMinion(unit, 1, blockers, bounds, detours);
+    assert.ok(next.pathDistance <= 1 + COLLISION_TOLERANCE);
+    assert.ok(isClearPosition(next, unit.radius, blockers, bounds));
+    unit.x = next.x;
+    unit.y = next.y;
+  }
+
+  close(unit.x, 1200);
+  close(unit.y, 900);
   assert.equal(detours.size, 0);
 });
 

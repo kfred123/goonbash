@@ -13,6 +13,10 @@ export interface BarricadeBody extends CollisionBody {
 
 export type MovementBlocker = CollisionBody | BarricadeBody;
 
+export function isBarricadeBody(body: MovementBlocker): body is BarricadeBody {
+  return "angle" in body && "length" in body;
+}
+
 export interface MovementResult extends Point {
   pathDistance: number;
 }
@@ -20,7 +24,7 @@ export interface MovementResult extends Point {
 interface Contact {
   time: number;
   normal: Point;
-  body?: CollisionBody;
+  body?: MovementBlocker;
 }
 
 // Separation assertions tolerate 1e-4 world units; keep the solver well below it.
@@ -52,7 +56,7 @@ export function isClearPosition(
   return point.x >= bounds.minX + radius && point.x <= bounds.maxX - radius
     && point.y >= bounds.minY + radius && point.y <= bounds.maxY - radius
     && blockers.every(body => {
-      if (!("angle" in body)) return Math.hypot(point.x - body.x, point.y - body.y) >= radius + body.radius;
+      if (!isBarricadeBody(body)) return Math.hypot(point.x - body.x, point.y - body.y) >= radius + body.radius;
       const axisX = Math.cos(body.angle);
       const axisY = Math.sin(body.angle);
       const relativeX = point.x - body.x;
@@ -104,7 +108,7 @@ function barricadeContact(
   let first: Contact | undefined;
   const consider = (time: number, normal: Point) => {
     if (time < 0 || time > 1 || displacement.x * normal.x + displacement.y * normal.y >= 0) return;
-    if (!first || time < first.time) first = { time, normal };
+    if (!first || time < first.time) first = { time, normal, body: barricade };
   };
 
   if (Math.abs(along) <= halfLength && Math.abs(across) < combinedRadius) {
@@ -145,7 +149,7 @@ export function firstContact(
     }
   };
   for (const body of blockers) {
-    consider("angle" in body
+    consider(isBarricadeBody(body)
       ? barricadeContact(point, displacement, radius, body)
       : circleContact(point, displacement, radius, body));
   }
