@@ -93,7 +93,7 @@ test("bots use validated commands and role abilities during the room simulation"
   const bot = [...room.state.tanks.values()].find(tank => tank.controllerType === "bot")!;
   const enemy = room.state.tanks.get(clients[0].id)!;
   room.state.phase = "started";
-  bot.x = 1000; bot.y = 900; bot.hp = bot.maxHp / 2; bot.skillPoints = 1;
+  bot.x = 1000; bot.y = 900; bot.hp = bot.maxHp * 0.7; bot.skillPoints = 1;
   enemy.team = "red"; enemy.x = 1100; enemy.y = 900;
   room.update(16);
   assert.equal(bot.lockedTargetId, enemy.id);
@@ -128,6 +128,47 @@ test("bot movement and attacks use the normal simulation and fire cooldown", t =
   const afterShot = bot.fireCooldown;
   room.update(10);
   assert.ok(bot.fireCooldown > 0 && bot.fireCooldown < afterShot);
+});
+
+test("a bot spends successive points on distinct abilities and casts targeted and ground specials in the room", t => {
+  const { room, clients, send } = setup(t, 1);
+  send(0, "add_bot", { team: "blue", role: "damagedealer", difficulty: "medium" });
+  const bot = [...room.state.tanks.values()].find(tank => tank.controllerType === "bot")!;
+  const enemy = room.state.tanks.get(clients[0].id)!;
+  Object.assign(bot, { x: 1000, y: 900, skillPoints: 3 });
+  Object.assign(enemy, { team: "red", x: 1250, y: 900 });
+  room.state.phase = "started";
+  for (let i = 0; i < 5; i++) room["updateBots"](Date.now());
+
+  assert.equal(bot.skillPoints, 0);
+  const shots = [...room.state.projectiles.values()].filter(p => p.ownerId === bot.id);
+  assert.deepEqual(shots.filter(p => p.isHomingRocket).map(p => p.targetId), [enemy.id]);
+  assert.deepEqual(shots.filter(p => p.isMortar).map(p => [p.landingX, p.landingY]), [[enemy.x, enemy.y]]);
+  assert.ok(bot.abilities.get("damagedealer-mortar")!.cooldownEndsAt > Date.now());
+});
+
+test("a wounded medium healer breaks its lock, uses speed and stops taking fire behind a teammate", t => {
+  const { room, clients, send } = setup(t);
+  send(0, "add_bot", { team: "blue", role: "healer", difficulty: "medium" });
+  const bot = [...room.state.tanks.values()].find(tank => tank.controllerType === "bot")!;
+  const ally = room.state.tanks.get(clients[0].id)!, enemy = room.state.tanks.get(clients[1].id)!;
+  Object.assign(ally, { team: "blue", x: 980, y: 850 });
+  Object.assign(enemy, { team: "red", x: 1150, y: 900 });
+  Object.assign(bot, { x: 1020, y: 900, hp: bot.maxHp / 2, lockedTargetId: enemy.id });
+  bot.abilities.get("healer-speed")!.level = 1;
+  room.state.phase = "started";
+
+  room.update(100);
+  assert.equal(enemy.targetId, bot.id);
+  assert.equal(bot.lockedTargetId, "");
+  assert.ok(bot.moveTargetX < ally.x && bot.x < 1020);
+  assert.ok(bot.abilities.get("healer-speed")!.cooldownEndsAt > Date.now());
+  for (let i = 0; i < 30; i++) room.update(100);
+  assert.equal(enemy.targetId, ally.id);
+  assert.ok(bot.x < ally.x && bot.hp > 0);
+  const coveredHp = bot.hp;
+  for (let i = 0; i < 15; i++) room.update(100);
+  assert.equal(bot.hp, coveredHp);
 });
 
 test("intentional leave immediately transfers the existing started-match tank to a bot", async t => {

@@ -29,6 +29,11 @@ The system SHALL provide easy, medium, and hard bot difficulties. Difficulty SHA
 - **WHEN** a medium bot has multiple valid visible targets or available role abilities
 - **THEN** it may prioritize the visible match objective and use role abilities when their normal conditions are met
 
+#### Scenario: A threatened bot breaks pursuit
+- **WHEN** a medium or hard bot is wounded and threatened by a visible enemy
+- **THEN** it stops chasing and seeks a safer position behind a nearby living ally or withdraws if no suitable ally is available
+- **AND** it resumes normal decisions when the threat passes
+
 #### Scenario: Hard bot coordinates with visible teammates
 - **WHEN** a hard bot evaluates a tactical action
 - **THEN** it may coordinate target choice or positioning using allied and enemy information currently visible to its team
@@ -39,6 +44,12 @@ The system SHALL provide easy, medium, and hard bot difficulties. Difficulty SHA
 
 ### Requirement: Bots use authoritative gameplay actions
 The system SHALL apply bot movement, target, and ability decisions through the same authoritative gameplay rules used for human-controlled tanks.
+
+#### Scenario: Bot uses its role's special abilities
+- **WHEN** a bot earns points and its role has both unlearned and learned abilities
+- **THEN** it learns its role's abilities before concentrating on higher ranks
+- **AND** it can activate learned, ready abilities with appropriate self, entity, or ground targets
+- **AND** it selects enemy targets and aim points from team-visible information, without free upgrades or shorter cooldowns
 
 #### Scenario: Bot issues an invalid or out-of-sight action
 - **WHEN** a bot decision is invalid under the current match state or team vision

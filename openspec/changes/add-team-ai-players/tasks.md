@@ -23,3 +23,8 @@
 
 - [x] 4.1 Exercise a mixed human/bot lobby through match start, fog-limited play, disconnect takeover, and match results; verify bot seats, human-only host authority, and per-team state projections.
 - [x] 4.2 Run the focused backend and frontend test suites plus shared, backend, and frontend builds; verify all affected packages pass together.
+
+## 5. Bot ability and positioning follow-up
+
+- [x] 5.1 Distribute earned skill points across the role's abilities and use learned self, target, and point abilities in useful situations through the same validation as human requests.
+- [x] 5.2 Make medium and hard bots break pursuit when threatened, seek a position behind a nearby ally or withdraw without one, and return to normal play when safe; verify the behavior uses only team vision.

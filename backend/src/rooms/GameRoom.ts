@@ -13,12 +13,14 @@ import { applyTankProgressionStats, distributeKillXp, purchaseAbilityUpgrade } f
 import { endMatchAfterBaseDestroyed, recordPlayerDamage, recordPlayerKill, removeLeavingPlayerTank } from "./matchResults.js";
 import { VisibilitySerializer } from "./VisibilitySerializer.js";
 import { MORTAR_IMPACT_MESSAGE, mortarPointRejection } from "shared";
-import type { BarricadePlacementRejectionReason, MortarImpactMessage, MortarRejectionReason, RescueImpulseRejectionReason } from "shared";
+import type { BarricadePlacementRejectionReason, InvalidTargetMessage, MortarImpactMessage, MortarRejectionReason, RescueImpulseRejectionReason } from "shared";
 import { mortarDamage } from "./ability.js";
 import { byId, COLLISION_TOLERANCE, findClearNearBase, findLaneSpawn, movementBlockers, resolveMovement } from "./collision.js";
 import { moveMinion, type MinionDetour } from "./minionMovement.js";
 import { observeBot } from "./botObservation.js";
 import { decideBot } from "./botPolicy.js";
+
+type AbilityPayload = { abilityId?: unknown; targetId?: unknown; targetX?: unknown; targetY?: unknown };
 
 interface MortarFlight {
   originX: number;
@@ -165,22 +167,8 @@ export class GameRoom extends Room<GameState> {
       this.deferredTanks.delete(bot.id);
       lobbyRegistry.removeBot(this.lobbyId);
     });
-    this.onMessage("activate_ability", (client, payload: { abilityId?: unknown; targetId?: unknown; targetX?: unknown; targetY?: unknown }) => {
-      const tank = this.state.tanks.get(client.sessionId);
-      if (payload?.abilityId === "healer-rescue-impulse") {
-        this.activateRescueImpulse(client, tank, payload.targetId);
-        return;
-      }
-      if (payload?.abilityId === "damagedealer-mortar") {
-        this.activateMortar(client, tank, payload.targetX, payload.targetY);
-        return;
-      }
-      if (payload?.abilityId === "tank-barricade") {
-        this.activateBarricade(client, tank, payload.targetX, payload.targetY);
-        return;
-      }
-      this.activateStandardAbility(tank, payload, action =>
-        client.send(INVALID_TARGET_MESSAGE, { action, reason: "invalid_target" }));
+    this.onMessage("activate_ability", (client, payload: AbilityPayload) => {
+      this.useTankAbility(this.state.tanks.get(client.sessionId), payload, error => client.send(INVALID_TARGET_MESSAGE, error));
     });
     this.onMessage("upgrade_ability", (client, payload: { abilityId?: unknown }) => {
       const tank = this.state.tanks.get(client.sessionId);
@@ -230,6 +218,19 @@ export class GameRoom extends Room<GameState> {
     tank.moveTargetY = clamped.y;
     tank.hasMoveTarget = true;
     tank.lockedTargetId = "";
+  }
+
+  private useTankAbility(tank: Tank | undefined, payload: AbilityPayload, reject: (message: InvalidTargetMessage) => void) {
+    switch (payload?.abilityId) {
+      case "healer-rescue-impulse":
+        return this.activateRescueImpulse(tank, payload.targetId, reason => reject({ action: "rescue", reason }));
+      case "damagedealer-mortar":
+        return this.activateMortar(tank, payload.targetX, payload.targetY, reason => reject({ action: "mortar", reason }));
+      case "tank-barricade":
+        return this.activateBarricade(tank, payload.targetX, payload.targetY, reason => reject({ action: "barricade", reason }));
+      default:
+        return this.activateStandardAbility(tank, payload, action => reject({ action, reason: "invalid_target" }));
+    }
   }
 
   private activateStandardAbility(
@@ -385,8 +386,8 @@ export class GameRoom extends Room<GameState> {
       if (tank.controllerType !== "bot" || !tank.botDifficulty || tank.state === "dead") continue;
       const decision = decideBot(observeBot(this.state, tank), now);
       if (decision.upgrade) purchaseAbilityUpgrade(tank, decision.upgrade);
-      if (decision.ability) this.activateStandardAbility(tank, { abilityId: decision.ability },
-        action => console.warn(`[Bot] Rejected ${action} for ${tank.id}`));
+      if (decision.ability) this.useTankAbility(tank, decision.ability,
+        ({ action, reason }) => console.warn(`[Bot] Rejected ${action} for ${tank.id}: ${reason}`));
       this.issueTankCommand(tank, decision.command, () => console.warn(`[Bot] Rejected attack for ${tank.id}`));
     }
   }
@@ -579,8 +580,7 @@ export class GameRoom extends Room<GameState> {
     this.projectileLifetimes.set(projectile.id, 0);
   }
 
-  private activateRescueImpulse(client: Client, tank: Tank | undefined, targetId: unknown) {
-    const reject = (reason: RescueImpulseRejectionReason) => client.send(INVALID_TARGET_MESSAGE, { action: "rescue", reason });
+  private activateRescueImpulse(tank: Tank | undefined, targetId: unknown, reject: (reason: RescueImpulseRejectionReason) => void) {
     if (!tank || !canUseGameplayActions(this.state.phase) || tank.state === "dead" || tank.hp <= 0) {
       reject("inactive");
       return;
@@ -611,8 +611,7 @@ export class GameRoom extends Room<GameState> {
     Object.assign(ability, activateAbility(now, config), { activeUntil: 0 });
   }
 
-  private activateMortar(client: Client, tank: Tank | undefined, x: unknown, y: unknown) {
-    const reject = (reason: MortarRejectionReason) => client.send(INVALID_TARGET_MESSAGE, { action: "mortar", reason });
+  private activateMortar(tank: Tank | undefined, x: unknown, y: unknown, reject: (reason: MortarRejectionReason) => void) {
     if (!tank || !canUseGameplayActions(this.state.phase) || tank.state === "dead" || tank.hp <= 0) {
       reject("inactive");
       return;
@@ -658,9 +657,7 @@ export class GameRoom extends Room<GameState> {
     Object.assign(ability, activateAbility(now, config));
   }
 
-  private activateBarricade(client: Client, tank: Tank | undefined, x: unknown, y: unknown) {
-    const reject = (reason: BarricadePlacementRejectionReason) =>
-      client.send(INVALID_TARGET_MESSAGE, { action: "barricade", reason });
+  private activateBarricade(tank: Tank | undefined, x: unknown, y: unknown, reject: (reason: BarricadePlacementRejectionReason) => void) {
     if (!tank || !canUseGameplayActions(this.state.phase) || tank.state === "dead" || tank.hp <= 0) {
       reject("inactive");
       return;

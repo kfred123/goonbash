@@ -45,6 +45,8 @@ The policy returns high-level intents such as move to a point, lock a visible ta
 
 Difficulty is implemented as deterministic policy depth, not altered unit statistics: easy selects a nearby visible threat and uses abilities conservatively; medium weighs visible objectives and role abilities; hard may coordinate positioning or target focus using only visible allied and enemy state. Run decisions at bounded intervals within the existing room loop rather than once per render frame. Tune intervals and priorities through gameplay tests without changing the observation boundary.
 
+Bots spend earned points on the lowest-ranked ability of their role. Each decision can request one ready ability with the same entity or ground-target payload as a human. Medium and hard bots compare their health and position with a visible opponent's firing range. They can move behind a nearby ally or, when wounded and unsupported, open a gap and hold it. A movement order releases the attack lock without suppressing normal automatic fire. Easy bots keep pursuing their nearest visible target.
+
 ### Use Colyseus reconnection for temporary disconnects
 
 For an unexpected disconnect in a started match, use the pinned Colyseus reconnection flow with a 30-second reservation. Keep the existing participant state while waiting. If reconnection succeeds, restore the human controller and send a fresh visibility-scoped state; if the reservation expires, switch to bot control and reject use of the expired reconnection authority. An intentional leave skips the reservation and immediately switches to bot control.

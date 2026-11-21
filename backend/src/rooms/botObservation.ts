@@ -8,6 +8,11 @@ export interface BotEntity {
   y: number;
   hp: number;
   maxHp: number;
+  fireRange: number;
+}
+
+export function isMobileUnit(entity: BotEntity): boolean {
+  return entity.kind === "tank" || entity.kind === "minion";
 }
 
 export interface BotObservation {
@@ -34,11 +39,11 @@ export function observeBot(state: GameState, bot: Tank): BotObservation {
   const allies: BotEntity[] = [];
   const enemies: BotEntity[] = [];
   const add = (kind: BotEntity["kind"], entity: {
-    id: string; team: string; x: number; y: number; hp: number; maxHp: number; state?: string;
+    id: string; team: string; x: number; y: number; hp: number; maxHp: number; fireRange?: number; state?: string;
   }) => {
     if (entity.hp <= 0 || entity.state === "dead") return;
     if (entity.team !== bot.team && !vision.canSee(entity)) return;
-    const snapshot = { id: entity.id, kind, x: entity.x, y: entity.y, hp: entity.hp, maxHp: entity.maxHp };
+    const snapshot = { id: entity.id, kind, x: entity.x, y: entity.y, hp: entity.hp, maxHp: entity.maxHp, fireRange: entity.fireRange ?? 0 };
     (entity.team === bot.team ? allies : enemies).push(snapshot);
   };
   state.tanks.forEach(entity => add("tank", entity));
