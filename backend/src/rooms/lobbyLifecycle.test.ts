@@ -130,6 +130,23 @@ test("bot movement and attacks use the normal simulation and fire cooldown", t =
   assert.ok(bot.fireCooldown > 0 && bot.fireCooldown < afterShot);
 });
 
+test("a bot behind its allied base takes a visible detour and resumes toward the objective", t => {
+  const { room, clients, send } = setup(t, 1);
+  send(0, "add_bot", { team: "blue", role: "tank", difficulty: "easy" });
+  const bot = [...room.state.tanks.values()].find(tank => tank.controllerType === "bot")!;
+  Object.assign(bot, { x: 120, y: 900 });
+  Object.assign(room.state.tanks.get(clients[0].id)!, { x: 2000, y: 1600 });
+  room.state.phase = "started";
+  room["updateBots"](Date.now());
+  assert.notEqual(bot.moveTargetY, 900);
+  room["updateTankMovement"](1);
+  assert.notEqual(bot.y, 900);
+
+  for (let i = 0; i < 80; i++) room.update(100);
+
+  assert.ok(bot.x > 330, `expected bot to pass the allied base, got x=${bot.x}, y=${bot.y}, target=${bot.moveTargetX},${bot.moveTargetY}, has=${bot.hasMoveTarget}, lock=${bot.lockedTargetId}`);
+});
+
 test("a bot spends successive points on distinct abilities and casts targeted and ground specials in the room", t => {
   const { room, clients, send } = setup(t, 1);
   send(0, "add_bot", { team: "blue", role: "damagedealer", difficulty: "medium" });

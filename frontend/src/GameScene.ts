@@ -48,6 +48,7 @@ import { getRespawnCountdown, getTankPresentation } from './respawnPresentation.
 import { clampZoom, DEFAULT_ZOOM, wheelZoom } from './cameraZoom.js';
 import { TouchZoomController } from './cameraZoomInput.js';
 import { drawBarricade, isBarricadePresented } from './barricadeVisuals.js';
+import { reconnectWithinDeadline } from './reconnectAttempt.js';
 
 const ROLE_ORDER: Role[] = ['healer', 'tank', 'damagedealer', 'scout'];
 
@@ -103,6 +104,7 @@ export class GameScene extends Phaser.Scene {
   private playerName = '';
   private leavingRoom = false;
   private reconnecting = false;
+  private reconnectController?: AbortController;
   private arenaStarted = false;
   private resultsShown = false;
   private resultSorts: Record<'red' | 'blue', MatchResultsSort> = {
@@ -223,6 +225,8 @@ export class GameScene extends Phaser.Scene {
       this.arenaStarted = false;
       this.leavingRoom = true;
       this.reconnecting = false;
+      this.reconnectController?.abort();
+      this.reconnectController = undefined;
       this.room?.removeAllListeners();
       if (this.room) void this.room.leave().catch((error) => console.error('[GameScene] Failed to leave room on shutdown', error));
       this.clearArenaPresentation();
@@ -397,6 +401,8 @@ export class GameScene extends Phaser.Scene {
     if (this.leavingRoom) return;
     this.leavingRoom = true;
     this.reconnecting = false;
+    this.reconnectController?.abort();
+    this.reconnectController = undefined;
     const room = this.room;
     if (room) {
       room.removeAllListeners();
@@ -664,6 +670,8 @@ export class GameScene extends Phaser.Scene {
   private async reconnectToRoom(disconnectedRoom: Room<GameState>) {
     if (this.reconnecting) return;
     this.reconnecting = true;
+    const controller = new AbortController();
+    this.reconnectController = controller;
     const token = disconnectedRoom.reconnectionToken;
     const deadline = Date.now() + 29_000;
     let delay = 250;
@@ -672,28 +680,37 @@ export class GameScene extends Phaser.Scene {
     this.statusText.setText('Connection lost. Reconnecting...');
     this.statusText.setColor('#ffcc77');
 
-    while (this.reconnecting && !this.leavingRoom && this.sys.isActive() && Date.now() < deadline) {
+    while (this.reconnecting && !controller.signal.aborted && !this.leavingRoom && this.sys.isActive() && Date.now() < deadline) {
       try {
-        const room = await this.client.reconnect<GameState>(token, GameState);
-        if (this.leavingRoom || !this.sys.isActive() || this.room !== disconnectedRoom) {
-          void room.leave();
+        const attemptDeadline = Math.min(deadline, Date.now() + 2000);
+        const room = await reconnectWithinDeadline(
+          () => this.client.reconnect<GameState>(token, GameState),
+          attemptDeadline,
+          controller.signal,
+          lateRoom => void lateRoom.leave().catch(error => console.error('[GameScene] Failed to close late reconnect', error))
+        );
+        if (controller.signal.aborted || this.leavingRoom || !this.sys.isActive() || this.room !== disconnectedRoom) {
+          void room.leave().catch(error => console.error('[GameScene] Failed to close stale reconnect', error));
           this.reconnecting = false;
+          if (this.reconnectController === controller) this.reconnectController = undefined;
           return;
         }
         this.room = room;
         this.reconnecting = false;
+        this.reconnectController = undefined;
         this.attachRoom(room, false);
         return;
       } catch {
-        if (Date.now() + delay >= deadline) break;
-        await new Promise<void>(resolve => globalThis.setTimeout(resolve, delay));
+        if (controller.signal.aborted || Date.now() + delay >= deadline) break;
+        await new Promise<void>(resolve => globalThis.setTimeout(resolve, Math.min(delay, deadline - Date.now())));
         delay = Math.min(delay * 2, 2000);
       }
     }
 
-    const shouldReturnToMenu = this.reconnecting && !this.leavingRoom
+    const shouldReturnToMenu = this.reconnecting && !controller.signal.aborted && !this.leavingRoom
       && this.sys.isActive() && this.room === disconnectedRoom;
     this.reconnecting = false;
+    if (this.reconnectController === controller) this.reconnectController = undefined;
     if (shouldReturnToMenu) {
       this.statusText.setText('Reconnection failed. Returning to the main menu.');
       this.statusText.setColor('#ff8888');

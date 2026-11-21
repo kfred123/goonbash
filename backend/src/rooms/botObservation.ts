@@ -9,6 +9,7 @@ export interface BotEntity {
   hp: number;
   maxHp: number;
   fireRange: number;
+  radius?: number;
 }
 
 export function isMobileUnit(entity: BotEntity): boolean {
@@ -26,6 +27,7 @@ export interface BotObservation {
     hp: number;
     maxHp: number;
     fireRange: number;
+    radius: number;
     skillPoints: number;
     abilities: Partial<Record<AbilityId, { level: number; cooldownEndsAt: number }>>;
   };
@@ -39,11 +41,18 @@ export function observeBot(state: GameState, bot: Tank): BotObservation {
   const allies: BotEntity[] = [];
   const enemies: BotEntity[] = [];
   const add = (kind: BotEntity["kind"], entity: {
-    id: string; team: string; x: number; y: number; hp: number; maxHp: number; fireRange?: number; state?: string;
+    id: string; team: string; x: number; y: number; hp: number; maxHp: number; fireRange?: number;
+    radius?: number; length?: number; state?: string;
   }) => {
     if (entity.hp <= 0 || entity.state === "dead") return;
     if (entity.team !== bot.team && !vision.canSee(entity)) return;
-    const snapshot = { id: entity.id, kind, x: entity.x, y: entity.y, hp: entity.hp, maxHp: entity.maxHp, fireRange: entity.fireRange ?? 0 };
+    const snapshot = {
+      id: entity.id, kind, x: entity.x, y: entity.y, hp: entity.hp, maxHp: entity.maxHp,
+      fireRange: entity.fireRange ?? 0,
+      radius: kind === "barricade" && entity.length !== undefined
+        ? entity.length / 2 + (entity.radius ?? 0)
+        : entity.radius ?? 0
+    };
     (entity.team === bot.team ? allies : enemies).push(snapshot);
   };
   state.tanks.forEach(entity => add("tank", entity));
@@ -59,7 +68,7 @@ export function observeBot(state: GameState, bot: Tank): BotObservation {
     self: {
       id: bot.id, team: bot.team, role: bot.role, difficulty: bot.botDifficulty,
       x: bot.x, y: bot.y, hp: bot.hp, maxHp: bot.maxHp, fireRange: bot.fireRange,
-      skillPoints: bot.skillPoints, abilities
+      radius: bot.radius, skillPoints: bot.skillPoints, abilities
     },
     allies,
     enemies

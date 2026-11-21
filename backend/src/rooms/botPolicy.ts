@@ -15,6 +15,66 @@ function distance(a: Point, b: Point): number {
 }
 
 const COVER_GAP = 3 * PLAYER_COLLISION_RADIUS;
+const PATH_CLEARANCE = 12;
+
+function botObstacleRadius(entity: BotEntity): number {
+  if (entity.radius) return entity.radius;
+  if (entity.kind === "base") return 48;
+  if (entity.kind === "minion") return 11;
+  return PLAYER_COLLISION_RADIUS;
+}
+
+function distanceToSegment(point: Point, from: Point, to: Point): number {
+  const dx = to.x - from.x, dy = to.y - from.y;
+  const lengthSquared = dx * dx + dy * dy;
+  const t = lengthSquared === 0 ? 0
+    : Math.max(0, Math.min(1, ((point.x - from.x) * dx + (point.y - from.y) * dy) / lengthSquared));
+  return distance(point, { x: from.x + t * dx, y: from.y + t * dy });
+}
+
+function segmentClearsAllies(from: Point, to: Point, self: BotObservation["self"], allies: BotEntity[]): boolean {
+  for (const ally of allies) {
+    if (ally.id === self.id) continue;
+    const clearance = self.radius + botObstacleRadius(ally) + PATH_CLEARANCE;
+    const startDistance = distance(self, ally);
+    const endDistance = distance(to, ally);
+    const minimumDistance = distanceToSegment(ally, from, to);
+    if (endDistance < clearance || (startDistance < clearance
+      ? minimumDistance < Math.min(startDistance, endDistance) - 1e-6
+      : minimumDistance < clearance)) return false;
+  }
+  return true;
+}
+
+function routeAroundAlly(self: BotObservation["self"], goal: Point, allies: BotEntity[]): Point {
+  const dx = goal.x - self.x, dy = goal.y - self.y;
+  const length = Math.hypot(dx, dy);
+  if (length === 0) return goal;
+  const ux = dx / length, uy = dy / length;
+  const px = -uy, py = ux;
+  const blockers = allies.map(entity => {
+    const along = (entity.x - self.x) * ux + (entity.y - self.y) * uy;
+    const lateral = (entity.x - self.x) * px + (entity.y - self.y) * py;
+    const clearance = self.radius + botObstacleRadius(entity) + PATH_CLEARANCE;
+    return { entity, along, lateral, clearance };
+  }).filter(({ along, lateral, clearance }) => along > 0 && along < length
+    && Math.abs(lateral) < clearance)
+    .sort((a, b) => a.along - b.along || a.entity.id.localeCompare(b.entity.id));
+
+  for (const { entity, lateral, clearance } of blockers) {
+    const preferredSide = Math.abs(lateral) > 1 ? -Math.sign(lateral) : self.team === "blue" ? -1 : 1;
+    for (const side of [preferredSide, -preferredSide]) {
+      const currentOffset = (self.x - entity.x) * px + (self.y - entity.y) * py;
+      const targetOffset = side * (Math.max(Math.abs(currentOffset), clearance) + 24);
+      const diversion = {
+        x: self.x + px * (targetOffset - currentOffset),
+        y: self.y + py * (targetOffset - currentOffset)
+      };
+      if (segmentClearsAllies(self, diversion, self, allies)) return diversion;
+    }
+  }
+  return goal;
+}
 
 function defensivePosition({ self, enemies, allies }: BotObservation): Point | undefined {
   if (self.difficulty === "easy") return;
@@ -80,7 +140,7 @@ export function decideBot(observation: BotObservation, now: number): BotDecision
   const target = ordered[0];
   const objective = self.team === "blue" ? RED_BASE_POSITION : BLUE_BASE_POSITION;
   const position = defensivePosition(observation);
-  const command = position ?? (target ? { targetId: target.id } : objective);
+  const command = position ?? (target ? { targetId: target.id } : routeAroundAlly(self, objective, allies));
   const moving = "targetId" in command ? !isWithinRange(self, target, self.fireRange) : !isWithinRange(self, command, 2);
   return {
     command, upgrade: chooseBotUpgrade(self), ability: chooseBotAbility(observation, ordered, moving, now)

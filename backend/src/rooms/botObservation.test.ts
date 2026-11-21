@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { GameState, ROLE_ABILITY_IDS, Tank, type AbilityActivationRequest, type Role } from "shared";
+import { Base, GameState, ROLE_ABILITY_IDS, Tank, type AbilityActivationRequest, type Role } from "shared";
 import { observeBot } from "./botObservation.js";
 import { decideBot } from "./botPolicy.js";
 
@@ -50,6 +50,35 @@ test("without cover a wounded medium or hard bot opens a gap, holds it and re-en
   assert.deepEqual(command(), { targetId: enemy.id });
   bot.botDifficulty = "hard";
   assert.ok("x" in command());
+});
+
+test("healer ignores damaged structures when deciding whether Heal Aura can help", () => {
+  const state = new GameState();
+  const bot = Object.assign(new Tank(), {
+    id: "bot", team: "blue", role: "healer", x: 1000, y: 900,
+    controllerType: "bot", botDifficulty: "medium"
+  });
+  bot.abilities.get("healer-aura")!.level = 1;
+  const base = Object.assign(new Base(), { id: "base", team: "blue", x: 1040, y: 900, hp: 100 });
+  state.tanks.set(bot.id, bot);
+  state.bases.set(base.id, base);
+
+  assert.equal(decideBot(observeBot(state, bot), 1000).ability, undefined);
+});
+
+test("a bot routes around the visible allied base on its path to the enemy objective", () => {
+  const state = new GameState();
+  const bot = Object.assign(new Tank(), {
+    id: "bot", team: "blue", x: 120, y: 900, controllerType: "bot", botDifficulty: "easy"
+  });
+  const base = Object.assign(new Base(), { id: "blue-base", team: "blue", x: 240, y: 900 });
+  state.tanks.set(bot.id, bot);
+  state.bases.set(base.id, base);
+
+  const first = decideBot(observeBot(state, bot), 0).command;
+  assert.ok("x" in first && first.x === bot.x && first.y !== bot.y);
+  Object.assign(bot, first);
+  assert.deepEqual(decideBot(observeBot(state, bot), 0).command, { x: 2160, y: 900 });
 });
 
 test("difficulty changes target priorities without changing observation or stats", () => {
