@@ -4,10 +4,13 @@ import { Entity } from "./Entity";
 import { AbilityState } from "./AbilityState";
 import { PLAYER_COLLISION_RADIUS } from "../collision";
 import { PLAYER_TOWER_FIRE_RANGE, STANDARD_SIGHT_RANGE } from "../roles";
+import type { BotDifficulty, ControllerType } from "../lobby";
 
 export class Tank extends Entity {
   @type("string") name: string = "Player";
   @type("boolean") ready: boolean = false;
+  @type("string") controllerType: ControllerType = "human";
+  @type("string") botDifficulty: BotDifficulty | "" = "";
   @type("number") hp: number = 100;
   @type("number") maxHp: number = 100;
   @type("string") role: string = "tank";

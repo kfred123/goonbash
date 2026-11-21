@@ -41,6 +41,199 @@ function setup(t: TestContext, count = 2) {
   return { room, lobby, clients, client, messages, send, advance, readyAll };
 }
 
+test("only the waiting host can add and remove valid bots, and bots fill lobby seats", t => {
+  const { room, clients, messages, send, lobby, client } = setup(t);
+  const valid = { team: "blue", role: "healer", difficulty: "hard" };
+  send(1, "add_bot", valid);
+  send(0, "add_bot", { ...valid, team: "green" });
+  send(0, "add_bot", { ...valid, role: "invalid" });
+  send(0, "add_bot", { ...valid, difficulty: "impossible" });
+  assert.equal(room.state.tanks.size, 2);
+  send(0, "add_bot", valid);
+  const bot = [...room.state.tanks.values()].find(tank => tank.controllerType === "bot")!;
+  assert.ok(bot);
+  assert.deepEqual([bot.team, bot.role, bot.botDifficulty, bot.ready], ["blue", "healer", "hard", true]);
+  assert.equal(room.state.playerStats.get(bot.id)?.team, "blue");
+  assert.equal(lobbyRegistry.get(lobby.id)?.players, 3);
+  send(1, "remove_bot", bot.id);
+  send(0, "remove_bot", clients[1].id);
+  assert.ok(room.state.tanks.has(bot.id));
+  send(0, "remove_bot", bot.id);
+  assert.equal(room.state.tanks.has(bot.id), false);
+  assert.equal(room.state.playerStats.has(bot.id), false);
+  assert.equal(lobbyRegistry.get(lobby.id)?.players, 2);
+  room.state.phase = "countdown";
+  send(0, "add_bot", valid);
+  room.state.phase = "waiting";
+  for (let i = 0; i < 8; i++) send(0, "add_bot", valid);
+  assert.equal(room.state.tanks.size, 10);
+  assert.equal(lobbyRegistry.get(lobby.id)?.status, "full");
+  send(0, "add_bot", valid);
+  assert.equal(room.state.tanks.size, 10);
+  assert.throws(() => room.onJoin(client("late"), {}), /full/);
+  assert.ok(messages.length >= 8);
+});
+
+test("bot seats affect team assignment and never receive host authority", t => {
+  const { room, clients, client, lobby, send } = setup(t, 1);
+  send(0, "add_bot", { team: "red", role: "tank", difficulty: "easy" });
+  const peer = client("late");
+  room.onJoin(peer, {});
+  assert.equal(room.state.tanks.get(peer.id)?.team, "blue");
+  room.onLeave(clients[0], true);
+  assert.equal(room.state.hostSessionId, peer.id);
+  room.onLeave(peer, true);
+  assert.equal(room.state.hostSessionId, "");
+  assert.equal(lobbyRegistry.get(lobby.id), undefined);
+});
+
+test("bots use validated commands and role abilities during the room simulation", t => {
+  const { room, clients, send } = setup(t, 1);
+  send(0, "add_bot", { team: "blue", role: "tank", difficulty: "medium" });
+  const bot = [...room.state.tanks.values()].find(tank => tank.controllerType === "bot")!;
+  const enemy = room.state.tanks.get(clients[0].id)!;
+  room.state.phase = "started";
+  bot.x = 1000; bot.y = 900; bot.hp = bot.maxHp * 0.7; bot.skillPoints = 1;
+  enemy.team = "red"; enemy.x = 1100; enemy.y = 900;
+  room.update(16);
+  assert.equal(bot.lockedTargetId, enemy.id);
+  assert.equal(bot.abilities.get("tank-shield")?.level, 1);
+  room.update(500);
+  assert.ok(bot.abilities.get("tank-shield")!.cooldownEndsAt > Date.now());
+  enemy.x = 2000;
+  let rejected = false;
+  room["issueTankCommand"](bot, { targetId: enemy.id }, () => { rejected = true; });
+  assert.equal(rejected, true);
+  room.update(500);
+  assert.notEqual(bot.lockedTargetId, enemy.id);
+  assert.equal(bot.hasMoveTarget, true);
+});
+
+test("bot movement and attacks use the normal simulation and fire cooldown", t => {
+  const { room, clients, send } = setup(t, 1);
+  send(0, "add_bot", { team: "blue", role: "damagedealer", difficulty: "easy" });
+  const bot = [...room.state.tanks.values()].find(tank => tank.controllerType === "bot")!;
+  const enemy = room.state.tanks.get(clients[0].id)!;
+  room.state.phase = "started";
+  bot.x = 1000; bot.y = 900;
+  enemy.team = "red"; enemy.x = 2000; enemy.y = 900;
+  room.update(100);
+  assert.ok(bot.x > 1000);
+  assert.equal(bot.lockedTargetId, "");
+  enemy.x = bot.x + 100;
+  bot.fireCooldown = 0;
+  room.update(500);
+  assert.equal(bot.lockedTargetId, enemy.id);
+  assert.ok(bot.fireCooldown > 0);
+  const afterShot = bot.fireCooldown;
+  room.update(10);
+  assert.ok(bot.fireCooldown > 0 && bot.fireCooldown < afterShot);
+});
+
+test("a bot behind its allied base takes a visible detour and resumes toward the objective", t => {
+  const { room, clients, send } = setup(t, 1);
+  send(0, "add_bot", { team: "blue", role: "tank", difficulty: "easy" });
+  const bot = [...room.state.tanks.values()].find(tank => tank.controllerType === "bot")!;
+  Object.assign(bot, { x: 120, y: 900 });
+  Object.assign(room.state.tanks.get(clients[0].id)!, { x: 2000, y: 1600 });
+  room.state.phase = "started";
+  room["updateBots"](Date.now());
+  assert.notEqual(bot.moveTargetY, 900);
+  room["updateTankMovement"](1);
+  assert.notEqual(bot.y, 900);
+
+  for (let i = 0; i < 80; i++) room.update(100);
+
+  assert.ok(bot.x > 330, `expected bot to pass the allied base, got x=${bot.x}, y=${bot.y}, target=${bot.moveTargetX},${bot.moveTargetY}, has=${bot.hasMoveTarget}, lock=${bot.lockedTargetId}`);
+});
+
+test("a bot spends successive points on distinct abilities and casts targeted and ground specials in the room", t => {
+  const { room, clients, send } = setup(t, 1);
+  send(0, "add_bot", { team: "blue", role: "damagedealer", difficulty: "medium" });
+  const bot = [...room.state.tanks.values()].find(tank => tank.controllerType === "bot")!;
+  const enemy = room.state.tanks.get(clients[0].id)!;
+  Object.assign(bot, { x: 1000, y: 900, skillPoints: 3 });
+  Object.assign(enemy, { team: "red", x: 1250, y: 900 });
+  room.state.phase = "started";
+  for (let i = 0; i < 5; i++) room["updateBots"](Date.now());
+
+  assert.equal(bot.skillPoints, 0);
+  const shots = [...room.state.projectiles.values()].filter(p => p.ownerId === bot.id);
+  assert.deepEqual(shots.filter(p => p.isHomingRocket).map(p => p.targetId), [enemy.id]);
+  assert.deepEqual(shots.filter(p => p.isMortar).map(p => [p.landingX, p.landingY]), [[enemy.x, enemy.y]]);
+  assert.ok(bot.abilities.get("damagedealer-mortar")!.cooldownEndsAt > Date.now());
+});
+
+test("a wounded medium healer breaks its lock, uses speed and stops taking fire behind a teammate", t => {
+  const { room, clients, send } = setup(t);
+  send(0, "add_bot", { team: "blue", role: "healer", difficulty: "medium" });
+  const bot = [...room.state.tanks.values()].find(tank => tank.controllerType === "bot")!;
+  const ally = room.state.tanks.get(clients[0].id)!, enemy = room.state.tanks.get(clients[1].id)!;
+  Object.assign(ally, { team: "blue", x: 980, y: 850 });
+  Object.assign(enemy, { team: "red", x: 1150, y: 900 });
+  Object.assign(bot, { x: 1020, y: 900, hp: bot.maxHp / 2, lockedTargetId: enemy.id });
+  bot.abilities.get("healer-speed")!.level = 1;
+  room.state.phase = "started";
+
+  room.update(100);
+  assert.equal(enemy.targetId, bot.id);
+  assert.equal(bot.lockedTargetId, "");
+  assert.ok(bot.moveTargetX < ally.x && bot.x < 1020);
+  assert.ok(bot.abilities.get("healer-speed")!.cooldownEndsAt > Date.now());
+  for (let i = 0; i < 30; i++) room.update(100);
+  assert.equal(enemy.targetId, ally.id);
+  assert.ok(bot.x < ally.x && bot.hp > 0);
+  const coveredHp = bot.hp;
+  for (let i = 0; i < 15; i++) room.update(100);
+  assert.equal(bot.hp, coveredHp);
+});
+
+test("intentional leave immediately transfers the existing started-match tank to a bot", async t => {
+  const { room, clients } = setup(t);
+  room.state.phase = "started";
+  const tank = room.state.tanks.get(clients[0].sessionId)!;
+  const stats = room.state.playerStats.get(clients[0].sessionId)!;
+  tank.x = 1234;
+  tank.y = 567;
+  tank.role = "healer";
+  tank.level = 4;
+  stats.kills = 2;
+  stats.damageDealt = 91;
+
+  await room.onLeave(clients[0], true);
+
+  assert.equal(room.state.tanks.get(tank.id), tank);
+  assert.deepEqual([tank.controllerType, tank.botDifficulty, tank.x, tank.y, tank.role, tank.level],
+    ["bot", "medium", 1234, 567, "healer", 4]);
+  assert.deepEqual([stats.kills, stats.damageDealt], [2, 91]);
+});
+
+test("unexpected disconnect reserves for 30 seconds and transfers the same tank after expiry", async t => {
+  const { room, clients } = setup(t);
+  room.state.phase = "started";
+  const tank = room.state.tanks.get(clients[0].sessionId)!;
+  const stats = room.state.playerStats.get(clients[0].sessionId)!;
+  tank.x = 1234;
+  tank.y = 567;
+  tank.role = "scout";
+  tank.level = 3;
+  stats.kills = 1;
+  stats.damageDealt = 42;
+  Object.defineProperty(room, "allowReconnection", {
+    value: (_client: Client, seconds: number) => {
+      assert.equal(seconds, 30);
+      throw false;
+    }
+  });
+
+  await room.onLeave(clients[0], false);
+
+  assert.equal(room.state.tanks.get(tank.id), tank);
+  assert.deepEqual([tank.controllerType, tank.botDifficulty, tank.x, tank.y, tank.role, tank.level],
+    ["bot", "medium", 1234, 567, "scout", 3]);
+  assert.deepEqual([stats.kills, stats.damageDealt], [1, 42]);
+});
+
 test("readiness is sender-only, reversible, validated, and locks team and role", t => {
   const { room, clients, client, messages, send } = setup(t);
   const host = room.state.tanks.get(clients[0].sessionId)!;

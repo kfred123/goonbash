@@ -1,7 +1,21 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { GameState, Tank, type MatchPhase } from "shared";
-import { getLobbyControls } from "./lobbyPresentation.js";
+import { canManageBots, getLobbyControls } from "./lobbyPresentation.js";
+
+test("only a human host can manage bots while waiting", () => {
+  const state = new GameState();
+  state.hostSessionId = "host";
+  state.tanks.set("host", new Tank());
+  state.tanks.set("peer", new Tank());
+  assert.equal(canManageBots(state, "host"), true);
+  assert.equal(canManageBots(state, "peer"), false);
+  state.phase = "countdown";
+  assert.equal(canManageBots(state, "host"), false);
+  state.phase = "waiting";
+  state.tanks.get("host")!.controllerType = "bot";
+  assert.equal(canManageBots(state, "host"), false);
+});
 
 test("lobby controls derive from confirmed membership, readiness and host", () => {
   const state = new GameState();

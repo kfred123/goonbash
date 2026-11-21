@@ -12,3 +12,8 @@ export function getLobbyControls(state: GameState, sessionId: string) {
     canStart: waiting && !!player && isHost && allPlayersReady(state.tanks.values())
   };
 }
+
+export function canManageBots(state: GameState, sessionId: string): boolean {
+  const player = state.tanks.get(sessionId);
+  return state.phase === "waiting" && state.hostSessionId === sessionId && player?.controllerType === "human";
+}

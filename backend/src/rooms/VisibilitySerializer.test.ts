@@ -106,6 +106,21 @@ test("both teams receive only lobby metadata through countdown and cancellation 
   assert.equal(first.decoded.tanks.get(blue.id)?.x, blue.x);
 });
 
+test("lobby projections include bot controller and difficulty", () => {
+  const { source, first, second, patch } = setup();
+  source.phase = "waiting";
+  source.tanks.set("bot", Object.assign(new Tank(), {
+    id: "bot", team: "red", controllerType: "bot", botDifficulty: "medium", ready: true
+  }));
+  patch();
+  for (const connection of [first, second]) {
+    const bot = connection.decoded.tanks.get("bot");
+    assert.equal(bot?.controllerType, "bot");
+    assert.equal(bot?.botDifficulty, "medium");
+    assert.equal(bot?.ready, true);
+  }
+});
+
 test("initial snapshots exclude concealed spatial entities for both teams and keep public scores", () => {
   const { first, second, initialBlue, initialRed } = setup();
   assert.deepEqual([...first.decoded.tanks.keys()], ["blue"]);

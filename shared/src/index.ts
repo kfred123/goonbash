@@ -55,10 +55,12 @@ export type { AbilityActivationRequest, MortarRejectionReason, MortarImpactMessa
 export type {
 	LobbyStatus,
 	LobbyTeam,
+	ControllerType,
+	BotDifficulty,
 	MatchPhase,
 	LobbyInfo,
 	LobbyListResponse,
 	CreateLobbyResponse,
 	LobbyErrorResponse
 } from "./lobby";
-export { normalizeLobbyName, isPreMatch, allPlayersReady, LOBBY_ACTION_ERROR, LOBBY_NAME_ERROR, COUNTDOWN_DURATION_MS } from "./lobby";
+export { normalizeLobbyName, isPreMatch, allPlayersReady, isBotDifficulty, LOBBY_ACTION_ERROR, LOBBY_NAME_ERROR, COUNTDOWN_DURATION_MS } from "./lobby";

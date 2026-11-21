@@ -26,8 +26,8 @@ import {
   isRole
 } from 'shared';
 import { isPreMatch, LOBBY_ACTION_ERROR, LOBBY_NAME_ERROR, normalizeLobbyName } from 'shared';
-import { getLobbyControls } from './lobbyPresentation.js';
-import type { AbilityId, AbilityActivationRequest, Barricade, Base, Minion, Tank, Tower, VisionEntity, InvalidTargetMessage, MortarImpactMessage, Projectile } from 'shared';
+import { canManageBots, getLobbyControls } from './lobbyPresentation.js';
+import type { AbilityId, AbilityActivationRequest, Barricade, Base, BotDifficulty, Minion, Tank, Tower, VisionEntity, InvalidTargetMessage, MortarImpactMessage, Projectile } from 'shared';
 import { MORTAR_IMPACT_MESSAGE, mortarPointRejection } from 'shared';
 import { FogPresentation } from './FogPresentation.js';
 import { isEntityPresented, isProjectilePresented, WORLD_FOG_DEPTH } from './visionPresentation.js';
@@ -48,6 +48,7 @@ import { getRespawnCountdown, getTankPresentation } from './respawnPresentation.
 import { clampZoom, DEFAULT_ZOOM, wheelZoom } from './cameraZoom.js';
 import { TouchZoomController } from './cameraZoomInput.js';
 import { drawBarricade, isBarricadePresented } from './barricadeVisuals.js';
+import { reconnectWithinDeadline } from './reconnectAttempt.js';
 
 const ROLE_ORDER: Role[] = ['healer', 'tank', 'damagedealer', 'scout'];
 
@@ -97,8 +98,13 @@ export class GameScene extends Phaser.Scene {
   private menuRevision = 0;
   private lobbyRenderKey = '';
   private lobbyError = '';
+  private botSetup = false;
+  private botRole: Role = 'tank';
+  private botDifficulty: BotDifficulty = 'medium';
   private playerName = '';
   private leavingRoom = false;
+  private reconnecting = false;
+  private reconnectController?: AbortController;
   private arenaStarted = false;
   private resultsShown = false;
   private resultSorts: Record<'red' | 'blue', MatchResultsSort> = {
@@ -218,6 +224,9 @@ export class GameScene extends Phaser.Scene {
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       this.arenaStarted = false;
       this.leavingRoom = true;
+      this.reconnecting = false;
+      this.reconnectController?.abort();
+      this.reconnectController = undefined;
       this.room?.removeAllListeners();
       if (this.room) void this.room.leave().catch((error) => console.error('[GameScene] Failed to leave room on shutdown', error));
       this.clearArenaPresentation();
@@ -391,6 +400,9 @@ export class GameScene extends Phaser.Scene {
   private backToMainMenu() {
     if (this.leavingRoom) return;
     this.leavingRoom = true;
+    this.reconnecting = false;
+    this.reconnectController?.abort();
+    this.reconnectController = undefined;
     const room = this.room;
     if (room) {
       room.removeAllListeners();
@@ -512,11 +524,20 @@ export class GameScene extends Phaser.Scene {
     };
     this.client = new Client(this.backendWsUrl);
     this.room = await this.client.joinOrCreate<GameState>('game_room', { lobbyId: lobby.id, playerName: this.playerName });
-    const connectedRoom = this.room;
-    this.room.onLeave(() => {
-      if (this.room === connectedRoom && !this.leavingRoom && this.sys.isActive()) this.backToMainMenu();
+    this.attachRoom(this.room);
+  }
+
+  private attachRoom(room: Room<GameState>, showLobbyImmediately = true) {
+    const connectedRoom = room;
+    room.onLeave(() => {
+      if (this.room !== connectedRoom || this.leavingRoom || !this.sys.isActive()) return;
+      if (this.arenaStarted && connectedRoom.state.phase === 'started') {
+        void this.reconnectToRoom(connectedRoom);
+      } else {
+        this.backToMainMenu();
+      }
     });
-    this.room.onMessage(INVALID_TARGET_MESSAGE, (message: InvalidTargetMessage) => {
+    room.onMessage(INVALID_TARGET_MESSAGE, (message: InvalidTargetMessage) => {
       if (this.room !== connectedRoom) return;
       if (message.action === 'rescue') {
         this.statusText.setText(RESCUE_REJECTION_TEXT[message.reason]).setColor('#ffbb88');
@@ -542,64 +563,64 @@ export class GameScene extends Phaser.Scene {
       this.cancelRocketTargetSelection();
       this.statusText.setText('Target is no longer visible or valid.').setColor('#ffbb88');
     });
-    this.room.onMessage(MORTAR_IMPACT_MESSAGE, (message: MortarImpactMessage) => {
+    room.onMessage(MORTAR_IMPACT_MESSAGE, (message: MortarImpactMessage) => {
       if (this.room === connectedRoom && this.arenaStarted && !this.resultsShown) this.showMortarImpact(message);
     });
-    this.room.onMessage(LOBBY_ACTION_ERROR, (error: { message: string }) => {
+    room.onMessage(LOBBY_ACTION_ERROR, (error: { message: string }) => {
       if (this.room !== connectedRoom) return;
       this.lobbyError = error.message;
       this.statusText.setText(error.message).setColor('#ffbb88');
       if (isPreMatch(this.room.state.phase)) this.showWaitingLobby(this.room.state);
     });
-    this.statusText.setText(`Connected | ${this.room.sessionId}`);
+    this.statusText.setText(`Connected | ${room.sessionId}`);
     this.statusText.setColor('#44ff88');
     this.destroyMenuElements();
-    this.room.state.tanks.onAdd((tank, sessionId) => {
+    room.state.tanks.onAdd((tank, sessionId) => {
       if (this.room === connectedRoom && this.arenaStarted) this.upsertTank(tank, sessionId);
     });
-    this.room.state.tanks.onRemove((_tank, sessionId) => {
+    room.state.tanks.onRemove((_tank, sessionId) => {
       if (this.room === connectedRoom && this.arenaStarted) this.removeTank(sessionId);
     });
-    this.room.state.minions.forEach((minion, id) => this.upsertMinion(minion, id));
-    this.room.state.minions.onAdd((minion, id) => {
+    room.state.minions.forEach((minion, id) => this.upsertMinion(minion, id));
+    room.state.minions.onAdd((minion, id) => {
       if (this.room === connectedRoom && this.arenaStarted) this.upsertMinion(minion, id);
     });
-    this.room.state.minions.onRemove((_minion, id) => {
+    room.state.minions.onRemove((_minion, id) => {
       if (this.room === connectedRoom && this.arenaStarted) this.removeMinion(id);
     });
-    this.room.state.towers.onAdd((tower, id) => {
+    room.state.towers.onAdd((tower, id) => {
       if (this.room === connectedRoom && this.arenaStarted) this.upsertTower(tower, id);
     });
-    this.room.state.towers.onRemove((_tower, id) => {
+    room.state.towers.onRemove((_tower, id) => {
       if (this.room === connectedRoom && this.arenaStarted) this.removeTower(id);
     });
-    this.room.state.bases.onAdd((base, id) => {
+    room.state.bases.onAdd((base, id) => {
       if (this.room === connectedRoom && this.arenaStarted) this.upsertBase(base, id);
     });
-    this.room.state.bases.onRemove((_base, id) => {
+    room.state.bases.onRemove((_base, id) => {
       if (this.room === connectedRoom && this.arenaStarted) this.removeBase(id);
     });
-    this.room.state.projectiles.forEach((projectile, id) => this.upsertProjectile(projectile, id));
-    this.room.state.projectiles.onAdd((projectile, id) => {
+    room.state.projectiles.forEach((projectile, id) => this.upsertProjectile(projectile, id));
+    room.state.projectiles.onAdd((projectile, id) => {
       if (this.room === connectedRoom && this.arenaStarted) this.upsertProjectile(projectile, id);
     });
-    this.room.state.projectiles.onRemove((_projectile, id) => {
+    room.state.projectiles.onRemove((_projectile, id) => {
       if (this.room === connectedRoom && this.arenaStarted) this.removeProjectile(id);
     });
-    this.room.state.protectionDomes.onAdd((dome, id) => {
+    room.state.protectionDomes.onAdd((dome, id) => {
       if (this.room === connectedRoom && this.arenaStarted) this.upsertProtectionDome(dome, id);
     });
-    this.room.state.protectionDomes.onRemove((_dome, id) => {
+    room.state.protectionDomes.onRemove((_dome, id) => {
       if (this.room === connectedRoom && this.arenaStarted) this.removeProtectionDome(id);
     });
-    this.room.state.barricades.forEach((barricade, id) => this.upsertBarricade(barricade, id));
-    this.room.state.barricades.onAdd((barricade, id) => {
+    room.state.barricades.forEach((barricade, id) => this.upsertBarricade(barricade, id));
+    room.state.barricades.onAdd((barricade, id) => {
       if (this.room === connectedRoom && this.arenaStarted) this.upsertBarricade(barricade, id);
     });
-    this.room.state.barricades.onRemove((_barricade, id) => {
+    room.state.barricades.onRemove((_barricade, id) => {
       if (this.room === connectedRoom && this.arenaStarted) this.removeBarricade(id);
     });
-    this.room.onStateChange((state) => {
+    room.onStateChange((state) => {
       if (this.room !== connectedRoom) return;
       if (this.resultsShown) return;
       if (isPreMatch(state.phase)) {
@@ -643,7 +664,58 @@ export class GameScene extends Phaser.Scene {
       this.applyVisibility();
       this.refreshFog();
     });
-    this.showWaitingLobby(this.room.state);
+    if (showLobbyImmediately && isPreMatch(room.state.phase)) this.showWaitingLobby(room.state);
+  }
+
+  private async reconnectToRoom(disconnectedRoom: Room<GameState>) {
+    if (this.reconnecting) return;
+    this.reconnecting = true;
+    const controller = new AbortController();
+    this.reconnectController = controller;
+    const token = disconnectedRoom.reconnectionToken;
+    const deadline = Date.now() + 29_000;
+    let delay = 250;
+    this.clearArenaPresentation();
+    this.arenaStarted = false;
+    this.statusText.setText('Connection lost. Reconnecting...');
+    this.statusText.setColor('#ffcc77');
+
+    while (this.reconnecting && !controller.signal.aborted && !this.leavingRoom && this.sys.isActive() && Date.now() < deadline) {
+      try {
+        const attemptDeadline = Math.min(deadline, Date.now() + 2000);
+        const room = await reconnectWithinDeadline(
+          () => this.client.reconnect<GameState>(token, GameState),
+          attemptDeadline,
+          controller.signal,
+          lateRoom => void lateRoom.leave().catch(error => console.error('[GameScene] Failed to close late reconnect', error))
+        );
+        if (controller.signal.aborted || this.leavingRoom || !this.sys.isActive() || this.room !== disconnectedRoom) {
+          void room.leave().catch(error => console.error('[GameScene] Failed to close stale reconnect', error));
+          this.reconnecting = false;
+          if (this.reconnectController === controller) this.reconnectController = undefined;
+          return;
+        }
+        this.room = room;
+        this.reconnecting = false;
+        this.reconnectController = undefined;
+        this.attachRoom(room, false);
+        return;
+      } catch {
+        if (controller.signal.aborted || Date.now() + delay >= deadline) break;
+        await new Promise<void>(resolve => globalThis.setTimeout(resolve, Math.min(delay, deadline - Date.now())));
+        delay = Math.min(delay * 2, 2000);
+      }
+    }
+
+    const shouldReturnToMenu = this.reconnecting && !controller.signal.aborted && !this.leavingRoom
+      && this.sys.isActive() && this.room === disconnectedRoom;
+    this.reconnecting = false;
+    if (this.reconnectController === controller) this.reconnectController = undefined;
+    if (shouldReturnToMenu) {
+      this.statusText.setText('Reconnection failed. Returning to the main menu.');
+      this.statusText.setColor('#ff8888');
+      this.backToMainMenu();
+    }
   }
 
   private createArena(lobbyName: string) {
@@ -889,9 +961,14 @@ export class GameScene extends Phaser.Scene {
 
   private showWaitingLobby(state: GameState) {
     if (this.arenaStarted || !this.room) return;
+    if (this.botSetup && canManageBots(state, this.room.sessionId)) {
+      this.showBotSetup(state);
+      return;
+    }
+    this.botSetup = false;
     const renderKey = JSON.stringify([
       state.lobbyName, state.phase, state.hostSessionId, state.countdownSeconds, state.countdownCancelReason,
-      this.lobbyError, [...state.tanks].map(([id, tank]) => [id, tank.name, tank.team, tank.role, tank.ready])
+      this.lobbyError, [...state.tanks].map(([id, tank]) => [id, tank.name, tank.team, tank.role, tank.ready, tank.controllerType, tank.botDifficulty])
     ]);
     if (this.lobbyRenderKey === renderKey) return;
     this.resetCamera();
@@ -914,7 +991,7 @@ export class GameScene extends Phaser.Scene {
       if (players.length === 0) this.addMenuText(x, 220, 'No players yet', 14, '#8899aa');
       players.forEach(([id, tank], index) => {
         const y = 177 + index * 18;
-        const name = `${tank.name}${id === this.room.sessionId ? ' (You)' : ''}`;
+        const name = `${tank.name}${tank.controllerType === 'bot' ? ` [${tank.botDifficulty}]` : id === this.room.sessionId ? ' (You)' : ''}`;
         const nameText = this.addMenuText(x - 158, y, name, 12, '#e0e7ef').setOrigin(0, 0.5);
         this.fitMenuText(nameText, name, 160);
         const role = this.resolveRoleVisual(tank.role).label;
@@ -926,7 +1003,17 @@ export class GameScene extends Phaser.Scene {
             .setDepth(3002).setScale(this.viewportScale());
           this.menuElements.push(check);
         }
+        if (tank.controllerType === 'bot' && canManageBots(state, this.room.sessionId)) {
+          const remove = this.addMenuText(x + 156, y, 'X', 12, '#ffaaaa', true).setInteractive({ useHandCursor: true });
+          remove.on('pointerdown', () => this.room.send('remove_bot', id));
+        }
       });
+    }
+    if (canManageBots(state, this.room.sessionId)) {
+      this.addButton(72, 30, 120, 34, 'ADD BOT', () => {
+        this.botSetup = true;
+        this.showBotSetup(state);
+      }, state.tanks.size < 10);
     }
     const sendChoice = (type: string, value: string) => {
       if (getLobbyControls(state, this.room.sessionId).canChoose) {
@@ -967,6 +1054,43 @@ export class GameScene extends Phaser.Scene {
       : controls.canStart ? 'Everyone is ready. The host can start the countdown.' : 'Waiting for every player, including the host, to be ready.');
     const hint = this.addMenuText(400, 583, message, 13, this.lobbyError ? '#ffaaaa' : '#c8c8d8');
     this.fitMenuText(hint, message, 760);
+  }
+
+  private showBotSetup(state: GameState) {
+    if (!canManageBots(state, this.room.sessionId)) {
+      this.botSetup = false;
+      this.showWaitingLobby(state);
+      return;
+    }
+    this.destroyMenuElements();
+    this.addMenuText(400, 90, 'ADD COMPUTER PLAYER', 25, '#ffffff', true);
+    this.addMenuText(400, 155, 'CHOOSE ROLE', 16, '#aaaaff', true);
+    ROLE_ORDER.forEach((role, index) => {
+      this.addRoleCard(175 + index * 150, 230, role, this.botRole === role, 0x4d8dff, () => {
+        this.botRole = role;
+        this.showBotSetup(state);
+      }, true);
+    });
+    this.addMenuText(400, 310, 'CHOOSE DIFFICULTY', 16, '#aaaaff', true);
+    (['easy', 'medium', 'hard'] as const).forEach((difficulty, index) => {
+      this.addButton(240 + index * 160, 360, 140, 38,
+        `${this.botDifficulty === difficulty ? '* ' : ''}${difficulty.toUpperCase()}`, () => {
+          this.botDifficulty = difficulty;
+          this.showBotSetup(state);
+        });
+    });
+    for (const [team, x] of [['red', 260], ['blue', 540]] as const) {
+      this.addButton(x, 445, 220, 42, `ADD TO ${team.toUpperCase()}`, () => {
+        if (!canManageBots(this.room.state, this.room.sessionId)) return;
+        this.room.send('add_bot', { team, role: this.botRole, difficulty: this.botDifficulty });
+        this.botSetup = false;
+        this.showWaitingLobby(this.room.state);
+      }, state.tanks.size < 10);
+    }
+    this.addButton(400, 520, 160, 38, 'BACK', () => {
+      this.botSetup = false;
+      this.showWaitingLobby(state);
+    });
   }
 
   private fitMenuText(text: Phaser.GameObjects.Text, value: string, width: number) {

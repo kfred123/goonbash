@@ -301,16 +301,18 @@ test("saturated waves retain lane identities, retry without duplicates and clean
   assert.equal(room.state.minions.size, count);
 });
 
-test("leaving cancels a deferred player and disposal clears pending and avoidance state", (t) => {
+test("bot takeover preserves a deferred tank and disposal clears pending and avoidance state", async (t) => {
   const { room, lobby } = setup(t);
   const connection = client("leaving");
   room.onJoin(connection, { lobbyId: lobby.id });
   room["deferredTanks"].add(connection.sessionId);
-  room.onLeave(connection, true);
-  assert.equal(room["deferredTanks"].size, 0);
+  await room.onLeave(connection, true);
+  assert.equal(room.state.tanks.get(connection.sessionId)?.controllerType, "bot");
+  assert.equal(room["deferredTanks"].has(connection.sessionId), true);
   room["minionDetours"].set("removed", { obstacleId: "a", side: 1 });
   room.onDispose();
   assert.equal(room["minionDetours"].size, 0);
+  assert.equal(room["deferredTanks"].size, 0);
   assert.equal(room["pendingMinions"].size, 0);
 });
 
