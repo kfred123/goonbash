@@ -4,7 +4,7 @@ import { isRole, resolveRoleStats } from "shared";
 import { BLUE_BASE_POSITION, RED_BASE_POSITION, WORLD_WIDTH, WORLD_HEIGHT, TeamVision, getVisionEntities, INVALID_TARGET_MESSAGE, TOWER_COLLISION_RADIUS } from "shared";
 import { lobbyRegistry } from "../lobbies/LobbyRegistry.js";
 import { canChangeRole, canChangeTeam, canJoinRoom, canManageLobby, canUseGameplayActions, normalizePlayerName, resolveHostAfterLeave, selectBalancedTeam } from "./lobbyControls.js";
-import { allPlayersReady, COUNTDOWN_DURATION_MS, LOBBY_ACTION_ERROR } from "shared";
+import { allPlayersReady, COUNTDOWN_DURATION_MS, isBotDifficulty, LOBBY_ACTION_ERROR } from "shared";
 import { clampToBounds, createShotProjectile, findNearestEnemyInRange, getLivingTowers, hasDied, hasProjectileReachedTarget, isReadyToRespawn, isWithinRange, stepHomingProjectile, stepProjectileTowardTarget, stepToward, applyDamage as computeDamagedHp, nearBasePosition, respawnDelayMs, respawnTank, tickShooter } from "./combat.js";
 import { activateAbility, applyDamageReduction, applyMovementDisable, canActivateRoleAbility, effectiveFireCooldown, effectiveMoveSpeed, healOverTick, homingRocketDamage, isAbilityActive, isMovementDisabled, isValidRocketTarget, isValidShockTarget } from "./ability.js";
 import { getLaneTowerPlacements } from "./towerPlacement.js";
@@ -17,6 +17,8 @@ import type { BarricadePlacementRejectionReason, MortarImpactMessage, MortarReje
 import { mortarDamage } from "./ability.js";
 import { byId, COLLISION_TOLERANCE, findClearNearBase, findLaneSpawn, movementBlockers, resolveMovement } from "./collision.js";
 import { moveMinion, type MinionDetour } from "./minionMovement.js";
+import { observeBot } from "./botObservation.js";
+import { decideBot } from "./botPolicy.js";
 
 interface MortarFlight {
   originX: number;
@@ -49,6 +51,7 @@ export class GameRoom extends Room<GameState> {
   maxClients = 10;
   private readonly visibilitySerializer = new VisibilitySerializer();
   private spawnTimer = 0;
+  private botDecisionTimer = 0;
   private projectileLifetimes = new Map<string, number>();
   private mortarFlights = new Map<string, MortarFlight>();
   private minionPaths = new Map<string, Array<{ x: number; y: number }>>();
@@ -58,8 +61,10 @@ export class GameRoom extends Room<GameState> {
   private nextMinionId = 0;
   private nextProtectionDomeId = 0;
   private nextBarricadeId = 0;
+  private nextBotId = 0;
   private lobbyId!: string;
   private ownsLobby = false;
+  private readonly connectedHumans = new Set<string>();
   private countdown?: { deadline: number; timer?: { clear(): void } };
 
   onCreate (options: any) {
@@ -79,30 +84,7 @@ export class GameRoom extends Room<GameState> {
     this.createBase("red", RED_BASE_POSITION.x, RED_BASE_POSITION.y);
     this.onMessage("command", (client, command: { x?: unknown; y?: unknown; targetId?: unknown }) => {
       const tank = this.state.tanks.get(client.sessionId);
-      if (!tank || !canUseGameplayActions(this.state.phase) || tank.state === "dead"
-        || this.isTankMovementLocked(tank, Date.now())) return;
-      const targetId = typeof command?.targetId === "string" ? command.targetId : "";
-      if (targetId) {
-        const target = this.findLivingEntity(targetId);
-        if (!target || !this.teamVision(tank.team).canSee(target)) {
-          client.send(INVALID_TARGET_MESSAGE, { action: "attack", reason: "invalid_target" });
-          return;
-        }
-        if (target.team !== tank.team) {
-          tank.lockedTargetId = targetId;
-          tank.hasMoveTarget = false;
-          return;
-        }
-        // Friendly targetId: fall through and treat it as a move-to-point instead.
-      }
-      const x = typeof command?.x === "number" ? command.x : NaN;
-      const y = typeof command?.y === "number" ? command.y : NaN
-      if (!Number.isFinite(x) || !Number.isFinite(y)) return;
-      const clamped = clampToBounds({ x, y }, MIN_X + tank.radius, MAX_X - tank.radius, MIN_Y + tank.radius, MAX_Y - tank.radius);
-      tank.moveTargetX = clamped.x;
-      tank.moveTargetY = clamped.y;
-      tank.hasMoveTarget = true;
-      tank.lockedTargetId = "";
+      this.issueTankCommand(tank, command, () => client.send(INVALID_TARGET_MESSAGE, { action: "attack", reason: "invalid_target" }));
     });
     this.onMessage("change_team", (client, team: unknown) => {
       const tank = this.state.tanks.get(client.sessionId);
@@ -132,6 +114,57 @@ export class GameRoom extends Room<GameState> {
       }
       tank.ready = ready;
     });
+    this.onMessage("add_bot", (client, payload: { team?: unknown; role?: unknown; difficulty?: unknown }) => {
+      const host = this.state.tanks.get(client.sessionId);
+      if (!host || host.controllerType !== "human"
+        || !canManageLobby(this.state.phase, client.sessionId, this.state.hostSessionId)
+        || (payload?.team !== "red" && payload?.team !== "blue")
+        || !isRole(payload?.role) || !isBotDifficulty(payload?.difficulty)
+        || this.state.tanks.size >= this.maxClients) {
+        this.rejectLobbyAction(client, "Only the host can add a valid bot to an available seat while waiting.");
+        return;
+      }
+      const lobby = lobbyRegistry.get(this.lobbyId);
+      if (!lobby || lobby.players >= lobby.maxPlayers) {
+        this.rejectLobbyAction(client, "The lobby is full.");
+        return;
+      }
+      lobbyRegistry.addBot(this.lobbyId);
+      const tank = new Tank();
+      tank.id = `bot-${crypto.randomUUID()}`;
+      tank.name = `Bot ${++this.nextBotId}`;
+      tank.team = payload.team;
+      tank.role = payload.role;
+      tank.controllerType = "bot";
+      tank.botDifficulty = payload.difficulty;
+      tank.ready = true;
+      const base = this.state.bases.get(`${tank.team}-base`);
+      if (!base) throw new Error(`Missing base for team ${tank.team}`);
+      const spawnPoint = nearBasePosition(base.x, base.y, WORLD_BOUNDS);
+      tank.x = spawnPoint.x;
+      tank.y = spawnPoint.y;
+      this.applyRoleStats(tank);
+      this.activateTank(tank);
+      this.state.tanks.set(tank.id, tank);
+      const stats = new MatchPlayerStats();
+      stats.name = tank.name;
+      stats.team = payload.team;
+      this.state.playerStats.set(tank.id, stats);
+    });
+    this.onMessage("remove_bot", (client, id: unknown) => {
+      const host = this.state.tanks.get(client.sessionId);
+      const bot = typeof id === "string" ? this.state.tanks.get(id) : undefined;
+      if (!host || host.controllerType !== "human"
+        || !canManageLobby(this.state.phase, client.sessionId, this.state.hostSessionId)
+        || !bot || bot.controllerType !== "bot") {
+        this.rejectLobbyAction(client, "Only the host can remove a bot while waiting.");
+        return;
+      }
+      this.state.tanks.delete(bot.id);
+      this.state.playerStats.delete(bot.id);
+      this.deferredTanks.delete(bot.id);
+      lobbyRegistry.removeBot(this.lobbyId);
+    });
     this.onMessage("activate_ability", (client, payload: { abilityId?: unknown; targetId?: unknown; targetX?: unknown; targetY?: unknown }) => {
       const tank = this.state.tanks.get(client.sessionId);
       if (payload?.abilityId === "healer-rescue-impulse") {
@@ -146,6 +179,63 @@ export class GameRoom extends Room<GameState> {
         this.activateBarricade(client, tank, payload.targetX, payload.targetY);
         return;
       }
+      this.activateStandardAbility(tank, payload, action =>
+        client.send(INVALID_TARGET_MESSAGE, { action, reason: "invalid_target" }));
+    });
+    this.onMessage("upgrade_ability", (client, payload: { abilityId?: unknown }) => {
+      const tank = this.state.tanks.get(client.sessionId);
+      if (!tank || this.state.phase !== "started" || tank.state === "dead") return;
+      purchaseAbilityUpgrade(tank, payload?.abilityId);
+    });
+    this.onMessage("*", (client, type) => {
+      this.rejectLobbyAction(client, type === "rename_lobby" ? "Game names cannot be changed after creation." : "Unknown action.");
+    });
+    this.onMessage("start_game", (client) => {
+      if (!this.state.tanks.has(client.sessionId)
+        || !canManageLobby(this.state.phase, client.sessionId, this.state.hostSessionId)
+        || !allPlayersReady(this.state.tanks.values())) {
+        this.rejectLobbyAction(client, "Only the host can start while waiting, and every player must be ready.");
+        return;
+      }
+      this.beginCountdown();
+    });
+
+    // Fixed time-step game loop (60 FPS)
+    this.setSimulationInterval((deltaTime) => this.update(deltaTime), 1000 / 60);
+  }
+
+  private issueTankCommand(
+    tank: Tank | undefined, command: { x?: unknown; y?: unknown; targetId?: unknown }, reject: () => void
+  ) {
+    if (!tank || !canUseGameplayActions(this.state.phase) || tank.state === "dead"
+      || this.isTankMovementLocked(tank, Date.now())) return;
+    const targetId = typeof command?.targetId === "string" ? command.targetId : "";
+    if (targetId) {
+      const target = this.findLivingEntity(targetId);
+      if (!target || !this.teamVision(tank.team).canSee(target)) {
+        reject();
+        return;
+      }
+      if (target.team !== tank.team) {
+        tank.lockedTargetId = targetId;
+        tank.hasMoveTarget = false;
+        return;
+      }
+    }
+    const x = typeof command?.x === "number" ? command.x : NaN;
+    const y = typeof command?.y === "number" ? command.y : NaN;
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+    const clamped = clampToBounds({ x, y }, MIN_X + tank.radius, MAX_X - tank.radius, MIN_Y + tank.radius, MAX_Y - tank.radius);
+    tank.moveTargetX = clamped.x;
+    tank.moveTargetY = clamped.y;
+    tank.hasMoveTarget = true;
+    tank.lockedTargetId = "";
+  }
+
+  private activateStandardAbility(
+    tank: Tank | undefined, payload: { abilityId?: unknown; targetId?: unknown },
+    reject: (action: "rocket" | "shockshot") => void
+  ) {
       if (!tank || !canUseGameplayActions(this.state.phase) || tank.state === "dead") return;
       if (!isAbilityId(payload?.abilityId) || !isRole(tank.role)) return;
       const abilityId = payload.abilityId;
@@ -158,7 +248,7 @@ export class GameRoom extends Room<GameState> {
         const target = this.findLivingEntity(payload.targetId);
         if (!target || !this.teamVision(tank.team).canSee(target)
           || !isValidRocketTarget(tank, target, abilityConfig.range ?? 0)) {
-          client.send(INVALID_TARGET_MESSAGE, { action: "rocket", reason: "invalid_target" });
+          reject("rocket");
           return;
         }
         this.spawnHomingRocket(tank, target, homingRocketDamage(tank.fireDamage, ability.level), abilityConfig.projectileSpeed ?? 450);
@@ -169,7 +259,7 @@ export class GameRoom extends Room<GameState> {
         const shockTarget = target instanceof Tank || target instanceof Minion ? target : undefined;
         if (!shockTarget || !this.teamVision(tank.team).canSee(shockTarget)
           || !isValidShockTarget(tank, shockTarget, abilityConfig.range ?? 0)) {
-          client.send(INVALID_TARGET_MESSAGE, { action: "shockshot", reason: "invalid_target" });
+          reject("shockshot");
           return;
         }
         const projectile = new Projectile();
@@ -204,27 +294,6 @@ export class GameRoom extends Room<GameState> {
       if (abilityId === "scout-weitsicht") {
         tank.sightRange = resolveRoleStats(tank.role).sightRange + abilityConfig.magnitude;
       }
-    });
-    this.onMessage("upgrade_ability", (client, payload: { abilityId?: unknown }) => {
-      const tank = this.state.tanks.get(client.sessionId);
-      if (!tank || this.state.phase !== "started" || tank.state === "dead") return;
-      purchaseAbilityUpgrade(tank, payload?.abilityId);
-    });
-    this.onMessage("*", (client, type) => {
-      this.rejectLobbyAction(client, type === "rename_lobby" ? "Game names cannot be changed after creation." : "Unknown action.");
-    });
-    this.onMessage("start_game", (client) => {
-      if (!this.state.tanks.has(client.sessionId)
-        || !canManageLobby(this.state.phase, client.sessionId, this.state.hostSessionId)
-        || !allPlayersReady(this.state.tanks.values())) {
-        this.rejectLobbyAction(client, "Only the host can start while waiting, and every player must be ready.");
-        return;
-      }
-      this.beginCountdown();
-    });
-
-    // Fixed time-step game loop (60 FPS)
-    this.setSimulationInterval((deltaTime) => this.update(deltaTime), 1000 / 60);
   }
 
   private rejectLobbyAction(client: Client, message: string) {
@@ -287,6 +356,11 @@ export class GameRoom extends Room<GameState> {
     }
     const elapsedSeconds = deltaTime / 1000;
     this.updateTemporaryAbilityEffects(now);
+    this.botDecisionTimer -= deltaTime;
+    if (this.botDecisionTimer <= 0) {
+      this.updateBots(now);
+      this.botDecisionTimer = 500;
+    }
 
     // Resolve targeting/firing before movement so units that are engaged
     // with an enemy this tick hold their ground instead of marching through it.
@@ -303,6 +377,17 @@ export class GameRoom extends Room<GameState> {
     if (this.spawnTimer <= 0) {
       this.spawnWave();
       this.spawnTimer = 10000;
+    }
+  }
+
+  private updateBots(now: number) {
+    for (const tank of this.state.tanks.values()) {
+      if (tank.controllerType !== "bot" || !tank.botDifficulty || tank.state === "dead") continue;
+      const decision = decideBot(observeBot(this.state, tank), now);
+      if (decision.upgrade) purchaseAbilityUpgrade(tank, decision.upgrade);
+      if (decision.ability) this.activateStandardAbility(tank, { abilityId: decision.ability },
+        action => console.warn(`[Bot] Rejected ${action} for ${tank.id}`));
+      this.issueTankCommand(tank, decision.command, () => console.warn(`[Bot] Rejected attack for ${tank.id}`));
     }
   }
 
@@ -983,6 +1068,7 @@ export class GameRoom extends Room<GameState> {
     if (!canJoinRoom(this.state.phase)) throw new Error("Game is unavailable: countdown in progress or match ended.");
     console.log(client.sessionId, "joined!");
     lobbyRegistry.join(this.lobbyId);
+    this.connectedHumans.add(client.sessionId);
     if (!this.state.hostSessionId) this.state.hostSessionId = client.sessionId;
     const tank = new Tank();
     tank.id = client.sessionId;
@@ -1003,20 +1089,38 @@ export class GameRoom extends Room<GameState> {
     this.state.playerStats.set(client.sessionId, playerStats);
   }
 
-  onLeave (client: Client, consented: boolean) {
+  async onLeave (client: Client, consented: boolean) {
     this.visibilitySerializer.removeClient(client);
     // A rejected seat reservation never became a participant.
-    if (!this.state.tanks.has(client.sessionId)) return;
+    if (!this.state.tanks.has(client.sessionId) || !this.connectedHumans.delete(client.sessionId)) return;
     this.cancelCountdown();
     console.log(client.sessionId, "left!");
-    removeLeavingPlayerTank(this.state, client.sessionId);
-    this.deferredTanks.delete(client.sessionId);
     this.state.hostSessionId = resolveHostAfterLeave(
       client.sessionId,
       this.state.hostSessionId,
-      this.state.tanks.keys()
+      this.connectedHumans
     );
-    lobbyRegistry.leave(this.lobbyId);
+    if (this.state.phase !== "started") {
+      removeLeavingPlayerTank(this.state, client.sessionId);
+      this.deferredTanks.delete(client.sessionId);
+      lobbyRegistry.leave(this.lobbyId);
+      return;
+    }
+    if (!consented) {
+      try {
+        await this.allowReconnection(client, 30);
+        this.connectedHumans.add(client.sessionId);
+        if (!this.state.hostSessionId) this.state.hostSessionId = client.sessionId;
+        return;
+      } catch (error) {
+        if (error !== false) console.error(`[GameRoom] Reconnection failed for ${client.sessionId}`, error);
+      }
+    }
+    const tank = this.state.tanks.get(client.sessionId);
+    if (!tank || !this.ownsLobby) return;
+    tank.controllerType = "bot";
+    tank.botDifficulty = "medium";
+    lobbyRegistry.transferHumanToBot(this.lobbyId);
   }
 
   onDispose() {

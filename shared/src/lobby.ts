@@ -1,6 +1,12 @@
 export type LobbyStatus = "waiting" | "full" | "countdown";
 export type LobbyTeam = "red" | "blue";
 export type MatchPhase = "waiting" | "countdown" | "started" | "ended";
+export type ControllerType = "human" | "bot";
+export type BotDifficulty = "easy" | "medium" | "hard";
+
+export function isBotDifficulty(value: unknown): value is BotDifficulty {
+  return value === "easy" || value === "medium" || value === "hard";
+}
 
 export const LOBBY_ACTION_ERROR = "lobby_action_error";
 export const LOBBY_NAME_ERROR = "Game name must contain 1 to 48 characters.";

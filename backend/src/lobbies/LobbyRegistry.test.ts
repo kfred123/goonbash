@@ -24,6 +24,24 @@ test("tracks capacity and removes empty lobbies", () => {
   assert.equal(registry.get(lobby.id), undefined);
 });
 
+test("bots occupy seats but do not keep a lobby alive", () => {
+  const registry = new LobbyRegistry();
+  const lobby = registry.create("Mixed", 3);
+  registry.join(lobby.id);
+  registry.addBot(lobby.id);
+  assert.equal(registry.get(lobby.id)?.players, 2);
+  registry.join(lobby.id);
+  assert.equal(registry.get(lobby.id)?.status, "full");
+  assert.throws(() => registry.addBot(lobby.id), /full/);
+  registry.removeBot(lobby.id);
+  assert.equal(registry.get(lobby.id)?.players, 2);
+  registry.addBot(lobby.id);
+  registry.leave(lobby.id);
+  assert.equal(registry.get(lobby.id)?.players, 2);
+  registry.leave(lobby.id);
+  assert.equal(registry.get(lobby.id), undefined);
+});
+
 test("rejects unknown lobbies", () => {
   const registry = new LobbyRegistry();
 

@@ -86,6 +86,8 @@ export function updateClientView(view: GameState, source: GameState, sessionId: 
       destination.team = tank.team;
       destination.role = tank.role;
       destination.ready = tank.ready;
+      destination.controllerType = tank.controllerType;
+      destination.botDifficulty = tank.botDifficulty;
       // Lobby clients need roster metadata, not canonical spawn coordinates.
       if (waiting) return;
       copyCombat(destination, tank);

@@ -4,6 +4,29 @@ import { Base } from "./Base.js";
 import { Barricade } from "./Barricade.js";
 import { GameState } from "./GameState.js";
 import { MatchPlayerStats } from "./MatchPlayerStats.js";
+import { Tank } from "./Tank.js";
+
+test("serializes human defaults and computer-player roster metadata", () => {
+  const state = new GameState();
+  const human = new Tank();
+  const bot = Object.assign(new Tank(), {
+    name: "Bot 1", team: "blue", role: "healer", ready: true,
+    controllerType: "bot" as const, botDifficulty: "hard" as const
+  });
+  state.tanks.set("human", human);
+  state.tanks.set("bot", bot);
+
+  const decoded = new GameState();
+  decoded.decode(state.encodeAll());
+
+  assert.equal(decoded.tanks.get("human")?.controllerType, "human");
+  assert.equal(decoded.tanks.get("human")?.botDifficulty, "");
+  const decodedBot = decoded.tanks.get("bot");
+  assert.deepEqual(
+    [decodedBot?.controllerType, decodedBot?.botDifficulty, decodedBot?.team, decodedBot?.role, decodedBot?.ready],
+    ["bot", "hard", "blue", "healer", true]
+  );
+});
 
 test("serializes match outcome and player statistics for clients", () => {
   const state = new GameState();
