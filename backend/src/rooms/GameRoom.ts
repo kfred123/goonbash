@@ -167,6 +167,21 @@ export class GameRoom extends Room<GameState> {
       this.deferredTanks.delete(bot.id);
       lobbyRegistry.removeBot(this.lobbyId);
     });
+    this.onMessage("change_bot_team", (client, payload: { botId?: unknown; team?: unknown } | null) => {
+      const host = this.state.tanks.get(client.sessionId);
+      const bot = typeof payload?.botId === "string" ? this.state.tanks.get(payload.botId) : undefined;
+      if (!host || host.controllerType !== "human"
+        || !canManageLobby(this.state.phase, client.sessionId, this.state.hostSessionId)
+        || !bot || bot.controllerType !== "bot"
+        || (payload?.team !== "red" && payload?.team !== "blue")) {
+        this.rejectLobbyAction(client, "Only the host can move a valid bot to a valid team while waiting.");
+        return;
+      }
+      const stats = this.state.playerStats.get(bot.id);
+      if (!stats) throw new Error(`Missing match statistics for bot ${bot.id}`);
+      bot.team = payload.team;
+      stats.team = payload.team;
+    });
     this.onMessage("activate_ability", (client, payload: AbilityPayload) => {
       this.useTankAbility(this.state.tanks.get(client.sessionId), payload, error => client.send(INVALID_TARGET_MESSAGE, error));
     });

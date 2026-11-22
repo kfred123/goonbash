@@ -1,7 +1,53 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { GameState, Tank, type MatchPhase } from "shared";
-import { canManageBots, getLobbyControls } from "./lobbyPresentation.js";
+import { BOT_DIFFICULTIES, canManageBots, getBotAddRequest, getBotMoveRequest, getBotRemoveRequest, getLobbyControls, newBotDraft } from "./lobbyPresentation.js";
+
+test("bot drafts target their roster and respect live host and capacity", () => {
+  const state = new GameState();
+  state.hostSessionId = "host";
+  const host = new Tank();
+  host.ready = true;
+  state.tanks.set("host", host);
+  assert.deepEqual(BOT_DIFFICULTIES, ["easy", "medium", "hard"]);
+  for (const team of ["red", "blue"] as const) {
+    const draft = newBotDraft(team);
+    assert.deepEqual(draft, { team, role: "damagedealer", difficulty: "medium" });
+    draft.role = "scout";
+    draft.difficulty = "hard";
+    assert.deepEqual(getBotAddRequest(state, "host", draft), { team, role: "scout", difficulty: "hard" });
+    assert.equal(getBotAddRequest(state, "peer", draft), null);
+    state.phase = "countdown";
+    assert.equal(getBotAddRequest(state, "host", draft), null);
+    state.phase = "waiting";
+  }
+  for (let i = 0; i < 9; i++) state.tanks.set(`bot-${i}`, new Tank());
+  assert.equal(getBotAddRequest(state, "host", newBotDraft("red")), null);
+  state.tanks.delete("bot-0");
+  assert.ok(getBotAddRequest(state, "host", newBotDraft("red")));
+});
+
+test("bot row requests use current membership, authority and opposite team", () => {
+  const state = new GameState();
+  state.hostSessionId = "host";
+  state.tanks.set("host", new Tank());
+  const bot = new Tank();
+  bot.controllerType = "bot";
+  bot.team = "red";
+  state.tanks.set("bot", bot);
+  assert.deepEqual(getBotMoveRequest(state, "host", "bot"), { botId: "bot", team: "blue" });
+  bot.team = "blue";
+  assert.deepEqual(getBotMoveRequest(state, "host", "bot"), { botId: "bot", team: "red" });
+  assert.equal(getBotRemoveRequest(state, "host", "bot"), "bot");
+  assert.equal(getBotMoveRequest(state, "host", "host"), null);
+  assert.equal(getBotRemoveRequest(state, "host", "host"), null);
+  assert.equal(getBotMoveRequest(state, "peer", "bot"), null);
+  state.phase = "countdown";
+  assert.equal(getBotRemoveRequest(state, "host", "bot"), null);
+  state.phase = "waiting";
+  state.tanks.delete("bot");
+  assert.equal(getBotMoveRequest(state, "host", "bot"), null);
+});
 
 test("only a human host can manage bots while waiting", () => {
   const state = new GameState();
