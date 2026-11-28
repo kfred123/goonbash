@@ -87,6 +87,56 @@ test("bot seats affect team assignment and never receive host authority", t => {
   assert.equal(lobbyRegistry.get(lobby.id), undefined);
 });
 
+test("host can move a bot without replacing it or changing occupied seats", t => {
+  const { room, clients, client, lobby, send, readyAll, advance } = setup(t, 1);
+  send(0, "add_bot", { team: "red", role: "healer", difficulty: "hard" });
+  const bot = [...room.state.tanks.values()].find(tank => tank.controllerType === "bot")!;
+  const original = [bot.id, bot.name, bot.role, bot.botDifficulty, bot.ready];
+  const stats = room.state.playerStats.get(bot.id)!;
+  readyAll();
+  for (const team of ["blue", "blue", "red", "blue"]) {
+    send(0, "change_bot_team", { botId: bot.id, team });
+    assert.equal(bot.team, team);
+    assert.equal(stats.team, team);
+    assert.equal(room.state.tanks.get(bot.id), bot);
+    assert.deepEqual([bot.id, bot.name, bot.role, bot.botDifficulty, bot.ready], original);
+    assert.equal(lobbyRegistry.get(lobby.id)?.players, 2);
+    assert.equal(room["connectedHumans"].size, 1);
+  }
+  const peer = client("late");
+  room.onJoin(peer, {});
+  assert.equal(room.state.tanks.get(peer.id)?.team, "red");
+  room["onMessageHandlers"]["set_ready"](peer, true);
+  send(0, "start_game");
+  for (let i = 0; i < 5; i++) advance(1000);
+  assert.equal(room.state.phase, "started");
+  assert.equal(bot.team, "blue");
+  assert.ok(bot.x < 1200, `blue bot should spawn near blue base, got x=${bot.x}`);
+  room.onLeave(peer, true);
+});
+
+test("bot team changes reject unauthorized, malformed, missing and late requests", async t => {
+  const { room, clients, messages, send } = setup(t);
+  send(0, "add_bot", { team: "red", role: "tank", difficulty: "easy" });
+  const bot = [...room.state.tanks.values()].find(tank => tank.controllerType === "bot")!;
+  const invalid: unknown[] = [null, {}, { botId: 1, team: "blue" }, { botId: "missing", team: "blue" },
+    { botId: clients[1].id, team: "blue" }, { botId: bot.id, team: "green" }];
+  for (const payload of invalid) send(0, "change_bot_team", payload);
+  send(1, "change_bot_team", { botId: bot.id, team: "blue" });
+  for (const phase of ["countdown", "started", "ended"] satisfies MatchPhase[]) {
+    room.state.phase = phase;
+    send(0, "change_bot_team", { botId: bot.id, team: "blue" });
+  }
+  room.state.phase = "waiting";
+  await room.onLeave(clients[0], true);
+  send(0, "change_bot_team", { botId: bot.id, team: "blue" });
+  assert.equal(bot.team, "red");
+  assert.equal(room.state.playerStats.get(bot.id)?.team, "red");
+  assert.equal(messages.filter(message => message.type === LOBBY_ACTION_ERROR).length, invalid.length + 5);
+  send(1, "change_bot_team", { botId: bot.id, team: "blue" });
+  assert.equal(bot.team, "blue");
+});
+
 test("bots use validated commands and role abilities during the room simulation", t => {
   const { room, clients, send } = setup(t, 1);
   send(0, "add_bot", { team: "blue", role: "tank", difficulty: "medium" });

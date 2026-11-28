@@ -26,8 +26,9 @@ import {
   isRole
 } from 'shared';
 import { isPreMatch, LOBBY_ACTION_ERROR, LOBBY_NAME_ERROR, normalizeLobbyName } from 'shared';
-import { canManageBots, getLobbyControls } from './lobbyPresentation.js';
-import type { AbilityId, AbilityActivationRequest, Barricade, Base, BotDifficulty, Minion, Tank, Tower, VisionEntity, InvalidTargetMessage, MortarImpactMessage, Projectile } from 'shared';
+import { BOT_DIFFICULTIES, LOBBY_CAPACITY, canManageBots, getBotAddRequest, getBotMoveRequest, getBotRemoveRequest, getLobbyControls, newBotDraft } from './lobbyPresentation.js';
+import type { BotDraft } from './lobbyPresentation.js';
+import type { AbilityId, AbilityActivationRequest, Barricade, Base, LobbyTeam, Minion, Tank, Tower, VisionEntity, InvalidTargetMessage, MortarImpactMessage, Projectile } from 'shared';
 import { MORTAR_IMPACT_MESSAGE, mortarPointRejection } from 'shared';
 import { FogPresentation } from './FogPresentation.js';
 import { isEntityPresented, isProjectilePresented, WORLD_FOG_DEPTH } from './visionPresentation.js';
@@ -98,9 +99,8 @@ export class GameScene extends Phaser.Scene {
   private menuRevision = 0;
   private lobbyRenderKey = '';
   private lobbyError = '';
-  private botSetup = false;
-  private botRole: Role = 'tank';
-  private botDifficulty: BotDifficulty = 'medium';
+  private botDraft: BotDraft | null = null;
+  private rosterOffsets: Record<LobbyTeam, number> = { red: 0, blue: 0 };
   private playerName = '';
   private leavingRoom = false;
   private reconnecting = false;
@@ -219,12 +219,18 @@ export class GameScene extends Phaser.Scene {
     });
     this.input.mouse?.disableContextMenu();
     this.input.keyboard?.on('keydown-ESC', (event: KeyboardEvent) => {
+      if (this.botDraft && this.room) {
+        this.botDraft = null;
+        this.showWaitingLobby(this.room.state);
+        return;
+      }
       if (shouldCancelRocketTargetSelection(-1, event.key)) this.cancelRocketTargetSelection();
     });
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       this.arenaStarted = false;
       this.leavingRoom = true;
       this.reconnecting = false;
+      this.botDraft = null;
       this.reconnectController?.abort();
       this.reconnectController = undefined;
       this.room?.removeAllListeners();
@@ -263,6 +269,16 @@ export class GameScene extends Phaser.Scene {
   }
 
   private readonly handleCanvasWheel = (event: WheelEvent) => {
+    if (!this.isMatchActive() && this.room && isPreMatch(this.room.state.phase) && !this.botDraft && event.deltaY !== 0) {
+      const x = 400 + (this.scale.transformX(event.pageX) - this.scale.width / 2) / this.viewportScale();
+      const y = 300 + (this.scale.transformY(event.pageY) - this.scale.height / 2) / this.viewportScale();
+      const team = x >= 45 && x <= 395 ? 'red' : x >= 405 && x <= 755 ? 'blue' : null;
+      if (team && y >= 160 && y <= 290) {
+        this.scrollRoster(team, event.deltaY > 0 ? 1 : -1);
+        event.preventDefault();
+      }
+      return;
+    }
     if (!this.isMatchActive() || event.ctrlKey || event.deltaY === 0) return;
     const point = { x: this.scale.transformX(event.pageX), y: this.scale.transformY(event.pageY) };
     if (!this.isZoomablePoint(point)) return;
@@ -410,6 +426,8 @@ export class GameScene extends Phaser.Scene {
     }
     this.arenaStarted = false;
     this.resultsShown = false;
+    this.botDraft = null;
+    this.rosterOffsets = { red: 0, blue: 0 };
     this.resultPages = { red: 0, blue: 0 };
     this.clearArenaPresentation();
     this.room = undefined as unknown as Room<GameState>;
@@ -627,6 +645,7 @@ export class GameScene extends Phaser.Scene {
         this.showWaitingLobby(state);
         return;
       }
+      this.botDraft = null;
       if (state.phase === 'ended') {
         this.showMatchResults(state);
         return;
@@ -961,14 +980,15 @@ export class GameScene extends Phaser.Scene {
 
   private showWaitingLobby(state: GameState) {
     if (this.arenaStarted || !this.room) return;
-    if (this.botSetup && canManageBots(state, this.room.sessionId)) {
-      this.showBotSetup(state);
-      return;
+    if (!canManageBots(state, this.room.sessionId)) this.botDraft = null;
+    for (const team of ['red', 'blue'] as const) {
+      const count = [...state.tanks.values()].filter(tank => tank.team === team).length;
+      this.rosterOffsets[team] = Phaser.Math.Clamp(this.rosterOffsets[team], 0, Math.max(0, count - 3));
     }
-    this.botSetup = false;
     const renderKey = JSON.stringify([
       state.lobbyName, state.phase, state.hostSessionId, state.countdownSeconds, state.countdownCancelReason,
-      this.lobbyError, [...state.tanks].map(([id, tank]) => [id, tank.name, tank.team, tank.role, tank.ready, tank.controllerType, tank.botDifficulty])
+      this.lobbyError, this.botDraft, this.rosterOffsets,
+      [...state.tanks].map(([id, tank]) => [id, tank.name, tank.team, tank.role, tank.ready, tank.controllerType, tank.botDifficulty])
     ]);
     if (this.lobbyRenderKey === renderKey) return;
     this.resetCamera();
@@ -989,14 +1009,15 @@ export class GameScene extends Phaser.Scene {
       this.menuElements.push(panel);
       this.addMenuText(x, 146, `TEAM ${team.toUpperCase()}  (${players.length})`, 18, team === 'red' ? '#ff9999' : '#99bbff', true);
       if (players.length === 0) this.addMenuText(x, 220, 'No players yet', 14, '#8899aa');
-      players.forEach(([id, tank], index) => {
-        const y = 177 + index * 18;
+      const offset = this.rosterOffsets[team];
+      players.slice(offset, offset + 3).forEach(([id, tank], index) => {
+        const y = 174 + index * 43;
         const name = `${tank.name}${tank.controllerType === 'bot' ? ` [${tank.botDifficulty}]` : id === this.room.sessionId ? ' (You)' : ''}`;
         const nameText = this.addMenuText(x - 158, y, name, 12, '#e0e7ef').setOrigin(0, 0.5);
-        this.fitMenuText(nameText, name, 160);
+        this.fitMenuText(nameText, name, 170);
         const role = this.resolveRoleVisual(tank.role).label;
-        this.addMenuText(x + 48, y, role, 10, '#b4c6da');
-        this.addMenuText(x + 128, y, tank.ready ? 'Bereit' : 'Wartet', 10, tank.ready ? '#44ff88' : '#8899aa');
+        this.addMenuText(x + 46, y, role, 10, '#b4c6da');
+        this.addMenuText(x + 125, y, tank.ready ? 'Bereit' : 'Wartet', 10, tank.ready ? '#44ff88' : '#8899aa');
         if (tank.ready) {
           const check = this.add.graphics({ x: this.viewportX(x + 94), y: this.viewportY(y) })
             .lineStyle(2, 0x44ff88).beginPath().moveTo(-5, 0).lineTo(-1, 4).lineTo(6, -5).strokePath()
@@ -1004,16 +1025,32 @@ export class GameScene extends Phaser.Scene {
           this.menuElements.push(check);
         }
         if (tank.controllerType === 'bot' && canManageBots(state, this.room.sessionId)) {
-          const remove = this.addMenuText(x + 156, y, 'X', 12, '#ffaaaa', true).setInteractive({ useHandCursor: true });
-          remove.on('pointerdown', () => this.room.send('remove_bot', id));
+          this.addButton(x - 75, y + 17, 136, 20, 'Team wechseln', () => {
+            const request = getBotMoveRequest(this.room.state, this.room.sessionId, id);
+            if (!request || this.botDraft) return;
+            this.lobbyError = '';
+            this.room.send('change_bot_team', request);
+          }, true, 11);
+          this.addButton(x + 72, y + 17, 110, 20, 'Entfernen', () => {
+            const request = getBotRemoveRequest(this.room.state, this.room.sessionId, id);
+            if (!request || this.botDraft) return;
+            this.lobbyError = '';
+            this.room.send('remove_bot', request);
+          }, true, 11);
         }
       });
-    }
-    if (canManageBots(state, this.room.sessionId)) {
-      this.addButton(72, 30, 120, 34, 'ADD BOT', () => {
-        this.botSetup = true;
-        this.showBotSetup(state);
-      }, state.tanks.size < 10);
+      if (players.length > 3) {
+        this.addButton(x - 116, 299, 64, 22, 'UP', () => this.scrollRoster(team, -1), offset > 0, 11);
+        this.addMenuText(x, 299, `${offset + 1}-${Math.min(offset + 3, players.length)} / ${players.length}`, 11, '#c8d4e2');
+        this.addButton(x + 116, 299, 64, 22, 'DOWN', () => this.scrollRoster(team, 1), offset + 3 < players.length, 11);
+      }
+      if (canManageBots(state, this.room.sessionId)) {
+        this.addButton(x, 326, 140, 25, 'Hinzufuegen', () => {
+          if (!canManageBots(this.room.state, this.room.sessionId) || this.room.state.tanks.size >= LOBBY_CAPACITY) return;
+          this.botDraft = newBotDraft(team);
+          this.showWaitingLobby(this.room.state);
+        }, state.tanks.size < LOBBY_CAPACITY, 12);
+      }
     }
     const sendChoice = (type: string, value: string) => {
       if (getLobbyControls(state, this.room.sessionId).canChoose) {
@@ -1051,46 +1088,57 @@ export class GameScene extends Phaser.Scene {
     }
     const message = this.lobbyError || (countdown ? 'All choices locked. Leaving cancels the countdown.'
       : state.countdownCancelReason === 'player_left' ? 'Countdown cancelled: a player left. The host must start again.'
+      : canManageBots(state, this.room.sessionId) && state.tanks.size >= LOBBY_CAPACITY ? 'Lobby is full. Remove a participant to add a bot.'
       : controls.canStart ? 'Everyone is ready. The host can start the countdown.' : 'Waiting for every player, including the host, to be ready.');
     const hint = this.addMenuText(400, 583, message, 13, this.lobbyError ? '#ffaaaa' : '#c8c8d8');
     this.fitMenuText(hint, message, 760);
+    if (this.botDraft) this.showBotPopup(state, this.botDraft);
   }
 
-  private showBotSetup(state: GameState) {
-    if (!canManageBots(state, this.room.sessionId)) {
-      this.botSetup = false;
-      this.showWaitingLobby(state);
-      return;
-    }
-    this.destroyMenuElements();
-    this.addMenuText(400, 90, 'ADD COMPUTER PLAYER', 25, '#ffffff', true);
-    this.addMenuText(400, 155, 'CHOOSE ROLE', 16, '#aaaaff', true);
-    ROLE_ORDER.forEach((role, index) => {
-      this.addRoleCard(175 + index * 150, 230, role, this.botRole === role, 0x4d8dff, () => {
-        this.botRole = role;
-        this.showBotSetup(state);
-      }, true);
-    });
-    this.addMenuText(400, 310, 'CHOOSE DIFFICULTY', 16, '#aaaaff', true);
-    (['easy', 'medium', 'hard'] as const).forEach((difficulty, index) => {
-      this.addButton(240 + index * 160, 360, 140, 38,
-        `${this.botDifficulty === difficulty ? '* ' : ''}${difficulty.toUpperCase()}`, () => {
-          this.botDifficulty = difficulty;
-          this.showBotSetup(state);
-        });
-    });
-    for (const [team, x] of [['red', 260], ['blue', 540]] as const) {
-      this.addButton(x, 445, 220, 42, `ADD TO ${team.toUpperCase()}`, () => {
-        if (!canManageBots(this.room.state, this.room.sessionId)) return;
-        this.room.send('add_bot', { team, role: this.botRole, difficulty: this.botDifficulty });
-        this.botSetup = false;
+  private scrollRoster(team: LobbyTeam, delta: number) {
+    if (!this.room || this.botDraft) return;
+    const count = [...this.room.state.tanks.values()].filter(tank => tank.team === team).length;
+    this.rosterOffsets[team] = Phaser.Math.Clamp(this.rosterOffsets[team] + delta, 0, Math.max(0, count - 3));
+    this.showWaitingLobby(this.room.state);
+  }
+
+  private showBotPopup(state: GameState, draft: BotDraft) {
+    const backdrop = this.add.rectangle(this.viewportX(400), this.viewportY(300), 800, 600, 0x000000, 0.65)
+      .setScale(this.viewportScale()).setDepth(3010).setInteractive();
+    const panel = this.add.rectangle(this.viewportX(400), this.viewportY(300), 520, 274, 0x182737)
+      .setStrokeStyle(2, 0x6ab5a5).setScale(this.viewportScale()).setDepth(3011).setInteractive();
+    this.menuElements.push(backdrop, panel);
+    this.addMenuText(400, 191, `COMPUTER PLAYER - TEAM ${draft.team.toUpperCase()}`, 18, '#ffffff', true).setDepth(3012);
+    this.addMenuText(400, 222, 'DIFFICULTY', 13, '#aaaaff', true).setDepth(3012);
+    BOT_DIFFICULTIES.forEach((difficulty, index) => {
+      this.addButton(280 + index * 120, 250, 110, 28, `${draft.difficulty === difficulty ? '* ' : ''}${difficulty.toUpperCase()}`, () => {
+        if (!this.botDraft) return;
+        this.botDraft.difficulty = difficulty;
         this.showWaitingLobby(this.room.state);
-      }, state.tanks.size < 10);
-    }
-    this.addButton(400, 520, 160, 38, 'BACK', () => {
-      this.botSetup = false;
-      this.showWaitingLobby(state);
+      }, true, 12, 3012);
     });
+    this.addMenuText(400, 284, 'ROLE', 13, '#aaaaff', true).setDepth(3012);
+    ROLE_ORDER.forEach((role, index) => {
+      this.addButton(220 + index * 120, 312, 115, 28, `${draft.role === role ? '* ' : ''}${ROLE_VISUALS[role].label}`, () => {
+        if (!this.botDraft) return;
+        this.botDraft.role = role;
+        this.showWaitingLobby(this.room.state);
+      }, true, 11, 3012);
+    });
+    if (state.tanks.size >= LOBBY_CAPACITY) this.addMenuText(400, 342, 'Lobby is full', 12, '#ffaaaa').setDepth(3012);
+    this.addButton(310, 385, 150, 32, 'Abbrechen', () => {
+      this.botDraft = null;
+      this.showWaitingLobby(this.room.state);
+    }, true, 13, 3012);
+    this.addButton(490, 385, 150, 32, 'Hinzufuegen', () => {
+      if (!this.botDraft) return;
+      const request = getBotAddRequest(this.room.state, this.room.sessionId, this.botDraft);
+      if (!request) return;
+      this.lobbyError = '';
+      this.room.send('add_bot', request);
+      this.botDraft = null;
+      this.showWaitingLobby(this.room.state);
+    }, !!getBotAddRequest(state, this.room.sessionId, draft), 13, 3012);
   }
 
   private fitMenuText(text: Phaser.GameObjects.Text, value: string, width: number) {
@@ -1108,11 +1156,11 @@ export class GameScene extends Phaser.Scene {
     return element;
   }
 
-  private addButton(x: number, y: number, width: number, height: number, label: string, action: () => void, enabled = true) {
+  private addButton(x: number, y: number, width: number, height: number, label: string, action: () => void, enabled = true, fontSize = 15, depth = 3001) {
     x = this.viewportX(x);
     y = this.viewportY(y);
-    const button = this.add.rectangle(x, y, width, height, enabled ? 0x245c52 : 0x303b48).setDepth(3001).setScale(this.viewportScale());
-    const text = this.add.text(x, y, label, { color: enabled ? '#ffffff' : '#8a99aa', fontSize: '15px', fontStyle: 'bold' }).setOrigin(0.5).setDepth(3002).setScale(this.viewportScale());
+    const button = this.add.rectangle(x, y, width, height, enabled ? 0x245c52 : 0x303b48).setDepth(depth).setScale(this.viewportScale());
+    const text = this.add.text(x, y, label, { color: enabled ? '#ffffff' : '#8a99aa', fontSize: `${fontSize}px`, fontStyle: 'bold' }).setOrigin(0.5).setDepth(depth + 1).setScale(this.viewportScale());
     if (enabled) {
       button.setInteractive({ useHandCursor: true });
       button.on('pointerover', () => button.setFillStyle(0x347d6c));

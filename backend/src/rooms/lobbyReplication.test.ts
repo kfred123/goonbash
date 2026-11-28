@@ -33,6 +33,7 @@ test("live named lobbies synchronize readiness, full countdown, rejected joins a
     await Promise.all([...connections].map(room => room.leave()));
     await server.gracefullyShutdown(false);
   });
+
   await server.listen(0, "127.0.0.1");
   const address = http.address();
   assert.ok(address && typeof address !== "string");
@@ -65,6 +66,45 @@ test("live named lobbies synchronize readiness, full countdown, rejected joins a
     await until(() => [host, peer].every(room => [...room.state.tanks.values()].every(tank => tank.ready)), "ready on both clients");
   };
   const listings = async () => (await (await fetch(`${baseUrl}/lobbies`)).json() as { lobbies: LobbyInfo[] }).lobbies;
+
+  {
+    const { lobby, host, peer, canonical } = await create();
+    host.send("add_bot", { team: "red", role: "healer", difficulty: "easy" });
+    host.send("add_bot", { team: "blue", role: "scout", difficulty: "hard" });
+    await until(() => [host, peer].every(room => room.state.tanks.size === 4), "bots visible to both clients");
+    const bots = [...host.state.tanks.values()].filter(tank => tank.controllerType === "bot");
+    const healer = bots.find(bot => bot.role === "healer")!;
+    const scout = bots.find(bot => bot.role === "scout")!;
+    assert.ok(healer && scout);
+    const errors: string[] = [];
+    peer.onMessage(LOBBY_ACTION_ERROR, error => errors.push(error.message));
+    peer.send("change_bot_team", { botId: healer.id, team: "blue" });
+    await until(() => errors.length === 1, "peer bot move rejected");
+    host.send("change_bot_team", { botId: healer.id, team: "blue" });
+    host.send("change_bot_team", { botId: scout.id, team: "red" });
+    await until(() => [host, peer].every(room =>
+      room.state.tanks.get(healer.id)?.team === "blue" && room.state.tanks.get(scout.id)?.team === "red"),
+    "bot moves visible to both clients");
+    for (const room of [host, peer]) {
+      assert.deepEqual([room.state.tanks.get(healer.id)?.role, room.state.tanks.get(healer.id)?.botDifficulty,
+        room.state.tanks.get(scout.id)?.role, room.state.tanks.get(scout.id)?.botDifficulty], ["healer", "easy", "scout", "hard"]);
+    }
+    for (let i = 0; i < 6; i++) host.send("add_bot", { team: "red", role: "tank", difficulty: "medium" });
+    await until(() => [host, peer].every(room => room.state.tanks.size === 10), "full roster");
+    assert.equal(lobbyRegistry.get(lobby.id)?.status, "full");
+    host.send("remove_bot", scout.id);
+    await until(() => [host, peer].every(room => room.state.tanks.size === 9 && !room.state.tanks.has(scout.id)), "removal replicated");
+    assert.equal(lobbyRegistry.get(lobby.id)?.players, 9);
+    await ready(host, peer);
+    host.send("start_game");
+    await until(() => [host, peer].every(room => room.state.phase === "started"), "bot match started");
+    assert.equal(canonical.state.tanks.get(healer.id)?.team, "blue");
+    assert.equal(canonical.state.playerStats.get(healer.id)?.team, "blue");
+    assert.ok(canonical.state.tanks.get(healer.id)!.x < 1200);
+    await leave(peer);
+    await leave(host);
+    await until(() => !lobbyRegistry.get(lobby.id), "bot match lobby removed");
+  }
 
   {
     const { lobby, host, peer, canonical } = await create();
